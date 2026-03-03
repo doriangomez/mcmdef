@@ -12,9 +12,10 @@
   --mcm-warning: #F59E0B;
   --mcm-border: #D8E0EC;
   --mcm-muted: #6B7280;
-  --shadow-soft: 0 6px 18px rgba(16, 24, 40, 0.08);
-  --radius-md: 12px;
-  --radius-sm: 10px;
+  --shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.08);
+  --shadow-xs: 0 4px 14px rgba(15, 23, 42, 0.06);
+  --radius-md: 16px;
+  --radius-sm: 16px;
 }
 
 * {
@@ -47,22 +48,25 @@ a:hover {
   color: #E6EEFF;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 40;
-  padding: 18px 14px;
+  padding: 18px 14px 14px;
   overflow-y: auto;
 }
 
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 8px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  margin-bottom: 14px;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(195, 217, 255, 0.25);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
+  border-radius: 16px;
+  margin-bottom: 18px;
 }
 
 .sidebar-logo {
-  width: 38px;
-  height: 38px;
+  width: 54px;
+  height: 54px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25));
 }
 
 .sidebar-brand-title {
@@ -74,11 +78,31 @@ a:hover {
 .sidebar-brand-subtitle {
   font-size: 12px;
   color: #C4D5F2;
+  margin-top: 3px;
 }
 
 .sidebar-nav {
   display: grid;
-  gap: 6px;
+  gap: 12px;
+}
+
+.sidebar-section {
+  border-top: 1px solid rgba(201, 217, 247, 0.18);
+  padding-top: 10px;
+}
+
+.sidebar-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sidebar-section-label {
+  margin: 0 8px 8px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 10px;
+  color: #A8C0E8;
+  font-weight: 700;
 }
 
 .sidebar-link {
@@ -86,7 +110,7 @@ a:hover {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 16px;
   color: #DCE8FF;
   font-weight: 500;
   transition: all .2s ease;
@@ -105,7 +129,7 @@ a:hover {
 .sidebar-link.active {
   background: linear-gradient(90deg, var(--mcm-blue) 0%, #2D6DC2 100%);
   color: #fff;
-  box-shadow: 0 6px 14px rgba(30, 90, 168, 0.38);
+  box-shadow: 0 10px 18px rgba(30, 90, 168, 0.36);
 }
 
 .sidebar-link.logout-link {
@@ -130,8 +154,8 @@ a:hover {
   top: 0;
   z-index: 20;
   background: var(--mcm-white);
-  border-bottom: 1px solid var(--mcm-border);
-  padding: 14px 22px;
+  border-bottom: 1px solid #E5ECF7;
+  padding: 16px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -149,6 +173,15 @@ a:hover {
   color: #0F172A;
 }
 
+.topbar-greeting {
+  margin: 0 0 4px;
+  color: #1D4F91;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
 .topbar-subtitle {
   margin: 4px 0 0;
   color: var(--mcm-muted);
@@ -156,14 +189,28 @@ a:hover {
 }
 
 .topbar-user {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.user-menu-trigger {
+  border: 1px solid #D4DEEC;
+  background: #fff;
+  border-radius: 16px;
+  padding: 6px 10px 6px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #0F172A;
+  box-shadow: var(--shadow-xs);
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--mcm-blue), #2E79D3);
   color: #fff;
@@ -191,7 +238,7 @@ a:hover {
 .icon-button {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: 16px;
   border: 1px solid var(--mcm-border);
   background: #fff;
   color: var(--mcm-dark);
@@ -200,8 +247,53 @@ a:hover {
   justify-content: center;
 }
 
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  border-radius: 16px;
+  border: 1px solid #D5DEEC;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
+  padding: 12px;
+  display: none;
+}
+
+.user-menu-dropdown.show {
+  display: block;
+}
+
+.user-menu-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-menu-subtitle {
+  margin: 3px 0 10px;
+  color: var(--mcm-muted);
+  font-size: 12px;
+}
+
+.user-menu-item {
+  border-radius: 12px;
+  border: 1px solid #E4EBF5;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1E293B;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-menu-item:hover {
+  background: #F1F6FF;
+}
+
 .app-content {
-  padding: 22px;
+  padding: 28px;
 }
 
 .app-footer {
@@ -229,8 +321,8 @@ a:hover {
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 18px;
+  margin-bottom: 20px;
 }
 
 .kpi-card {
@@ -238,7 +330,7 @@ a:hover {
   border-radius: var(--radius-md);
   border: 1px solid var(--mcm-border);
   box-shadow: var(--shadow-soft);
-  padding: 16px;
+  padding: 20px;
 }
 
 .kpi-label {
@@ -266,8 +358,8 @@ a:hover {
   background: var(--mcm-white);
   border: 1px solid var(--mcm-border);
   border-radius: var(--radius-md);
-  padding: 16px;
-  margin-bottom: 16px;
+  padding: 22px;
+  margin-bottom: 20px;
   box-shadow: var(--shadow-soft);
 }
 
@@ -276,7 +368,7 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .card-header h3 {
@@ -288,12 +380,15 @@ a:hover {
   width: 100%;
   border-collapse: collapse;
   background: var(--mcm-white);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
 }
 
 .table th,
 .table td {
-  border-bottom: 1px solid #E8EEF6;
-  padding: 11px 10px;
+  border-bottom: 1px solid #E9EFF8;
+  padding: 13px 12px;
   text-align: left;
   font-size: 13px;
   vertical-align: top;
@@ -302,7 +397,7 @@ a:hover {
 .table th {
   color: #445068;
   font-weight: 600;
-  background: #F8FAFD;
+  background: #F5F8FE;
 }
 
 .table tbody tr:nth-child(odd) td {
@@ -310,7 +405,7 @@ a:hover {
 }
 
 .table tbody tr:hover td {
-  background: #F2F7FF;
+  background: #EDF4FF;
 }
 
 .table th a {
@@ -322,39 +417,45 @@ a:hover {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 5px 10px;
   font-size: 12px;
   font-weight: 600;
+  border: 1px solid transparent;
 }
 
 .badge-default {
   background: #E2E8F0;
   color: #334155;
+  border-color: #CBD5E1;
 }
 
 .badge-success {
   background: rgba(34, 197, 94, 0.16);
   color: #15803D;
+  border-color: rgba(21, 128, 61, 0.22);
 }
 
 .badge-warning {
   background: rgba(245, 158, 11, 0.18);
   color: #B45309;
+  border-color: rgba(180, 83, 9, 0.24);
 }
 
 .badge-danger {
   background: rgba(239, 68, 68, 0.16);
   color: #B91C1C;
+  border-color: rgba(185, 28, 28, 0.22);
 }
 
 .badge-info {
   background: rgba(30, 90, 168, 0.16);
   color: var(--mcm-blue);
+  border-color: rgba(30, 90, 168, 0.24);
 }
 
 .btn {
   border: none;
-  border-radius: 10px;
+  border-radius: 16px;
   padding: 9px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -416,7 +517,7 @@ input,
 select,
 textarea {
   border: 1px solid #C8D3E1;
-  border-radius: 10px;
+  border-radius: 16px;
   padding: 9px 10px;
   font-size: 13px;
   min-height: 38px;
@@ -435,7 +536,7 @@ textarea {
 }
 
 .alert {
-  border-radius: 10px;
+  border-radius: 16px;
   padding: 10px 12px;
   margin-bottom: 12px;
   font-size: 13px;
@@ -719,7 +820,7 @@ textarea {
 .kpi-premium-card {
   background: #fff;
   border: 1px solid var(--mcm-border);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--shadow-soft);
   padding: 14px;
   min-height: 132px;
@@ -730,7 +831,7 @@ textarea {
 
 .kpi-premium-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.13);
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.15);
   border-color: #BFD1EA;
 }
 
@@ -751,7 +852,7 @@ textarea {
 .kpi-premium-icon {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -848,7 +949,7 @@ textarea {
   display: none;
   position: absolute;
   inset: 0;
-  border-radius: 10px;
+  border-radius: 16px;
   border: 1px solid #DCE6F3;
   background: linear-gradient(90deg, #EEF3FB 25%, #F7FAFF 37%, #EEF3FB 63%);
   background-size: 400% 100%;
@@ -997,7 +1098,7 @@ textarea {
 
 @media (max-width: 768px) {
   .app-content {
-    padding: 14px;
+    padding: 16px;
   }
 
   .kpi-grid {
