@@ -57,14 +57,14 @@ ob_start(); ?>
       <td><?= htmlspecialchars((string)$document['periodo']) ?></td>
       <td><?= htmlspecialchars($document['estado_documento']) ?></td>
       <td>#<?= (int)$document['id_carga_origen'] ?></td>
-      <td><a href="/cartera/documento.php?id_documento=<?= (int)$document['id'] ?>">Ver</a></td>
+      <td><a href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$document['id'])) ?>">Ver</a></td>
     </tr>
   <?php endforeach; ?>
 </table>
 
 <h3>Gestiones</h3>
 <?php if ($canManage): ?>
-  <a class="btn" href="/gestion/nueva.php?cliente_id=<?= $id ?>">Nueva gestión</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php?cliente_id=' . $id)) ?>">Nueva gestión</a>
 <?php endif; ?>
 <table class="table">
   <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado</th><th>Anulada</th><th>Usuario</th></tr>

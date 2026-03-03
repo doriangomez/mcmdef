@@ -41,9 +41,9 @@ ob_start(); ?>
 </div>
 
 <?php if ($canManage && $document): ?>
-  <a class="btn" href="/gestion/nueva.php?documento_id=<?= $id ?>&cliente_id=<?= (int)$document['cliente_id'] ?>">Registrar gestión</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php?documento_id=' . $id . '&cliente_id=' . (int)$document['cliente_id'])) ?>">Registrar gestión</a>
 <?php endif; ?>
-<a class="btn btn-muted" href="/cartera/cliente.php?id_cliente=<?= (int)($document['cliente_id'] ?? 0) ?>">Volver al cliente</a>
+<a class="btn btn-muted" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)($document['cliente_id'] ?? 0))) ?>">Volver al cliente</a>
 
 <table class="table">
   <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado compromiso</th><th>Anulada</th><th>Usuario</th></tr>

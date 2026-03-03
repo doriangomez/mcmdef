@@ -31,12 +31,12 @@ ob_start();
 </div>
 <div class="card">
   <?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?>
-    <a class="btn" href="/cargas/nueva.php">Cargar Cartera</a>
-    <a class="btn btn-muted" href="/cargas/historial.php">Historial de Cargas</a>
-    <a class="btn btn-muted" href="/gestion/lista.php">Gestión</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>">Cargar Cartera</a>
+    <a class="btn btn-muted" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Historial de Cargas</a>
+    <a class="btn btn-muted" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Gestión</a>
   <?php endif; ?>
-  <a class="btn" href="/cartera/lista.php">Consultar</a>
-  <a class="btn" href="/reportes/index.php">Reportes</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Consultar</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('reportes/index.php')) ?>">Reportes</a>
 </div>
 <?php
 $content = ob_get_clean();

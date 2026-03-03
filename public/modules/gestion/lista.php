@@ -93,8 +93,8 @@ ob_start(); ?>
       <option value="1" <?= $anulada === '1' ? 'selected' : '' ?>>Sí</option>
     </select>
     <button class="btn">Filtrar</button>
-    <a class="btn btn-muted" href="/gestion/lista.php">Limpiar</a>
-    <a class="btn" href="/gestion/nueva.php">Nueva gestión</a>
+    <a class="btn btn-muted" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Limpiar</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php')) ?>">Nueva gestión</a>
   </div>
 </form>
 

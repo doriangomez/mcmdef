@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../config/app.php';
+
 function render_layout(string $title, string $content): void
 {
     ?>
@@ -8,8 +10,8 @@ function render_layout(string $title, string $content): void
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title><?= htmlspecialchars($title) ?> - MCM Cartera</title>
-      <link rel="icon" type="image/svg+xml" href="/assets/img/logo-mcm.svg">
-      <link rel="stylesheet" href="/assets/css/app.css">
+      <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>">
+      <link rel="stylesheet" href="<?= htmlspecialchars(app_url('assets/css/app.css')) ?>">
     </head>
     <body>
       <?php include __DIR__ . '/navbar.php'; ?>

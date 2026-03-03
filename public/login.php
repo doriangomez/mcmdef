@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/../app/config/db.php';
 require_once __DIR__ . '/../app/config/auth.php';
+require_once __DIR__ . '/../app/config/app.php';
 
 if (is_logged_in()) {
-    header('Location: /index.php');
-    exit;
+    redirect_to('index.php');
 }
 
 $error = '';
@@ -21,8 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Usuario inactivo.';
     } else {
         $_SESSION['user'] = ['id' => (int)$user['id'], 'nombre' => $user['nombre'], 'email' => $user['email'], 'rol' => $user['rol']];
-        header('Location: /index.php');
-        exit;
+        redirect_to('index.php');
     }
 }
 ?>
@@ -32,12 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login MCM</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/img/logo-mcm.svg">
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(app_url('assets/css/app.css')) ?>">
 </head>
 <body>
 <div class="login-wrap">
-    <img src="/assets/img/logo-mcm.svg" alt="MCM" class="logo">
+    <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="logo">
     <h2>Ingreso al sistema</h2>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
     <form method="post">

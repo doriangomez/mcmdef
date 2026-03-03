@@ -15,7 +15,7 @@ $cargas = $pdo->query(
 ob_start(); ?>
 <h1>Historial de cargas</h1>
 <div class="card">
-  <a class="btn" href="/cargas/nueva.php">Nueva carga</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>">Nueva carga</a>
 </div>
 <table class="table">
   <tr>
@@ -41,7 +41,7 @@ ob_start(); ?>
       <td><?= (int)$c['total_registros'] ?></td>
       <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
       <td><?= htmlspecialchars($c['fecha_carga']) ?></td>
-      <td><a href="/cargas/detalle.php?id=<?= (int)$c['id'] ?>">Ver</a></td>
+      <td><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$c['id'])) ?>">Ver</a></td>
     </tr>
   <?php endforeach; ?>
 </table>

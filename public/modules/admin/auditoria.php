@@ -66,7 +66,7 @@ ob_start(); ?>
     <label>Desde <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>"></label>
     <label>Hasta <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>"></label>
     <button class="btn" type="submit">Filtrar</button>
-    <a class="btn btn-muted" href="/admin/auditoria.php">Limpiar</a>
+    <a class="btn btn-muted" href="<?= htmlspecialchars(app_url('admin/auditoria.php')) ?>">Limpiar</a>
     <button class="btn btn-muted" name="export" value="1" type="submit">Exportar CSV</button>
   </div>
 </form>
