@@ -205,6 +205,35 @@ function calculate_dias_mora(string $fechaVencimiento): int
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
+    $expectedColumnsCount = count($expected);
+    $map = [
+        'cuenta' => 1,
+        'cliente' => 2,
+        'nit' => 3,
+        'direccion' => 4,
+        'contacto' => 5,
+        'telefono' => 6,
+        'canal' => 7,
+        'empleado_de_ventas' => 8,
+        'regional' => 9,
+        'nro_documento' => 10,
+        'nro_ref_de_cliente' => 11,
+        'tipo' => 12,
+        'fecha_contabilizacion' => 13,
+        'fecha_vencimiento' => 14,
+        'valor_documento' => 15,
+        'saldo_pendiente' => 16,
+        'moneda' => 17,
+        'dias_vencido' => 18,
+        'actual' => 19,
+        '1_30_dias' => 20,
+        '31_60_dias' => 21,
+        '61_90_dias' => 22,
+        '91_180_dias' => 23,
+        '181_360_dias' => 24,
+        '361_dias' => 25,
+    ];
+
     if (count($rows) < 2) {
         return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
     }
@@ -213,12 +242,16 @@ function validate_cartera_rows(array $rows): array
         return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
     }
 
-    $headers = array_map(static fn($h): string => normalize_header_name((string)$h), $rows[0]);
-    $requiredHeaders = cartera_expected_required_headers();
-    foreach ($requiredHeaders as $col) {
-        if (!in_array($col, $headers, true)) {
-            return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(1, 'columnas', $col, 'Falta la columna obligatoria: ' . $col)], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
-        }
+    $headers = $rows[0];
+    if (count($headers) !== $expectedColumnsCount) {
+        return [
+            'ok' => false,
+            'structural_error' => true,
+            'errors' => [build_validation_error(1, 'columnas', count($headers), 'Error estructural: Se esperaban ' . $expectedColumnsCount . ' columnas y se encontraron ' . count($headers))],
+            'headers' => $expected,
+            'records' => [],
+            'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
+        ];
     }
 
     $errors = [];
@@ -232,15 +265,11 @@ function validate_cartera_rows(array $rows): array
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
-        $normalizedRow = array_pad($rows[$i], count($headers), '');
-        $byHeader = [];
-        foreach ($headers as $idx => $headerName) {
-            $byHeader[$headerName] = $normalizedRow[$idx] ?? '';
-        }
+        $normalizedRow = array_slice(array_pad($rows[$i], $expectedColumnsCount, ''), 0, $expectedColumnsCount);
 
-        $rowData = [];
-        foreach ($expected as $headerName) {
-            $rowData[$headerName] = $byHeader[$headerName] ?? '';
+        $rowData = ['#' => $normalizedRow[0] ?? ''];
+        foreach ($map as $field => $columnIndex) {
+            $rowData[$field] = $normalizedRow[$columnIndex] ?? '';
         }
 
         if (count(array_filter($rowData, static fn($v): bool => trim((string)$v) !== '')) === 0) {
