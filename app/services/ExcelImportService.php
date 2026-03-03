@@ -307,9 +307,13 @@ function validate_cartera_rows(array $rows): array
             }
         }
 
-        $key = implode('|', [trim((string)$rowData['cuenta']), trim((string)$rowData['nro_documento']), trim((string)$rowData['tipo'])]);
+        $normalizedForHash = [];
+        foreach ($rowData as $field => $value) {
+            $normalizedForHash[$field] = trim((string)$value);
+        }
+        $key = md5((string)json_encode($normalizedForHash, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         if (isset($duplicateMap[$key])) {
-            $errors[] = build_validation_error($excelRow, 'clave', $key, 'Duplicado en archivo por (cuenta+nro_documento+tipo)');
+            $errors[] = build_validation_error($excelRow, 'clave', $key, 'Duplicado en archivo por hash de fila completa');
         }
         $duplicateMap[$key] = true;
 
