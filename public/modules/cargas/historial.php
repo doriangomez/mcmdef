@@ -23,10 +23,8 @@ ob_start(); ?>
     <th>Archivo</th>
     <th>Hash SHA-256</th>
     <th>Estado</th>
-    <th>Errores</th>
-    <th>Nuevos</th>
-    <th>Actualizados</th>
-    <th>Registros</th>
+    <th>Total documentos</th>
+    <th>Total saldo</th>
     <th>Usuario</th>
     <th>Fecha</th>
     <th>Detalle</th>
@@ -36,23 +34,9 @@ ob_start(); ?>
       <td><?= (int)$c['id'] ?></td>
       <td><?= htmlspecialchars($c['nombre_archivo']) ?></td>
       <td><code><?= htmlspecialchars($c['hash_archivo']) ?></code></td>
-      <td>
-        <?php
-          if ($c['estado'] === 'procesado') {
-              echo ui_badge('Procesado', 'success');
-          } elseif ($c['estado'] === 'con_errores') {
-              echo ui_badge('Con errores', 'danger');
-          } elseif ($c['estado'] === 'revertida') {
-              echo ui_badge('Revertida', 'warning');
-          } else {
-              echo ui_badge((string)$c['estado'], 'default');
-          }
-        ?>
-      </td>
-      <td><?= (int)$c['total_errores'] ?></td>
-      <td><?= (int)$c['total_nuevos'] ?></td>
-      <td><?= (int)$c['total_actualizados'] ?></td>
-      <td><?= (int)$c['total_registros'] ?></td>
+      <td><?= $c['estado'] === 'activa' ? ui_badge('Activa', 'success') : ui_badge('Anulada', 'warning') ?></td>
+      <td><?= (int)$c['total_documentos'] ?></td>
+      <td><?= number_format((float)$c['total_saldo'], 2, ',', '.') ?></td>
       <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
       <td><?= htmlspecialchars($c['fecha_carga']) ?></td>
       <td><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$c['id'])) ?>">Ver</a></td>

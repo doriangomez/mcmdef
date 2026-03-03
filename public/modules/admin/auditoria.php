@@ -7,16 +7,16 @@ require_once __DIR__ . '/../../../app/services/ExportService.php';
 
 require_role(['admin']);
 
-$tabla = trim($_GET['tabla'] ?? '');
+$modulo = trim($_GET['modulo'] ?? '');
 $usuarioId = (int)($_GET['usuario_id'] ?? 0);
 $desde = trim($_GET['desde'] ?? '');
 $hasta = trim($_GET['hasta'] ?? '');
 
 $where = [];
 $params = [];
-if ($tabla !== '') {
-    $where[] = 'a.tabla = ?';
-    $params[] = $tabla;
+if ($modulo !== '') {
+    $where[] = 'a.modulo = ?';
+    $params[] = $modulo;
 }
 if ($usuarioId > 0) {
     $where[] = 'a.usuario_id = ?';
@@ -31,8 +31,8 @@ if ($hasta !== '') {
     $params[] = $hasta;
 }
 
-$sql = 'SELECT a.id, a.tabla, a.registro_id, a.campo, a.valor_anterior, a.valor_nuevo, a.created_at, u.nombre AS usuario
-        FROM auditoria_log a
+$sql = 'SELECT a.id, a.accion, a.modulo, a.detalle, a.created_at, u.nombre AS usuario
+        FROM auditoria_sistema a
         INNER JOIN usuarios u ON u.id = a.usuario_id';
 if (!empty($where)) {
     $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -44,7 +44,7 @@ $stmt->execute($params);
 $rows = $stmt->fetchAll();
 
 if (isset($_GET['export'])) {
-    export_csv('auditoria_log.csv', $rows);
+    export_csv('auditoria_sistema.csv', $rows);
     exit;
 }
 
@@ -54,7 +54,7 @@ ob_start(); ?>
 <h1>Auditoría y trazabilidad</h1>
 <form class="card">
   <div class="row">
-    <input name="tabla" placeholder="Tabla (usuarios, cargas_cartera...)" value="<?= htmlspecialchars($tabla) ?>">
+    <input name="modulo" placeholder="Módulo (cargas_cartera, cartera_documentos...)" value="<?= htmlspecialchars($modulo) ?>">
     <select name="usuario_id">
       <option value="0">Usuario (todos)</option>
       <?php foreach ($users as $user): ?>
@@ -72,17 +72,15 @@ ob_start(); ?>
 </form>
 
 <table class="table">
-  <tr><th>ID</th><th>Fecha</th><th>Usuario</th><th>Tabla</th><th>Registro</th><th>Campo</th><th>Anterior</th><th>Nuevo</th></tr>
+  <tr><th>ID</th><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Módulo</th><th>Detalle</th></tr>
   <?php foreach ($rows as $row): ?>
     <tr>
       <td><?= (int)$row['id'] ?></td>
       <td><?= htmlspecialchars($row['created_at']) ?></td>
       <td><?= htmlspecialchars($row['usuario']) ?></td>
-      <td><?= htmlspecialchars($row['tabla']) ?></td>
-      <td><?= (int)$row['registro_id'] ?></td>
-      <td><?= htmlspecialchars($row['campo']) ?></td>
-      <td><?= htmlspecialchars((string)$row['valor_anterior']) ?></td>
-      <td><?= htmlspecialchars((string)$row['valor_nuevo']) ?></td>
+      <td><?= htmlspecialchars($row['accion']) ?></td>
+      <td><?= htmlspecialchars($row['modulo']) ?></td>
+      <td><?= htmlspecialchars((string)$row['detalle']) ?></td>
     </tr>
   <?php endforeach; ?>
 </table>

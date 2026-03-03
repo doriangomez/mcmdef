@@ -393,57 +393,110 @@ function upsert_cliente(PDO $pdo, array $record): int
     return (int)$lookup->fetchColumn();
 }
 
-function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
+function build_document_batch_values(array $batch, int $cargaId): array
 {
-    $newCount = 0;
-    $updatedCount = 0;
+    $placeholders = [];
+    $params = [];
 
-    $findDoc = $pdo->prepare('SELECT id FROM documentos_cartera WHERE cliente_id = ? AND nro_documento = ? AND tipo = ? AND fecha_contabilizacion = ? LIMIT 1');
-    $upsertDoc = $pdo->prepare(
-        'INSERT INTO documentos_cartera (cliente_id, nro_documento, nro_ref_cliente, tipo, fecha_contabilizacion, fecha_vencimiento, valor_documento, saldo_pendiente, moneda, dias_vencido, bucket_actual, bucket_1_30, bucket_31_60, bucket_61_90, bucket_91_180, bucket_181_360, bucket_361_plus, carga_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE nro_ref_cliente = VALUES(nro_ref_cliente), fecha_vencimiento = VALUES(fecha_vencimiento), valor_documento = VALUES(valor_documento), saldo_pendiente = VALUES(saldo_pendiente), moneda = VALUES(moneda), dias_vencido = VALUES(dias_vencido), bucket_actual = VALUES(bucket_actual), bucket_1_30 = VALUES(bucket_1_30), bucket_31_60 = VALUES(bucket_31_60), bucket_61_90 = VALUES(bucket_61_90), bucket_91_180 = VALUES(bucket_91_180), bucket_181_360 = VALUES(bucket_181_360), bucket_361_plus = VALUES(bucket_361_plus), carga_id = VALUES(carga_id), updated_at = NOW()'
-    );
-
-    foreach ($records as $record) {
-        $clienteId = upsert_cliente($pdo, $record);
+    foreach ($batch as $record) {
         $diasVencido = $record['dias_vencido'] ?? calculate_dias_mora((string)$record['fecha_vencimiento']);
-
-        $findDoc->execute([$clienteId, $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
-        if ($findDoc->fetchColumn()) {
-            $updatedCount++;
-        } else {
-            $newCount++;
-        }
-
-        $upsertDoc->execute([
-            $clienteId,
-            $record['nro_documento'],
-            $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null,
-            $record['tipo'],
-            $record['fecha_contabilizacion'],
-            $record['fecha_vencimiento'],
-            $record['valor_documento'],
-            $record['saldo_pendiente'],
-            $record['moneda'],
-            $diasVencido,
-            $record['bucket_actual'],
-            $record['bucket_1_30'],
-            $record['bucket_31_60'],
-            $record['bucket_61_90'],
-            $record['bucket_91_180'],
-            $record['bucket_181_360'],
-            $record['bucket_361_plus'],
-            $cargaId,
-        ]);
+        $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+        $params[] = $cargaId;
+        $params[] = (int)$record['cliente_id'];
+        $params[] = $record['cuenta'];
+        $params[] = $record['cliente'];
+        $params[] = $record['canal'] !== '' ? $record['canal'] : null;
+        $params[] = $record['regional'] !== '' ? $record['regional'] : null;
+        $params[] = $record['nro_documento'];
+        $params[] = $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null;
+        $params[] = $record['tipo'];
+        $params[] = $record['fecha_contabilizacion'];
+        $params[] = $record['fecha_vencimiento'];
+        $params[] = $record['valor_documento'];
+        $params[] = $record['saldo_pendiente'];
+        $params[] = $record['moneda'];
+        $params[] = $diasVencido;
+        $params[] = $record['bucket_actual'];
+        $params[] = $record['bucket_1_30'];
+        $params[] = $record['bucket_31_60'];
+        $params[] = $record['bucket_61_90'];
+        $params[] = $record['bucket_91_180'];
+        $params[] = $record['bucket_181_360'];
+        $params[] = $record['bucket_361_plus'];
+        $params[] = 'activo';
+        $params[] = null;
     }
 
-    return ['new_count' => $newCount, 'updated_count' => $updatedCount];
+    return ['placeholders' => $placeholders, 'params' => $params];
+}
+
+function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
+{
+    $insertedCount = 0;
+    $batchSize = 1000;
+    $batch = [];
+
+    foreach ($records as $record) {
+        $record['cliente_id'] = upsert_cliente($pdo, $record);
+        $batch[] = $record;
+
+        if (count($batch) === $batchSize) {
+            $insertedCount += insert_document_batch($pdo, $cargaId, $batch);
+            $batch = [];
+        }
+    }
+
+    if (!empty($batch)) {
+        $insertedCount += insert_document_batch($pdo, $cargaId, $batch);
+    }
+
+    return ['new_count' => $insertedCount, 'updated_count' => 0];
+}
+
+function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
+{
+    if (empty($batch)) {
+        return 0;
+    }
+
+    $payload = build_document_batch_values($batch, $cargaId);
+    $sql = 'INSERT INTO cartera_documentos (
+            id_carga,
+            cliente_id,
+            cuenta,
+            cliente,
+            canal,
+            regional,
+            nro_documento,
+            nro_ref_cliente,
+            tipo,
+            fecha_contabilizacion,
+            fecha_vencimiento,
+            valor_documento,
+            saldo_pendiente,
+            moneda,
+            dias_vencido,
+            bucket_actual,
+            bucket_1_30,
+            bucket_31_60,
+            bucket_61_90,
+            bucket_91_180,
+            bucket_181_360,
+            bucket_361_plus,
+            estado_documento,
+            estado_documento_detalle,
+            created_at
+        ) VALUES ' . implode(', ', $payload['placeholders']);
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($payload['params']);
+
+    return count($batch);
 }
 
 function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
 {
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM documentos_cartera d INNER JOIN clientes c ON c.id = d.cliente_id WHERE c.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ?');
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM cartera_documentos d WHERE d.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ? AND d.estado_documento = 'activo'");
     $errors = [];
     foreach ($records as $record) {
         $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
@@ -456,7 +509,7 @@ function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
 
 function revert_last_carga(PDO $pdo, int $cargaId): array
 {
-    $stmt = $pdo->prepare('DELETE FROM documentos_cartera WHERE carga_id = ?');
+    $stmt = $pdo->prepare("UPDATE cartera_documentos SET estado_documento = 'inactivo', estado_documento_detalle = 'lote_anulado' WHERE id_carga = ? AND estado_documento = 'activo'");
     $stmt->execute([$cargaId]);
     return ['restored' => 0, 'removed' => $stmt->rowCount()];
 }

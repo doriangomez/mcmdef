@@ -2,7 +2,7 @@ CREATE DATABASE IF NOT EXISTS mcm_cartera CHARACTER SET utf8mb4 COLLATE utf8mb4_
 USE mcm_cartera;
 
 CREATE TABLE IF NOT EXISTS usuarios (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(120) NOT NULL,
     email VARCHAR(120) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
@@ -13,25 +13,23 @@ CREATE TABLE IF NOT EXISTS usuarios (
 );
 
 CREATE TABLE IF NOT EXISTS cargas_cartera (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    nombre_archivo VARCHAR(255) NOT NULL,
-    hash_archivo VARCHAR(64) NOT NULL UNIQUE,
-    usuario_id INT NOT NULL,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    total_registros INT NOT NULL DEFAULT 0,
-    total_errores INT NOT NULL DEFAULT 0,
-    total_nuevos INT NOT NULL DEFAULT 0,
-    total_actualizados INT NOT NULL DEFAULT 0,
-    estado ENUM('procesado', 'con_errores', 'revertida') NOT NULL DEFAULT 'con_errores',
-    observaciones TEXT NULL,
+    usuario_id BIGINT NOT NULL,
+    nombre_archivo VARCHAR(255) NOT NULL,
+    total_documentos INT NOT NULL DEFAULT 0,
+    total_saldo DECIMAL(18,2) NOT NULL DEFAULT 0,
+    hash_archivo VARCHAR(64) NOT NULL UNIQUE,
+    estado ENUM('activa', 'anulada') NOT NULL DEFAULT 'activa',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cargas_fecha (fecha_carga),
+    INDEX idx_cargas_estado (estado),
     CONSTRAINT fk_carga_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS carga_errores (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    carga_id INT NOT NULL,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    carga_id BIGINT NOT NULL,
     fila_excel INT NOT NULL,
     campo VARCHAR(80) NOT NULL,
     motivo VARCHAR(255) NOT NULL,
@@ -40,7 +38,7 @@ CREATE TABLE IF NOT EXISTS carga_errores (
 );
 
 CREATE TABLE IF NOT EXISTS clientes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     cuenta VARCHAR(80) NOT NULL,
     nombre VARCHAR(180) NOT NULL,
     nit VARCHAR(30) NOT NULL,
@@ -54,64 +52,77 @@ CREATE TABLE IF NOT EXISTS clientes (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_cliente_cuenta (cuenta),
     KEY idx_cliente_regional (regional),
-    KEY idx_cliente_canal (canal)
+    KEY idx_cliente_canal (canal),
+    KEY idx_cliente_nombre (nombre)
 );
 
-CREATE TABLE IF NOT EXISTS documentos_cartera (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    cliente_id INT NOT NULL,
+CREATE TABLE IF NOT EXISTS cartera_documentos (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id_carga BIGINT NOT NULL,
+    cliente_id BIGINT NOT NULL,
+    cuenta VARCHAR(80) NOT NULL,
+    cliente VARCHAR(180) NOT NULL,
+    canal VARCHAR(80) NULL,
+    regional VARCHAR(80) NULL,
     nro_documento VARCHAR(80) NOT NULL,
     nro_ref_cliente VARCHAR(80) NULL,
     tipo VARCHAR(50) NOT NULL,
     fecha_contabilizacion DATE NOT NULL,
     fecha_vencimiento DATE NOT NULL,
-    valor_documento DECIMAL(16,2) NOT NULL,
-    saldo_pendiente DECIMAL(16,2) NOT NULL,
+    valor_documento DECIMAL(18,2) NOT NULL,
+    saldo_pendiente DECIMAL(18,2) NOT NULL,
     moneda VARCHAR(12) NOT NULL,
     dias_vencido INT NOT NULL DEFAULT 0,
-    bucket_actual DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_1_30 DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_31_60 DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_61_90 DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_91_180 DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_181_360 DECIMAL(16,2) NOT NULL DEFAULT 0,
-    bucket_361_plus DECIMAL(16,2) NOT NULL DEFAULT 0,
-    carga_id INT NOT NULL,
+    bucket_actual DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_1_30 DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_31_60 DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_61_90 DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_91_180 DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_181_360 DECIMAL(18,2) NOT NULL DEFAULT 0,
+    bucket_361_plus DECIMAL(18,2) NOT NULL DEFAULT 0,
+    estado_documento ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo',
+    estado_documento_detalle VARCHAR(120) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_doc_cartera (cliente_id, nro_documento, tipo, fecha_contabilizacion),
-    KEY idx_doc_vencido (dias_vencido),
+    INDEX idx_cartera_carga (id_carga),
+    INDEX idx_cartera_cuenta (cuenta),
+    INDEX idx_cartera_nro_documento (nro_documento),
+    INDEX idx_cartera_saldo_pendiente (saldo_pendiente),
+    INDEX idx_cartera_fecha_vencimiento (fecha_vencimiento),
+    INDEX idx_cartera_dias_vencido (dias_vencido),
+    INDEX idx_cliente (cliente),
+    INDEX idx_documento (nro_documento),
+    INDEX idx_vencimiento (fecha_vencimiento),
+    INDEX idx_mora (dias_vencido),
+    INDEX idx_canal (canal),
+    INDEX idx_regional (regional),
     CONSTRAINT fk_doc_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
-    CONSTRAINT fk_doc_carga_origen FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
+    CONSTRAINT fk_doc_carga_origen FOREIGN KEY (id_carga) REFERENCES cargas_cartera(id)
 );
 
-CREATE TABLE IF NOT EXISTS gestiones (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    cliente_id INT NULL,
-    documento_id INT NULL,
-    tipo_gestion VARCHAR(80) NOT NULL,
-    descripcion TEXT NOT NULL,
-    fecha_compromiso DATE NULL,
-    valor_compromiso DECIMAL(16,2) NULL,
-    estado_compromiso ENUM('pendiente', 'cumplido', 'incumplido') NULL,
-    usuario_id INT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    anulada TINYINT(1) NOT NULL DEFAULT 0,
-    motivo_anulacion VARCHAR(255) NULL,
-    CONSTRAINT fk_g_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
-    CONSTRAINT fk_g_documento FOREIGN KEY (documento_id) REFERENCES documentos_cartera(id),
-    CONSTRAINT fk_g_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
-);
-
-CREATE TABLE IF NOT EXISTS auditoria_log (
+CREATE TABLE IF NOT EXISTS bitacora_gestion (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    tabla VARCHAR(80) NOT NULL,
-    registro_id INT NOT NULL,
-    campo VARCHAR(80) NOT NULL,
-    valor_anterior TEXT NULL,
-    valor_nuevo TEXT NULL,
-    usuario_id INT NOT NULL,
+    id_documento BIGINT NOT NULL,
+    usuario_id BIGINT NOT NULL,
+    tipo_gestion VARCHAR(100) NOT NULL,
+    observacion TEXT NOT NULL,
+    compromiso_pago DATE NULL,
+    valor_compromiso DECIMAL(18,2) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_bitacora_documento (id_documento),
+    INDEX idx_bitacora_created_at (created_at),
+    CONSTRAINT fk_bg_documento FOREIGN KEY (id_documento) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_bg_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS auditoria_sistema (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id BIGINT NOT NULL,
+    accion VARCHAR(100) NOT NULL,
+    modulo VARCHAR(100) NOT NULL,
+    detalle TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_auditoria_usuario (usuario_id),
+    INDEX idx_auditoria_created_at (created_at),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 

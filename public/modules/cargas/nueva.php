@@ -118,44 +118,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $estadoCarga = 'rechazada';
                     $errorReportToken = bin2hex(random_bytes(16));
                     $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                    if ($hayErrorEstructural) {
-                        $msg = 'Carga rechazada por error estructural. Carga rechazada. No se insertó ningún registro.';
-                    } else {
-                        $msg = 'Carga rechazada. No se insertó ningún registro.';
-                    }
+                    $msg = $hayErrorEstructural
+                        ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
+                        : 'Carga rechazada. No se insertó ningún registro.';
                 } else {
                     $insertLoad = $pdo->prepare(
                         'INSERT INTO cargas_cartera
-                         (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
-                         VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
+                         (fecha_carga, usuario_id, nombre_archivo, total_documentos, total_saldo, hash_archivo, estado, created_at)
+                         VALUES (NOW(), ?, ?, ?, ?, ?, ?, NOW())'
                     );
                     $insertLoad->execute([
-                        $file['name'],
-                        $hash,
                         $_SESSION['user']['id'],
+                        $file['name'],
                         count($validation['records']),
-                        0,
-                        'procesado',
-                        'Carga exitosa',
+                        (float)($validation['totals']['saldo'] ?? 0),
+                        $hash,
+                        'activa',
                     ]);
                     $cargaId = (int)$pdo->lastInsertId();
 
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
-                    $totalInsertados = (int)$metrics['new_count'] + (int)$metrics['updated_count'];
+                    $totalInsertados = (int)$metrics['new_count'];
                     $totalSaldoInsertado = (float)($validation['totals']['saldo'] ?? 0.0);
 
-                    $updateLoad = $pdo->prepare(
-                        "UPDATE cargas_cartera
-                         SET total_nuevos = ?, total_actualizados = ?, estado = 'procesado', observaciones = ?, updated_at = NOW()
-                         WHERE id = ?"
-                    );
-                    $updateLoad->execute([
-                        $metrics['new_count'],
-                        $metrics['updated_count'],
-                        'Carga exitosa. Se insertaron ' . $totalInsertados . ' documentos.',
-                        $cargaId,
-                    ]);
-                    audit_log($pdo, 'cargas_cartera', $cargaId, 'estado', 'con_errores', 'procesado', (int)$_SESSION['user']['id']);
+                    audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
                     $pdo->commit();
                     $estadoCarga = 'exitosa';
                     $msg = 'Carga exitosa. Se insertaron ' . $totalInsertados . ' documentos por valor total de $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
@@ -183,8 +169,7 @@ ob_start();
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
       #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
     </p>
-    <p>Control de duplicados en archivo: <strong>hash MD5 de la fila completa</strong>.</p>
-    <p>Días vencido: se usa valor del archivo; si viene vacío, se calcula con fecha_vencimiento. Se permiten valores negativos siempre que la suma de buckets coincida con saldo_pendiente y nro_ref_de_cliente puede venir vacío.</p>
+    <p>Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio, y procesamiento batch de 1000 registros.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>

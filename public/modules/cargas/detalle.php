@@ -12,24 +12,19 @@ $id = (int)($_GET['id'] ?? 0);
 $msg = '';
 $errorMsg = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'revertir') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anular_lote') {
     if (current_user()['rol'] !== 'admin') {
-        $errorMsg = 'Solo el administrador puede revertir cargas.';
+        $errorMsg = 'Solo el administrador puede anular lotes.';
     } else {
         try {
             $pdo->beginTransaction();
             $result = revert_last_carga($pdo, $id);
-            $upd = $pdo->prepare(
-                "UPDATE cargas_cartera
-                 SET estado = 'revertida',
-                     observaciones = CONCAT(IFNULL(observaciones, ''), ' | Revertida por admin'),
-                     updated_at = NOW()
-                 WHERE id = ?"
-            );
+            $upd = $pdo->prepare("UPDATE cargas_cartera SET estado = 'anulada' WHERE id = ? AND estado = 'activa'");
             $upd->execute([$id]);
-            audit_log($pdo, 'cargas_cartera', $id, 'estado', 'procesado', 'revertida', (int)current_user()['id']);
+            audit_log($pdo, 'cargas_cartera', $id, 'anulacion_lote', 'activa', 'anulada', (int)current_user()['id']);
+            audit_log($pdo, 'cartera_documentos', $id, 'cambio_estado_documentos', 'activo', 'inactivo', (int)current_user()['id']);
             $pdo->commit();
-            $msg = 'Carga revertida. Documentos restaurados: ' . $result['restored'] . '. Documentos eliminados: ' . $result['removed'] . '.';
+            $msg = 'Lote anulado. Documentos marcados inactivos: ' . $result['removed'] . '.';
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -38,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'rever
         }
     }
 }
-
 
 if (isset($_GET['export']) && $_GET['export'] === 'errores') {
     require_once __DIR__ . '/../../../app/services/ExportService.php';
@@ -66,10 +60,10 @@ $cargaStmt->execute([$id]);
 $carga = $cargaStmt->fetch();
 
 $snapshotStmt = $pdo->prepare(
-    'SELECT c.nit, c.nombre AS nombre_cliente, d.tipo AS tipo_documento, d.nro_documento AS numero_documento, d.saldo_pendiente AS saldo_actual, d.dias_vencido AS dias_mora
-     FROM documentos_cartera d
+    'SELECT c.nit, d.cliente AS nombre_cliente, d.tipo AS tipo_documento, d.nro_documento AS numero_documento, d.saldo_pendiente AS saldo_actual, d.dias_vencido AS dias_mora
+     FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.carga_id = ?
+     WHERE d.id_carga = ?
      ORDER BY d.id DESC
      LIMIT 100'
 );
@@ -96,16 +90,11 @@ ob_start(); ?>
     <p><strong>Archivo:</strong> <?= htmlspecialchars($carga['nombre_archivo']) ?></p>
     <p><strong>Hash SHA-256:</strong> <code><?= htmlspecialchars($carga['hash_archivo']) ?></code></p>
     <p><strong>Estado:</strong> <?= htmlspecialchars($carga['estado']) ?> | <strong>Usuario:</strong> <?= htmlspecialchars($carga['usuario'] ?? '-') ?> | <strong>Fecha:</strong> <?= htmlspecialchars($carga['fecha_carga']) ?></p>
-    <p>
-      <strong>Registros:</strong> <?= (int)$carga['total_registros'] ?> |
-      <strong>Errores:</strong> <?= (int)$carga['total_errores'] ?> |
-      <strong>Nuevos:</strong> <?= (int)$carga['total_nuevos'] ?> |
-      <strong>Actualizados:</strong> <?= (int)$carga['total_actualizados'] ?>
-    </p>
-    <?php if (current_user()['rol'] === 'admin' && $carga['estado'] === 'procesado'): ?>
-      <form method="post" onsubmit="return confirm('¿Confirma revertir esta carga? Solo se permite para la última carga procesada.')">
-        <input type="hidden" name="action" value="revertir">
-        <button class="btn btn-muted" type="submit">Revertir carga</button>
+    <p><strong>Total documentos:</strong> <?= (int)$carga['total_documentos'] ?> | <strong>Total saldo:</strong> <?= number_format((float)$carga['total_saldo'], 2, ',', '.') ?></p>
+    <?php if (current_user()['rol'] === 'admin' && $carga['estado'] === 'activa'): ?>
+      <form method="post" onsubmit="return confirm('¿Confirma anular este lote?')">
+        <input type="hidden" name="action" value="anular_lote">
+        <button class="btn btn-muted" type="submit">Anular lote</button>
       </form>
     <?php endif; ?>
   <?php else: ?>
