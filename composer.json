@@ -1,0 +1,9 @@
+{
+  "name": "mcmdef/cartera",
+  "description": "Sistema de cartera MCM",
+  "type": "project",
+  "require": {
+    "php": "^8.1",
+    "phpoffice/phpspreadsheet": "^2.2"
+  }
+}

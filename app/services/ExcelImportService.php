@@ -160,6 +160,13 @@ function normalize_decimal_value(mixed $value): ?float
     return is_numeric($normalized) ? (float)$normalized : null;
 }
 
+
+function build_validation_error(int $fila, string $campo, mixed $valor, string $motivo): array
+{
+    $valorTexto = is_scalar($valor) || $valor === null ? trim((string)($valor ?? '')) : json_encode($valor, JSON_UNESCAPED_UNICODE);
+    return ['fila' => $fila, 'campo' => $campo, 'valor' => $valorTexto, 'motivo' => $motivo];
+}
+
 function calculate_dias_mora(string $fechaVencimiento): int
 {
     $due = new DateTimeImmutable($fechaVencimiento);
@@ -171,16 +178,16 @@ function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
     if (empty($rows)) {
-        return ['ok' => false, 'errors' => [['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Archivo vacío']], 'headers' => $expected, 'records' => []];
+        return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => []];
     }
 
     if (count($rows[0]) !== count($expected)) {
-        return ['ok' => false, 'errors' => [['fila' => 1, 'campo' => 'columnas', 'motivo' => 'Estructura inválida. Se esperaban exactamente 26 columnas']], 'headers' => $expected, 'records' => []];
+        return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', count($rows[0]), 'Estructura inválida. Se esperaban exactamente 26 columnas')], 'headers' => $expected, 'records' => []];
     }
 
     $headers = array_map(static fn($h): string => normalize_header_name((string)$h), $rows[0]);
     if ($headers !== $expected) {
-        return ['ok' => false, 'errors' => [['fila' => 1, 'campo' => 'columnas', 'motivo' => 'Estructura inválida. Orden esperado: ' . implode(', ', $expected)]], 'headers' => $expected, 'records' => []];
+        return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', implode(', ', $headers), 'Estructura inválida. Orden esperado: ' . implode(', ', $expected))], 'headers' => $expected, 'records' => []];
     }
 
     $errors = [];
@@ -203,27 +210,27 @@ function validate_cartera_rows(array $rows): array
         $before = count($errors);
         foreach ($required as $field) {
             if (trim((string)$rowData[$field]) === '') {
-                $errors[] = ['fila' => $excelRow, 'campo' => $field, 'motivo' => 'Campo crítico vacío'];
+                $errors[] = build_validation_error($excelRow, $field, $rowData[$field], 'Campo crítico vacío');
             }
         }
 
         $fechaCont = normalize_date_value($rowData['fecha_contabilizacion']);
         $fechaVen = normalize_date_value($rowData['fecha_vencimiento']);
         if ($fechaVen === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Fecha inválida. Formato requerido: dd/mm/yyyy'];
+            $errors[] = build_validation_error($excelRow, 'fecha_vencimiento', $rowData['fecha_vencimiento'], 'Fecha inválida. Formato requerido: dd/mm/yyyy');
         }
 
         if ($fechaCont === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_contabilizacion', 'motivo' => 'Fecha inválida. Formato requerido: dd/mm/yyyy'];
+            $errors[] = build_validation_error($excelRow, 'fecha_contabilizacion', $rowData['fecha_contabilizacion'], 'Fecha inválida. Formato requerido: dd/mm/yyyy');
         }
 
         if ($fechaCont !== null && $fechaVen !== null && $fechaVen < $fechaCont) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Debe ser mayor o igual a fecha_contabilizacion'];
+            $errors[] = build_validation_error($excelRow, 'fecha_vencimiento', $rowData['fecha_vencimiento'], 'Debe ser mayor o igual a fecha_contabilizacion');
         }
 
         foreach ($numericFields as $numericField) {
             if (trim((string)$rowData[$numericField]) !== '' && normalize_decimal_value($rowData[$numericField]) === null) {
-                $errors[] = ['fila' => $excelRow, 'campo' => $numericField, 'motivo' => 'Valor numérico inválido'];
+                $errors[] = build_validation_error($excelRow, $numericField, $rowData[$numericField], 'Valor numérico inválido');
             }
         }
 
@@ -240,14 +247,14 @@ function validate_cartera_rows(array $rows): array
         if ($saldoPend !== null) {
             $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
             if (!approx_equal($sumBuckets, $saldoPend)) {
-                $errors[] = ['fila' => $excelRow, 'campo' => 'buckets', 'motivo' => 'La suma de buckets debe coincidir con saldo_pendiente'];
+                $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'La suma de buckets debe coincidir con saldo_pendiente');
             }
         }
 
         $diasVencido = null;
         if (trim((string)$rowData['dias_vencido']) !== '') {
             if (!is_numeric($rowData['dias_vencido'])) {
-                $errors[] = ['fila' => $excelRow, 'campo' => 'dias_vencido', 'motivo' => 'Debe ser numérico'];
+                $errors[] = build_validation_error($excelRow, 'dias_vencido', $rowData['dias_vencido'], 'Debe ser numérico');
             } else {
                 $diasVencido = (int)$rowData['dias_vencido'];
             }
@@ -255,7 +262,7 @@ function validate_cartera_rows(array $rows): array
 
         $key = implode('|', [trim((string)$rowData['cuenta']), trim((string)$rowData['nro_documento']), trim((string)$rowData['tipo']), (string)$fechaCont]);
         if (isset($duplicateMap[$key])) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'clave', 'motivo' => 'Duplicado en archivo por (cuenta+nro_documento+tipo+fecha_contabilizacion)'];
+            $errors[] = build_validation_error($excelRow, 'clave', $key, 'Duplicado en archivo por (cuenta+nro_documento+tipo+fecha_contabilizacion)');
         }
         $duplicateMap[$key] = true;
 
@@ -376,7 +383,7 @@ function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
     foreach ($records as $record) {
         $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
         if ((int)$stmt->fetchColumn() > 0) {
-            $errors[] = ['fila' => (int)$record['excel_row'], 'campo' => 'clave', 'motivo' => 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)'];
+            $errors[] = build_validation_error((int)$record['excel_row'], 'clave', implode('|', [$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]), 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)');
         }
     }
     return $errors;

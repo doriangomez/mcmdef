@@ -12,21 +12,43 @@ $errors = [];
 $cargaId = null;
 $allowedExtensions = ['csv', 'xlsx', 'xls'];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0];
+$errorReportToken = null;
+
+if (isset($_GET['download_errors'])) {
+    $token = (string)($_GET['download_errors'] ?? '');
+    $stored = $_SESSION['import_error_reports'][$token] ?? null;
+    if (!is_array($stored)) {
+        http_response_code(404);
+        exit('Reporte no disponible o expirado.');
+    }
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="reporte_errores_validacion.csv"');
+
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Fila', 'Campo', 'Valor', 'Descripción del error']);
+    foreach ($stored as $row) {
+        fputcsv($out, [
+            (int)($row['fila'] ?? 0),
+            (string)($row['campo'] ?? ''),
+            (string)($row['valor'] ?? ''),
+            (string)($row['motivo'] ?? ''),
+        ]);
+    }
+    fclose($out);
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
     $file = $_FILES['archivo'];
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        $errors[] = ['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Error al cargar archivo. Código: ' . $file['error']];
+        $errors[] = build_validation_error(0, 'archivo', (string)($file['error'] ?? ''), 'Error al cargar archivo. Código: ' . $file['error']);
     } else {
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (!in_array($extension, $allowedExtensions, true)) {
-            $errors[] = ['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Formato no permitido. Use CSV o XLSX/XLS'];
+            $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', 'Formato no permitido. Use CSV o XLSX/XLS');
         } elseif (in_array($extension, ['xlsx', 'xls'], true) && !supports_xlsx_import()) {
-            $errors[] = [
-                'fila' => 0,
-                'campo' => 'archivo',
-                'motivo' => 'XLSX/XLS requiere PhpSpreadsheet vía Composer. Alternativa disponible: CSV.',
-            ];
+            $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', 'XLSX/XLS requiere PhpSpreadsheet vía Composer. Alternativa disponible: CSV.');
         }
     }
 
@@ -35,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
         $exists = $pdo->prepare('SELECT id FROM cargas_cartera WHERE hash_archivo = ? LIMIT 1');
         $exists->execute([$hash]);
         if ($exists->fetch()) {
-            $errors[] = ['fila' => 0, 'campo' => 'hash_archivo', 'motivo' => 'Archivo ya cargado previamente'];
+            $errors[] = build_validation_error(0, 'hash_archivo', $file['name'] ?? '', 'Archivo ya cargado previamente');
         } else {
             $rows = parse_input_file($file['tmp_name']);
             $validation = validate_cartera_rows($rows);
@@ -67,27 +89,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             try {
                 $pdo->beginTransaction();
 
-                $insertLoad = $pdo->prepare(
-                    'INSERT INTO cargas_cartera
-                     (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
-                     VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
-                );
-                $insertLoad->execute([
-                    $file['name'],
-                    $hash,
-                    $_SESSION['user']['id'],
-                    $recordCount,
-                    count($errors),
-                    !empty($errors) ? 'con_errores' : 'procesado',
-                    'Carga de cartera SAP',
-                ]);
-                $cargaId = (int)$pdo->lastInsertId();
-
                 if (!empty($errors)) {
-                    persist_carga_errors($pdo, $cargaId, $errors);
-                    $pdo->commit();
-                    $msg = 'Validación fallida. No se insertó ningún registro. Revise el detalle de errores.';
+                    $pdo->rollBack();
+                    $errorReportToken = bin2hex(random_bytes(16));
+                    $_SESSION['import_error_reports'][$errorReportToken] = $errors;
+                    $msg = 'Validación fallida. No se insertó ningún registro. Descargue el reporte para revisar errores.';
                 } else {
+                    $insertLoad = $pdo->prepare(
+                        'INSERT INTO cargas_cartera
+                         (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
+                         VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
+                    );
+                    $insertLoad->execute([
+                        $file['name'],
+                        $hash,
+                        $_SESSION['user']['id'],
+                        $recordCount,
+                        0,
+                        'procesado',
+                        'Carga de cartera SAP',
+                    ]);
+                    $cargaId = (int)$pdo->lastInsertId();
+
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
 
                     $updateLoad = $pdo->prepare(
@@ -111,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $errors[] = ['fila' => 0, 'campo' => 'transacción', 'motivo' => $exception->getMessage()];
+                $errors[] = build_validation_error(0, 'transacción', '', $exception->getMessage());
             }
         }
     }
@@ -121,7 +144,7 @@ ob_start();
 ?>
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
-<?php if($errors): ?><div class="alert alert-error"><strong>Errores:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= $e['fila'] ?> - <?= htmlspecialchars($e['campo']) ?>: <?= htmlspecialchars($e['motivo']) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
+<?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if($summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas válidas: <?= (int)$summary['validas'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
 <div class="card">
 <form method="post" enctype="multipart/form-data">
