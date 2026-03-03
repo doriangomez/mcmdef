@@ -111,7 +111,7 @@ ob_start(); ?>
 </select>
 </div>
 <button class="btn">Guardar</button>
-<a class="btn btn-muted" href="/gestion/lista.php">Ver historial</a>
+<a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Ver historial</a>
 </form>
 <?php
 $content = ob_get_clean();

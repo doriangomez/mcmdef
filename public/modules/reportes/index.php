@@ -168,8 +168,8 @@ ob_start(); ?>
   <option value="incumplido" <?= $estadoCompromiso === 'incumplido' ? 'selected' : '' ?>>Incumplido</option>
 </select>
 <button class="btn">Ver</button>
-<a class="btn btn-muted" href="/reportes/index.php">Limpiar</a>
-<?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?><button class="btn btn-muted" name="export" value="1">Exportar CSV</button><?php endif; ?>
+<a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('reportes/index.php')) ?>">Limpiar</a>
+<?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?><button class="btn btn-secondary" name="export" value="1">Exportar CSV</button><?php endif; ?>
 </div></form>
 <table class="table"><tr><th>Categoría</th><th>Total</th></tr><?php foreach($rows as $r): ?><tr><td><?= htmlspecialchars((string)$r['categoria']) ?></td><td><?= number_format((float)$r['total'],2,',','.') ?></td></tr><?php endforeach; ?></table>
 <?php

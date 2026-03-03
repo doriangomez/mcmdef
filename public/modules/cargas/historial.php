@@ -15,7 +15,7 @@ $cargas = $pdo->query(
 ob_start(); ?>
 <h1>Historial de cargas</h1>
 <div class="card">
-  <a class="btn" href="/cargas/nueva.php">Nueva carga</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>">Nueva carga</a>
 </div>
 <table class="table">
   <tr>
@@ -34,14 +34,26 @@ ob_start(); ?>
     <tr>
       <td><?= (int)$c['id'] ?></td>
       <td><?= htmlspecialchars($c['nombre_archivo']) ?></td>
-      <td><?= htmlspecialchars($c['estado']) ?></td>
+      <td>
+        <?php
+          if ($c['estado'] === 'procesado') {
+              echo ui_badge('Procesado', 'success');
+          } elseif ($c['estado'] === 'con_errores') {
+              echo ui_badge('Con errores', 'danger');
+          } elseif ($c['estado'] === 'revertida') {
+              echo ui_badge('Revertida', 'warning');
+          } else {
+              echo ui_badge((string)$c['estado'], 'default');
+          }
+        ?>
+      </td>
       <td><?= (int)$c['total_errores'] ?></td>
       <td><?= (int)$c['total_nuevos'] ?></td>
       <td><?= (int)$c['total_actualizados'] ?></td>
       <td><?= (int)$c['total_registros'] ?></td>
       <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
       <td><?= htmlspecialchars($c['fecha_carga']) ?></td>
-      <td><a href="/cargas/detalle.php?id=<?= (int)$c['id'] ?>">Ver</a></td>
+      <td><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$c['id'])) ?>">Ver</a></td>
     </tr>
   <?php endforeach; ?>
 </table>

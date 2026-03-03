@@ -128,11 +128,11 @@ ob_start();
     <p>Días de mora: se usa valor del archivo; si viene vacío, se calcula con la fecha de vencimiento.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>
-    <a class="btn btn-muted" href="/cargas/historial.php">Ver historial</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
 </form>
 </div>
 <?php if ($cargaId): ?>
-    <p><a href="/cargas/detalle.php?id=<?= $cargaId ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>
+    <p><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . $cargaId)) ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>
 <?php endif; ?>
 <?php
 $content = ob_get_clean();

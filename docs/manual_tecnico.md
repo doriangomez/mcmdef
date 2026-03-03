@@ -16,6 +16,7 @@
    - `DB_NAME`
    - `DB_USER`
    - `DB_PASS`
+   - `APP_BASE_URL` (opcional, ej: `/mcmdef/public`)
 3. Publicar carpeta `public/` como document root.
 4. Ingresar a `/login.php`.
 

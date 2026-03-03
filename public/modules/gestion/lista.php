@@ -93,8 +93,8 @@ ob_start(); ?>
       <option value="1" <?= $anulada === '1' ? 'selected' : '' ?>>Sí</option>
     </select>
     <button class="btn">Filtrar</button>
-    <a class="btn btn-muted" href="/gestion/lista.php">Limpiar</a>
-    <a class="btn" href="/gestion/nueva.php">Nueva gestión</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Limpiar</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php')) ?>">Nueva gestión</a>
   </div>
 </form>
 
@@ -109,7 +109,20 @@ ob_start(); ?>
       <td><?= htmlspecialchars($row['tipo_gestion']) ?></td>
       <td><?= htmlspecialchars($row['descripcion']) ?></td>
       <td><?= htmlspecialchars((string)$row['fecha_compromiso']) ?> / <?= htmlspecialchars((string)$row['valor_compromiso']) ?></td>
-      <td><?= htmlspecialchars((string)$row['estado_compromiso']) ?></td>
+      <td>
+        <?php
+          $estado = strtolower((string)$row['estado_compromiso']);
+          if ($estado === 'pendiente') {
+              echo ui_badge('Pendiente', 'warning');
+          } elseif ($estado === 'cumplido') {
+              echo ui_badge('Cumplido', 'success');
+          } elseif ($estado === 'incumplido') {
+              echo ui_badge('Incumplido', 'danger');
+          } else {
+              echo ui_badge((string)$row['estado_compromiso'], 'default');
+          }
+        ?>
+      </td>
       <td><?= (int)$row['anulada'] === 1 ? 'Sí' : 'No' ?></td>
       <td><?= htmlspecialchars($row['usuario']) ?></td>
       <td>
@@ -118,7 +131,7 @@ ob_start(); ?>
             <input type="hidden" name="action" value="anular">
             <input type="hidden" name="gestion_id" value="<?= (int)$row['id'] ?>">
             <input type="text" name="motivo_anulacion" placeholder="Motivo anulación" required>
-            <button class="btn btn-muted" type="submit">Anular</button>
+            <button class="btn btn-danger" type="submit">Anular</button>
           </form>
         <?php else: ?>
           <?= htmlspecialchars((string)$row['motivo_anulacion']) ?>

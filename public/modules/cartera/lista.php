@@ -147,7 +147,7 @@ $buildSortUrl = static function (string $column) use ($queryWithoutPage, $sort, 
         $nextDir = 'desc';
     }
     $params = array_merge($queryWithoutPage, ['sort' => $column, 'dir' => $nextDir, 'page' => 1]);
-    return '/cartera/lista.php?' . http_build_query($params);
+    return app_url('cartera/lista.php?' . http_build_query($params));
 };
 
 ob_start(); ?>
@@ -178,9 +178,9 @@ ob_start(); ?>
       <option value="91+" <?= $filters['mora_rango'] === '91+' ? 'selected' : '' ?>>91+</option>
     </select>
     <button class="btn" type="submit">Filtrar</button>
-    <a class="btn btn-muted" href="/cartera/lista.php">Limpiar</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Limpiar</a>
     <?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?>
-      <button class="btn btn-muted" name="export" value="1" type="submit">Exportar CSV</button>
+      <button class="btn btn-secondary" name="export" value="1" type="submit">Exportar CSV</button>
     <?php endif; ?>
   </div>
 </form>
@@ -207,11 +207,24 @@ ob_start(); ?>
       <td><?= htmlspecialchars($r['numero_documento']) ?></td>
       <td><?= number_format((float)$r['saldo_actual'], 2, ',', '.') ?></td>
       <td><?= (int)$r['dias_mora'] ?></td>
-      <td><?= htmlspecialchars($r['estado_documento']) ?></td>
+      <td>
+        <?php
+          $estado = strtolower((string)$r['estado_documento']);
+          if ($estado === 'vigente') {
+              echo ui_badge('Vigente', 'success');
+          } elseif ($estado === 'vencido') {
+              echo ui_badge('Vencido', 'danger');
+          } elseif ($estado === 'cancelado') {
+              echo ui_badge('Cancelado', 'default');
+          } else {
+              echo ui_badge((string)$r['estado_documento'], 'default');
+          }
+        ?>
+      </td>
       <td><?= htmlspecialchars((string)$r['periodo']) ?></td>
       <td>
-        <a href="/cartera/documento.php?id_documento=<?= (int)$r['id'] ?>">Documento</a> |
-        <a href="/cartera/cliente.php?id_cliente=<?= (int)$r['cliente_id'] ?>">Cliente</a>
+        <a href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$r['id'])) ?>">Documento</a> |
+        <a href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)$r['cliente_id'])) ?>">Cliente</a>
       </td>
     </tr>
   <?php endforeach; ?>
@@ -224,10 +237,10 @@ $paginationQuery = $queryWithoutPage;
   <span>Total registros: <?= $total ?> | Página <?= $page ?> de <?= $totalPages ?></span>
   <div>
     <?php if ($page > 1): ?>
-      <a class="btn btn-muted" href="/cartera/lista.php?<?= htmlspecialchars(http_build_query(array_merge($paginationQuery, ['page' => $page - 1]))) ?>">Anterior</a>
+      <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($paginationQuery, ['page' => $page - 1])))) ?>">Anterior</a>
     <?php endif; ?>
     <?php if ($page < $totalPages): ?>
-      <a class="btn btn-muted" href="/cartera/lista.php?<?= htmlspecialchars(http_build_query(array_merge($paginationQuery, ['page' => $page + 1]))) ?>">Siguiente</a>
+      <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($paginationQuery, ['page' => $page + 1])))) ?>">Siguiente</a>
     <?php endif; ?>
   </div>
 </div>

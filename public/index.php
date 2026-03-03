@@ -14,29 +14,69 @@ $cargas = $pdo->query("SELECT c.*, u.nombre as usuario FROM cargas_cartera c LEF
 
 ob_start();
 ?>
-<h1>Dashboard</h1>
-<div class="grid">
-    <div class="kpi">Cartera vigente<br><strong>$<?= number_format($kpis['vigente'],0,',','.') ?></strong></div>
-    <div class="kpi">Cartera vencida<br><strong>$<?= number_format($kpis['vencida'],0,',','.') ?></strong></div>
-    <div class="kpi">Total saldo<br><strong>$<?= number_format($kpis['saldo'],0,',','.') ?></strong></div>
-    <div class="kpi">Documentos vencidos<br><strong><?= $kpis['docs_vencidos'] ?></strong></div>
-    <div class="kpi">Compromisos pendientes<br><strong><?= $kpis['compromisos'] ?></strong></div>
+<div class="kpi-grid">
+    <section class="kpi-card">
+      <p class="kpi-label">Cartera vigente</p>
+      <p class="kpi-value">$<?= number_format($kpis['vigente'], 0, ',', '.') ?></p>
+      <p class="kpi-subtext">Documentos al día</p>
+    </section>
+    <section class="kpi-card">
+      <p class="kpi-label">Cartera vencida</p>
+      <p class="kpi-value">$<?= number_format($kpis['vencida'], 0, ',', '.') ?></p>
+      <p class="kpi-subtext">Exposición en mora</p>
+    </section>
+    <section class="kpi-card">
+      <p class="kpi-label">Total saldo</p>
+      <p class="kpi-value">$<?= number_format($kpis['saldo'], 0, ',', '.') ?></p>
+      <p class="kpi-subtext">Saldo consolidado</p>
+    </section>
+    <section class="kpi-card">
+      <p class="kpi-label">Documentos vencidos</p>
+      <p class="kpi-value"><?= number_format($kpis['docs_vencidos'], 0, ',', '.') ?></p>
+      <p class="kpi-subtext">Compromisos pendientes: <?= number_format($kpis['compromisos'], 0, ',', '.') ?></p>
+    </section>
 </div>
+
 <div class="card">
-<h3>Últimas cargas</h3>
-<table class="table"><tr><th>ID</th><th>Archivo</th><th>Estado</th><th>Registros</th><th>Usuario</th><th>Fecha</th></tr>
-<?php foreach($cargas as $c): ?>
-<tr><td><?= $c['id'] ?></td><td><?= htmlspecialchars($c['nombre_archivo']) ?></td><td><?= $c['estado'] ?></td><td><?= $c['total_registros'] ?></td><td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td><td><?= $c['fecha_carga'] ?></td></tr>
-<?php endforeach; ?></table>
+  <div class="card-header">
+    <h3>Últimas cargas</h3>
+    <?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?>
+      <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
+    <?php endif; ?>
+  </div>
+  <table class="table">
+    <tr><th>ID</th><th>Archivo</th><th>Estado</th><th>Registros</th><th>Usuario</th><th>Fecha</th></tr>
+    <?php foreach ($cargas as $c): ?>
+      <?php
+        $statusBadge = ui_badge($c['estado'], 'info');
+        if ($c['estado'] === 'procesado') {
+            $statusBadge = ui_badge('Procesado', 'success');
+        } elseif ($c['estado'] === 'con_errores') {
+            $statusBadge = ui_badge('Con errores', 'danger');
+        } elseif ($c['estado'] === 'revertida') {
+            $statusBadge = ui_badge('Revertida', 'warning');
+        }
+      ?>
+      <tr>
+        <td><?= (int)$c['id'] ?></td>
+        <td><?= htmlspecialchars($c['nombre_archivo']) ?></td>
+        <td><?= $statusBadge ?></td>
+        <td><?= number_format((int)$c['total_registros'], 0, ',', '.') ?></td>
+        <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
+        <td><?= htmlspecialchars($c['fecha_carga']) ?></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
 </div>
+
 <div class="card">
   <?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?>
-    <a class="btn" href="/cargas/nueva.php">Cargar Cartera</a>
-    <a class="btn btn-muted" href="/cargas/historial.php">Historial de Cargas</a>
-    <a class="btn btn-muted" href="/gestion/lista.php">Gestión</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>">Cargar cartera</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Historial de cargas</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Gestión</a>
   <?php endif; ?>
-  <a class="btn" href="/cartera/lista.php">Consultar</a>
-  <a class="btn" href="/reportes/index.php">Reportes</a>
+  <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Consultar cartera</a>
+  <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('reportes/index.php')) ?>">Reportes</a>
 </div>
 <?php
 $content = ob_get_clean();

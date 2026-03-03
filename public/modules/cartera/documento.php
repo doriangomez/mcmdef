@@ -41,9 +41,9 @@ ob_start(); ?>
 </div>
 
 <?php if ($canManage && $document): ?>
-  <a class="btn" href="/gestion/nueva.php?documento_id=<?= $id ?>&cliente_id=<?= (int)$document['cliente_id'] ?>">Registrar gestión</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php?documento_id=' . $id . '&cliente_id=' . (int)$document['cliente_id'])) ?>">Registrar gestión</a>
 <?php endif; ?>
-<a class="btn btn-muted" href="/cartera/cliente.php?id_cliente=<?= (int)($document['cliente_id'] ?? 0) ?>">Volver al cliente</a>
+<a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)($document['cliente_id'] ?? 0))) ?>">Volver al cliente</a>
 
 <table class="table">
   <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado compromiso</th><th>Anulada</th><th>Usuario</th></tr>
@@ -53,7 +53,20 @@ ob_start(); ?>
       <td><?= htmlspecialchars($gestion['tipo_gestion']) ?></td>
       <td><?= htmlspecialchars($gestion['descripcion']) ?></td>
       <td><?= htmlspecialchars((string)$gestion['fecha_compromiso']) ?> / <?= htmlspecialchars((string)$gestion['valor_compromiso']) ?></td>
-      <td><?= htmlspecialchars((string)$gestion['estado_compromiso']) ?></td>
+      <td>
+        <?php
+          $estado = strtolower((string)$gestion['estado_compromiso']);
+          if ($estado === 'pendiente') {
+              echo ui_badge('Pendiente', 'warning');
+          } elseif ($estado === 'cumplido') {
+              echo ui_badge('Cumplido', 'success');
+          } elseif ($estado === 'incumplido') {
+              echo ui_badge('Incumplido', 'danger');
+          } else {
+              echo ui_badge((string)$gestion['estado_compromiso'], 'default');
+          }
+        ?>
+      </td>
       <td><?= (int)$gestion['anulada'] === 1 ? 'Sí' : 'No' ?></td>
       <td><?= htmlspecialchars($gestion['usuario']) ?></td>
     </tr>
