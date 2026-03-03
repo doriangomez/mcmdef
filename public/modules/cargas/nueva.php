@@ -235,11 +235,24 @@ ob_start();
     }
 
     function tickProgress() {
-      if (progress >= 92) return;
-      var jump = Math.random() * 7;
-      progress = Math.min(92, progress + jump);
-      progressBar.style.width = progress.toFixed(0) + '%';
-      progressText.textContent = progress.toFixed(0) + '%';
+      if (progress < 78) {
+        progress += 4 + (Math.random() * 5);
+      } else if (progress < 92) {
+        progress += 1 + (Math.random() * 2.2);
+      } else if (progress < 97) {
+        progress += 0.45 + (Math.random() * 0.65);
+      } else if (progress < 99) {
+        progress += 0.12 + (Math.random() * 0.2);
+      }
+
+      progress = Math.min(99, progress);
+      progressBar.style.width = progress.toFixed(1) + '%';
+
+      if (progress >= 97) {
+        progressText.textContent = 'Finalizando validación...';
+      } else {
+        progressText.textContent = Math.round(progress) + '%';
+      }
     }
 
     function activateProcessingState() {
@@ -250,8 +263,8 @@ ob_start();
       submitBtn.disabled = true;
       submitBtn.textContent = 'Procesando...';
 
-      progressBar.style.width = progress.toFixed(0) + '%';
-      progressText.textContent = progress.toFixed(0) + '%';
+      progressBar.style.width = progress.toFixed(1) + '%';
+      progressText.textContent = Math.round(progress) + '%';
       progressTimer = window.setInterval(tickProgress, 450);
       window.addEventListener('beforeunload', beforeUnloadHandler);
       document.addEventListener('click', protectNavigationWhileProcessing, true);

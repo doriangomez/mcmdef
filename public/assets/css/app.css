@@ -427,6 +427,23 @@ a:hover {
   background: linear-gradient(90deg, #2DA8FF, #37D5D2);
   transition: width .35s ease;
   box-shadow: 0 0 18px rgba(55, 213, 210, 0.55);
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-processing-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 15%, rgba(255, 255, 255, 0.45) 50%, transparent 85%);
+  transform: translateX(-120%);
+  animation: mcmProgressShine 1.4s linear infinite;
+}
+
+@keyframes mcmProgressShine {
+  to {
+    transform: translateX(120%);
+  }
 }
 
 body.is-processing-upload {
