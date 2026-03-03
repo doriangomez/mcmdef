@@ -4,16 +4,34 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExcelImportService.php';
+require_once __DIR__ . '/../../../app/services/AuditService.php';
 
-require_role(['admin','analista']);
+require_role(['admin', 'analista']);
 $msg = '';
 $errors = [];
+$cargaId = null;
+$allowedExtensions = ['csv', 'xlsx', 'xls'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
     $file = $_FILES['archivo'];
-    if ($file['error'] === UPLOAD_ERR_OK) {
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        $errors[] = ['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Error al cargar archivo. Código: ' . $file['error']];
+    } else {
+        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($extension, $allowedExtensions, true)) {
+            $errors[] = ['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Formato no permitido. Use CSV o XLSX/XLS'];
+        } elseif (in_array($extension, ['xlsx', 'xls'], true) && !supports_xlsx_import()) {
+            $errors[] = [
+                'fila' => 0,
+                'campo' => 'archivo',
+                'motivo' => 'XLSX/XLS requiere PhpSpreadsheet vía Composer. Alternativa disponible: CSV.',
+            ];
+        }
+    }
+
+    if (empty($errors)) {
         $hash = hash_file('sha256', $file['tmp_name']);
-        $exists = $pdo->prepare('SELECT id FROM cargas_cartera WHERE hash_archivo=?');
+        $exists = $pdo->prepare('SELECT id FROM cargas_cartera WHERE hash_archivo = ? LIMIT 1');
         $exists->execute([$hash]);
         if ($exists->fetch()) {
             $errors[] = ['fila' => 0, 'campo' => 'hash_archivo', 'motivo' => 'Archivo ya cargado previamente'];
@@ -21,38 +39,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             $rows = parse_input_file($file['tmp_name']);
             $validation = validate_cartera_rows($rows);
             $errors = $validation['errors'];
-            $status = empty($errors) ? 'procesado' : 'con_errores';
-            $pdo->prepare('INSERT INTO cargas_cartera (nombre_archivo,hash_archivo,usuario_id,fecha_carga,total_registros,total_errores,estado,observaciones)
-                           VALUES (?,?,?,NOW(),?,?,?,?)')
-                ->execute([$file['name'],$hash,$_SESSION['user']['id'],max(0,count($rows)-1),count($errors),$status,'Carga inicial MVP']);
+            if (empty($errors)) {
+                $errors = array_merge($errors, validate_duplicate_keys_in_db($pdo, $validation['records']));
+            }
+            $recordCount = 0;
+            for ($i = 1, $totalRows = count($rows); $i < $totalRows; $i++) {
+                $hasData = false;
+                foreach ($rows[$i] as $value) {
+                    if (trim((string)$value) !== '') {
+                        $hasData = true;
+                        break;
+                    }
+                }
+                if ($hasData) {
+                    $recordCount++;
+                }
+            }
+
+            $insertLoad = $pdo->prepare(
+                'INSERT INTO cargas_cartera
+                 (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
+                 VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
+            );
+            $insertLoad->execute([
+                $file['name'],
+                $hash,
+                $_SESSION['user']['id'],
+                $recordCount,
+                count($errors),
+                'con_errores',
+                'Carga de cartera SAP',
+            ]);
             $cargaId = (int)$pdo->lastInsertId();
 
-            if (empty($errors)) {
-                $headers = $validation['headers'];
+            if (!empty($errors)) {
+                persist_carga_errors($pdo, $cargaId, $errors);
+                $msg = 'Se registró la carga con errores de validación. Revise el detalle de errores.';
+            } else {
                 try {
                     $pdo->beginTransaction();
-                    for ($i=1; $i<count($rows); $i++) {
-                        $r = array_combine($headers, array_pad($rows[$i], count($headers), ''));
-                        $stmt = $pdo->prepare('INSERT INTO clientes (nit,nombre,canal,regional,asesor_comercial,ejecutivo_cartera,uen,marca,created_at,updated_at)
-                            VALUES (?,?,?,?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), canal=VALUES(canal), regional=VALUES(regional),
-                            asesor_comercial=VALUES(asesor_comercial), ejecutivo_cartera=VALUES(ejecutivo_cartera), uen=VALUES(uen), marca=VALUES(marca), updated_at=NOW()');
-                        $stmt->execute([$r['nit'],$r['nombre_cliente'],$r['canal'],$r['regional'],$r['asesor_comercial'],$r['ejecutivo_cartera'],$r['uen'],$r['marca']]);
+                    $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
 
-                        $clientId = (int)$pdo->query("SELECT id FROM clientes WHERE nit=" . $pdo->quote($r['nit']) . " LIMIT 1")->fetchColumn();
-                        $diasMora = trim((string)$r['dias_mora']) !== '' ? (int)$r['dias_mora'] : max(0, (new DateTime($r['fecha_vencimiento']))->diff(new DateTime())->days);
-                        $estado = ((float)$r['saldo_actual'] <= 0) ? 'cancelado' : ($diasMora > 0 ? 'vencido' : 'vigente');
-
-                        $doc = $pdo->prepare('INSERT INTO documentos (cliente_id,tipo_documento,numero_documento,fecha_emision,fecha_vencimiento,valor_original,saldo_actual,dias_mora,periodo,estado_documento,carga_id,created_at,updated_at)
-                              VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
-                              ON DUPLICATE KEY UPDATE fecha_emision=VALUES(fecha_emision),fecha_vencimiento=VALUES(fecha_vencimiento),valor_original=VALUES(valor_original),
-                              saldo_actual=VALUES(saldo_actual),dias_mora=VALUES(dias_mora),periodo=VALUES(periodo),estado_documento=VALUES(estado_documento),carga_id=VALUES(carga_id),updated_at=NOW()');
-                        $doc->execute([$clientId,$r['tipo_documento'],$r['numero_documento'],$r['fecha_emision'],$r['fecha_vencimiento'],$r['valor_original'],$r['saldo_actual'],$diasMora,$r['periodo'],$estado,$cargaId]);
-                    }
+                    $updateLoad = $pdo->prepare(
+                        "UPDATE cargas_cartera
+                         SET total_nuevos = ?, total_actualizados = ?, estado = 'procesado', observaciones = ?, updated_at = NOW()
+                         WHERE id = ?"
+                    );
+                    $updateLoad->execute([
+                        $metrics['new_count'],
+                        $metrics['updated_count'],
+                        'Carga procesada correctamente',
+                        $cargaId,
+                    ]);
+                    audit_log($pdo, 'cargas_cartera', $cargaId, 'estado', 'con_errores', 'procesado', (int)$_SESSION['user']['id']);
                     $pdo->commit();
-                    $msg = 'Carga procesada correctamente. ID carga: ' . $cargaId;
-                } catch (Throwable $t) {
-                    $pdo->rollBack();
-                    $errors[] = ['fila' => 0, 'campo' => 'transacción', 'motivo' => $t->getMessage()];
+                    $msg = 'Carga procesada. ID #' . $cargaId
+                        . ' | Nuevos: ' . $metrics['new_count']
+                        . ' | Actualizados: ' . $metrics['updated_count'];
+                } catch (Throwable $exception) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $errors[] = ['fila' => 0, 'campo' => 'transacción', 'motivo' => $exception->getMessage()];
+                    persist_carga_errors($pdo, $cargaId, $errors);
+                    $updateLoad = $pdo->prepare(
+                        "UPDATE cargas_cartera
+                         SET total_errores = ?, estado = 'con_errores', observaciones = ?, updated_at = NOW()
+                         WHERE id = ?"
+                    );
+                    $updateLoad->execute([count($errors), 'Fallo en procesamiento', $cargaId]);
                 }
             }
         }
@@ -66,11 +121,19 @@ ob_start();
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= $e['fila'] ?> - <?= htmlspecialchars($e['campo']) ?>: <?= htmlspecialchars($e['motivo']) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <div class="card">
 <form method="post" enctype="multipart/form-data">
-    <p>Formato esperado CSV/XLSX: nit,nombre_cliente,tipo_documento,numero_documento,fecha_emision,fecha_vencimiento,valor_original,saldo_actual,dias_mora,periodo,canal,regional,asesor_comercial,ejecutivo_cartera,uen,marca</p>
-    <input type="file" name="archivo" required>
+    <p><strong>Plantilla esperada (orden exacto):</strong><br>
+      nit,nombre_cliente,tipo_documento,numero_documento,fecha_emision,fecha_vencimiento,valor_original,saldo_actual,dias_mora,periodo,canal,regional,asesor_comercial,ejecutivo_cartera,uen,marca
+    </p>
+    <p>Clave única de documento: <strong>nit + tipo_documento + numero_documento</strong>.</p>
+    <p>Días de mora: se usa valor del archivo; si viene vacío, se calcula con la fecha de vencimiento.</p>
+    <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>
+    <a class="btn btn-muted" href="/cargas/historial.php">Ver historial</a>
 </form>
 </div>
+<?php if ($cargaId): ?>
+    <p><a href="/cargas/detalle.php?id=<?= $cargaId ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>
+<?php endif; ?>
 <?php
 $content = ob_get_clean();
 render_layout('Carga cartera', $content);

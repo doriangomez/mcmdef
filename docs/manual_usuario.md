@@ -1,28 +1,112 @@
-# Manual de usuario (MVP)
+# Manual de usuario (MVP Fase 1)
 
-## 1. Ingreso
+## 1) Ingreso al sistema
 1. Abra `/login.php`.
-2. Ingrese correo y contraseña.
-3. Si el usuario está inactivo, el sistema mostrará mensaje.
+2. Ingrese correo o usuario y contraseña.
+3. Clic en **Ingresar**.
+4. Si el usuario está inactivo o las credenciales son inválidas, verá mensaje de error.
 
-## 2. Carga de cartera
-1. Ir a **Cargas > Nueva carga**.
-2. Subir archivo en formato esperado.
-3. Revisar errores por fila/columna (si aplica).
-4. Si no hay errores, la carga se procesa y queda en historial.
+## 2) Dashboard
+Ruta: `/index.php`
 
-## 3. Consulta de cartera
-1. Ir a **Cartera**.
-2. Aplicar filtros combinables (NIT, documento, canal, regional, etc.).
-3. Ver detalle de cliente y documento.
-4. Exportar CSV (según rol/política).
+Visualiza:
+- total cartera vigente,
+- total cartera vencida,
+- total saldo,
+- documentos vencidos,
+- compromisos pendientes,
+- últimas cargas registradas.
 
-## 4. Gestión y compromisos
-1. Desde Cliente o Documento, clic en **Registrar gestión**.
-2. Registrar tipo, descripción y compromiso opcional.
-3. Ver historial en módulo Gestión.
+Accesos rápidos:
+- Cargar cartera,
+- Historial de cargas,
+- Consulta de cartera,
+- Gestión,
+- Reportes.
 
-## 5. Reportes
-1. Ir a **Reportes**.
-2. Seleccionar tipo de reporte y filtros.
-3. Visualizar vista previa y exportar CSV (si rol lo permite).
+## 3) Carga de cartera (SAP)
+### 3.1 Nueva carga
+Ruta: `/cargas/nueva.php` (admin/analista)
+
+1. Cargue archivo CSV o XLSX/XLS.
+2. Respete la plantilla exacta y orden de columnas.
+3. Pulse **Validar y procesar**.
+
+Resultados posibles:
+- **Carga procesada**: indica cantidad de nuevos y actualizados.
+- **Carga con errores**: muestra errores por fila/campo/motivo.
+
+### 3.2 Historial y detalle
+- `/cargas/historial.php`
+- `/cargas/detalle.php?id=...`
+
+Desde detalle puede ver:
+- métricas de carga,
+- errores persistidos,
+- snapshot de registros importados.
+
+Si es administrador, puede **revertir** la última carga procesada.
+
+## 4) Consulta de cartera
+Ruta: `/cartera/lista.php`
+
+Filtros combinables:
+- cliente / NIT,
+- tipo y número de documento,
+- canal, regional,
+- asesor comercial, ejecutivo de cartera,
+- UEN, marca,
+- periodo,
+- rango de días de mora.
+
+Además:
+- ordenamiento por columna,
+- paginación,
+- exportación CSV (admin/analista).
+
+Detalle:
+- cliente: `/cartera/cliente.php?id_cliente=...`
+- documento: `/cartera/documento.php?id_documento=...`
+
+## 5) Bitácora de gestión y compromisos
+Rutas:
+- `/gestion/nueva.php`
+- `/gestion/lista.php`
+
+Flujo:
+1. Registre gestión (novedad, compromiso, seguimiento, etc.).
+2. Relacione cliente y/o documento.
+3. Defina compromiso opcional (fecha, valor, estado).
+4. Consulte historial con filtros.
+5. Si aplica, anule gestión con motivo (sin borrado físico).
+
+Estados de compromiso:
+- pendiente
+- cumplido
+- incumplido
+
+## 6) Reportes
+Ruta: `/reportes/index.php`
+
+Reportes incluidos:
+- cartera vigente y vencida,
+- mora por rangos,
+- cartera por canal,
+- cartera por UEN,
+- cartera por regional,
+- cartera por asesor,
+- compromisos y estado,
+- comparativo por periodo.
+
+Cada reporte tiene:
+- filtros,
+- vista previa tabular,
+- exportación CSV (según rol).
+
+## 7) Administración y auditoría (admin)
+- Usuarios: `/admin/usuarios.php`
+  - crear usuario,
+  - activar/inactivar,
+  - reset de contraseña temporal.
+- Auditoría: `/admin/auditoria.php`
+  - trazabilidad por tabla/campo/usuario/fecha.

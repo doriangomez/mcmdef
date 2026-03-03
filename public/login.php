@@ -9,10 +9,10 @@ if (is_logged_in()) {
 
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
+    $login = trim($_POST['login'] ?? '');
     $password = $_POST['password'] ?? '';
-    $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE email = ? LIMIT 1');
-    $stmt->execute([$email]);
+    $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE email = ? OR SUBSTRING_INDEX(email, "@", 1) = ? LIMIT 1');
+    $stmt->execute([$login, $login]);
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
@@ -27,16 +27,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><title>Login MCM</title><link rel="stylesheet" href="/assets/css/app.css"></head>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login MCM</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/img/logo-mcm.svg">
+    <link rel="stylesheet" href="/assets/css/app.css">
+</head>
 <body>
 <div class="login-wrap">
     <img src="/assets/img/logo-mcm.svg" alt="MCM" class="logo">
     <h2>Ingreso al sistema</h2>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
     <form method="post">
-        <div><input type="email" name="email" placeholder="Correo/usuario" required style="width:100%"></div><br>
+        <div><input type="text" name="login" placeholder="Correo/usuario" required style="width:100%" value="<?= htmlspecialchars($_POST['login'] ?? '') ?>"></div><br>
         <div><input type="password" name="password" placeholder="Contraseña" required style="width:100%"></div><br>
         <button class="btn" type="submit" style="width:100%">Ingresar</button>
     </form>
 </div>
-</body></html>
+</body>
+</html>

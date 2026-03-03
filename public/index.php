@@ -8,7 +8,7 @@ $kpis = [
     'vencida' => (float)$pdo->query("SELECT COALESCE(SUM(saldo_actual),0) FROM documentos WHERE estado_documento='vencido'")->fetchColumn(),
     'saldo' => (float)$pdo->query("SELECT COALESCE(SUM(saldo_actual),0) FROM documentos")->fetchColumn(),
     'docs_vencidos' => (int)$pdo->query("SELECT COUNT(*) FROM documentos WHERE estado_documento='vencido'")->fetchColumn(),
-    'compromisos' => (int)$pdo->query("SELECT COUNT(*) FROM gestiones WHERE estado_compromiso='pendiente'")->fetchColumn(),
+    'compromisos' => (int)$pdo->query("SELECT COUNT(*) FROM gestiones WHERE estado_compromiso='pendiente' AND anulada=0")->fetchColumn(),
 ];
 $cargas = $pdo->query("SELECT c.*, u.nombre as usuario FROM cargas_cartera c LEFT JOIN usuarios u ON u.id=c.usuario_id ORDER BY c.id DESC LIMIT 5")->fetchAll();
 
@@ -30,9 +30,13 @@ ob_start();
 <?php endforeach; ?></table>
 </div>
 <div class="card">
-  <a class="btn" href="/modules/cargas/nueva.php">Cargar Cartera</a>
-  <a class="btn" href="/modules/cartera/lista.php">Consultar</a>
-  <a class="btn" href="/modules/reportes/index.php">Reportes</a>
+  <?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?>
+    <a class="btn" href="/cargas/nueva.php">Cargar Cartera</a>
+    <a class="btn btn-muted" href="/cargas/historial.php">Historial de Cargas</a>
+    <a class="btn btn-muted" href="/gestion/lista.php">Gestión</a>
+  <?php endif; ?>
+  <a class="btn" href="/cartera/lista.php">Consultar</a>
+  <a class="btn" href="/reportes/index.php">Reportes</a>
 </div>
 <?php
 $content = ob_get_clean();
