@@ -10,6 +10,7 @@ nav a{margin-left:14px;color:var(--mcm-dark);text-decoration:none}
 .kpi{background:#fff;border-left:4px solid var(--mcm-blue);padding:12px;border-radius:6px}
 .table{width:100%;border-collapse:collapse;background:#fff}
 .table th,.table td{padding:8px;border:1px solid #ddd;font-size:14px}
+.table th a{color:var(--mcm-dark);text-decoration:none}
 .btn{background:var(--mcm-blue);color:#fff;padding:8px 12px;border:none;border-radius:4px;text-decoration:none;display:inline-block;cursor:pointer}
 .btn-muted{background:#555}
 form .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
@@ -18,3 +19,6 @@ input,select,textarea{padding:8px;border:1px solid #bbb;border-radius:4px}
 .alert-error{background:#ffd9d9}
 .alert-ok{background:#d9ffe5}
 .login-wrap{max-width:380px;margin:80px auto;background:#fff;padding:24px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.15);text-align:center}
+.pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+.inline-form{display:flex;gap:6px;align-items:center}
+label{display:flex;align-items:center;gap:6px}

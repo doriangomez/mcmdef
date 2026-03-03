@@ -6,40 +6,172 @@ require_once __DIR__ . '/../../../app/services/ExportService.php';
 
 $tipo = $_GET['tipo'] ?? 'vigente_vencida';
 $periodo = trim($_GET['periodo'] ?? '');
-$where=''; $params=[];
-if($periodo!==''){ $where=' WHERE d.periodo=? '; $params[]=$periodo; }
+$canal = trim($_GET['canal'] ?? '');
+$regional = trim($_GET['regional'] ?? '');
+$uen = trim($_GET['uen'] ?? '');
+$asesor = trim($_GET['asesor'] ?? '');
+$estadoCompromiso = trim($_GET['estado_compromiso'] ?? '');
 
-$queries=[
-'vigente_vencida'=>"SELECT d.estado_documento categoria, SUM(d.saldo_actual) total FROM documentos d {$where} GROUP BY d.estado_documento",
-'mora_rangos'=>"SELECT CASE WHEN d.dias_mora BETWEEN 0 AND 30 THEN '0-30' WHEN d.dias_mora BETWEEN 31 AND 60 THEN '31-60' ELSE '61+' END categoria, SUM(d.saldo_actual) total FROM documentos d {$where} GROUP BY categoria",
-'canal'=>"SELECT c.canal categoria, SUM(d.saldo_actual) total FROM documentos d JOIN clientes c ON c.id=d.cliente_id {$where} GROUP BY c.canal",
-'uen'=>"SELECT c.uen categoria, SUM(d.saldo_actual) total FROM documentos d JOIN clientes c ON c.id=d.cliente_id {$where} GROUP BY c.uen",
-'regional'=>"SELECT c.regional categoria, SUM(d.saldo_actual) total FROM documentos d JOIN clientes c ON c.id=d.cliente_id {$where} GROUP BY c.regional",
-'asesor'=>"SELECT c.asesor_comercial categoria, SUM(d.saldo_actual) total FROM documentos d JOIN clientes c ON c.id=d.cliente_id {$where} GROUP BY c.asesor_comercial",
-'compromisos'=>"SELECT COALESCE(g.estado_compromiso,'sin_estado') categoria, COUNT(*) total FROM gestiones g GROUP BY g.estado_compromiso",
-'comparativo_periodo'=>"SELECT d.periodo categoria, SUM(d.saldo_actual) total FROM documentos d GROUP BY d.periodo ORDER BY d.periodo DESC"
-];
-$q=$queries[$tipo]??$queries['vigente_vencida'];
-$st=$pdo->prepare($q); $st->execute($params); $rows=$st->fetchAll();
+$docWhere = [];
+$docParams = [];
+if ($periodo !== '') {
+    $docWhere[] = 'd.periodo = ?';
+    $docParams[] = $periodo;
+}
+if ($canal !== '') {
+    $docWhere[] = 'c.canal LIKE ?';
+    $docParams[] = '%' . $canal . '%';
+}
+if ($regional !== '') {
+    $docWhere[] = 'c.regional LIKE ?';
+    $docParams[] = '%' . $regional . '%';
+}
+if ($uen !== '') {
+    $docWhere[] = 'c.uen LIKE ?';
+    $docParams[] = '%' . $uen . '%';
+}
+if ($asesor !== '') {
+    $docWhere[] = 'c.asesor_comercial LIKE ?';
+    $docParams[] = '%' . $asesor . '%';
+}
 
-if(isset($_GET['export']) && in_array(current_user()['rol'],['admin','analista'],true)){ export_csv('reporte_'.$tipo.'.csv',$rows); exit; }
+$docWhereSql = '';
+if (!empty($docWhere)) {
+    $docWhereSql = ' WHERE ' . implode(' AND ', $docWhere);
+}
+
+$rows = [];
+if ($tipo === 'vigente_vencida') {
+    $stmt = $pdo->prepare(
+        'SELECT d.estado_documento AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY d.estado_documento'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'mora_rangos') {
+    $stmt = $pdo->prepare(
+        "SELECT CASE
+                  WHEN d.dias_mora = 0 THEN '0'
+                  WHEN d.dias_mora BETWEEN 1 AND 30 THEN '1-30'
+                  WHEN d.dias_mora BETWEEN 31 AND 60 THEN '31-60'
+                  WHEN d.dias_mora BETWEEN 61 AND 90 THEN '61-90'
+                  ELSE '91+'
+                END AS categoria,
+                SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id"
+        . $docWhereSql .
+        ' GROUP BY categoria'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'canal') {
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(c.canal, "sin_canal") AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY c.canal'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'uen') {
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(c.uen, "sin_uen") AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY c.uen'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'regional') {
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(c.regional, "sin_regional") AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY c.regional'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'asesor') {
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(c.asesor_comercial, "sin_asesor") AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY c.asesor_comercial'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+} elseif ($tipo === 'compromisos') {
+    $gestionWhere = ['g.anulada = 0'];
+    $gestionParams = [];
+    if ($estadoCompromiso !== '') {
+        $gestionWhere[] = 'g.estado_compromiso = ?';
+        $gestionParams[] = $estadoCompromiso;
+    }
+    $gestionWhereSql = ' WHERE ' . implode(' AND ', $gestionWhere);
+
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(g.estado_compromiso, "sin_estado") AS categoria, COUNT(*) AS total
+         FROM gestiones g'
+        . $gestionWhereSql .
+        ' GROUP BY g.estado_compromiso'
+    );
+    $stmt->execute($gestionParams);
+    $rows = $stmt->fetchAll();
+} else {
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(d.periodo, "sin_periodo") AS categoria, SUM(d.saldo_actual) AS total
+         FROM documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id'
+        . $docWhereSql .
+        ' GROUP BY d.periodo
+           ORDER BY d.periodo DESC'
+    );
+    $stmt->execute($docParams);
+    $rows = $stmt->fetchAll();
+}
+
+if (isset($_GET['export']) && in_array(current_user()['rol'], ['admin', 'analista'], true)) {
+    export_csv('reporte_' . $tipo . '.csv', $rows);
+    exit;
+}
 
 ob_start(); ?>
 <h1>Reportes operativos</h1>
 <form class="card"><div class="row">
 <select name="tipo">
-<option value="vigente_vencida" <?= $tipo==='vigente_vencida'?'selected':'' ?>>Cartera vigente y vencida</option>
-<option value="mora_rangos" <?= $tipo==='mora_rangos'?'selected':'' ?>>Mora por rangos</option>
-<option value="canal" <?= $tipo==='canal'?'selected':'' ?>>Cartera por canal</option>
-<option value="uen" <?= $tipo==='uen'?'selected':'' ?>>Cartera por UEN</option>
-<option value="regional" <?= $tipo==='regional'?'selected':'' ?>>Cartera por regional</option>
-<option value="asesor" <?= $tipo==='asesor'?'selected':'' ?>>Cartera por asesor</option>
-<option value="compromisos" <?= $tipo==='compromisos'?'selected':'' ?>>Compromisos y estado</option>
-<option value="comparativo_periodo" <?= $tipo==='comparativo_periodo'?'selected':'' ?>>Comparativo por periodo</option>
+<option value="vigente_vencida" <?= $tipo === 'vigente_vencida' ? 'selected' : '' ?>>Cartera vigente y vencida</option>
+<option value="mora_rangos" <?= $tipo === 'mora_rangos' ? 'selected' : '' ?>>Mora por rangos</option>
+<option value="canal" <?= $tipo === 'canal' ? 'selected' : '' ?>>Cartera por canal</option>
+<option value="uen" <?= $tipo === 'uen' ? 'selected' : '' ?>>Cartera por UEN</option>
+<option value="regional" <?= $tipo === 'regional' ? 'selected' : '' ?>>Cartera por regional</option>
+<option value="asesor" <?= $tipo === 'asesor' ? 'selected' : '' ?>>Cartera por asesor</option>
+<option value="compromisos" <?= $tipo === 'compromisos' ? 'selected' : '' ?>>Compromisos registrados y estado</option>
+<option value="comparativo_periodo" <?= $tipo === 'comparativo_periodo' ? 'selected' : '' ?>>Comparativo por periodo</option>
 </select>
 <input name="periodo" placeholder="Periodo (opcional)" value="<?= htmlspecialchars($periodo) ?>">
+<input name="canal" placeholder="Canal (opcional)" value="<?= htmlspecialchars($canal) ?>">
+<input name="regional" placeholder="Regional (opcional)" value="<?= htmlspecialchars($regional) ?>">
+<input name="uen" placeholder="UEN (opcional)" value="<?= htmlspecialchars($uen) ?>">
+<input name="asesor" placeholder="Asesor (opcional)" value="<?= htmlspecialchars($asesor) ?>">
+<select name="estado_compromiso">
+  <option value="">Estado compromiso (reportes de compromiso)</option>
+  <option value="pendiente" <?= $estadoCompromiso === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
+  <option value="cumplido" <?= $estadoCompromiso === 'cumplido' ? 'selected' : '' ?>>Cumplido</option>
+  <option value="incumplido" <?= $estadoCompromiso === 'incumplido' ? 'selected' : '' ?>>Incumplido</option>
+</select>
 <button class="btn">Ver</button>
-<?php if(in_array(current_user()['rol'],['admin','analista'],true)): ?><button class="btn btn-muted" name="export" value="1">Exportar CSV</button><?php endif; ?>
+<a class="btn btn-muted" href="/reportes/index.php">Limpiar</a>
+<?php if (in_array(current_user()['rol'], ['admin', 'analista'], true)): ?><button class="btn btn-muted" name="export" value="1">Exportar CSV</button><?php endif; ?>
 </div></form>
-<table class="table"><tr><th>Categoría</th><th>Total</th></tr><?php foreach($rows as $r): ?><tr><td><?= htmlspecialchars((string)$r['categoria']) ?></td><td><?= number_format((float)$r['total'],0,',','.') ?></td></tr><?php endforeach; ?></table>
-<?php $content=ob_get_clean(); render_layout('Reportes',$content);
+<table class="table"><tr><th>Categoría</th><th>Total</th></tr><?php foreach($rows as $r): ?><tr><td><?= htmlspecialchars((string)$r['categoria']) ?></td><td><?= number_format((float)$r['total'],2,',','.') ?></td></tr><?php endforeach; ?></table>
+<?php
+$content = ob_get_clean();
+render_layout('Reportes', $content);

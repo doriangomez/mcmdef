@@ -10,11 +10,18 @@ $user = current_user();
   <?php if ($user): ?>
     <nav>
       <a href="/index.php">Dashboard</a>
-      <a href="/modules/cargas/nueva.php">Cargas</a>
-      <a href="/modules/cartera/lista.php">Cartera</a>
-      <a href="/modules/gestion/lista.php">Gestión</a>
-      <a href="/modules/reportes/index.php">Reportes</a>
-      <?php if ($user['rol'] === 'admin'): ?><a href="/modules/admin/usuarios.php">Usuarios</a><?php endif; ?>
+      <?php if (in_array($user['rol'], ['admin', 'analista'], true)): ?>
+        <a href="/cargas/nueva.php">Cargas</a>
+      <?php endif; ?>
+      <a href="/cartera/lista.php">Cartera</a>
+      <?php if (in_array($user['rol'], ['admin', 'analista'], true)): ?>
+        <a href="/gestion/lista.php">Gestión</a>
+      <?php endif; ?>
+      <a href="/reportes/index.php">Reportes</a>
+      <?php if ($user['rol'] === 'admin'): ?>
+        <a href="/admin/usuarios.php">Usuarios</a>
+        <a href="/admin/auditoria.php">Auditoría</a>
+      <?php endif; ?>
       <a href="/logout.php">Salir</a>
     </nav>
   <?php endif; ?>
