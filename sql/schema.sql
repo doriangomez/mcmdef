@@ -26,8 +26,6 @@ CREATE TABLE IF NOT EXISTS cargas_cartera (
     observaciones TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    KEY idx_carga_fecha (fecha_carga),
-    KEY idx_carga_estado (estado),
     CONSTRAINT fk_carga_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
@@ -38,77 +36,53 @@ CREATE TABLE IF NOT EXISTS carga_errores (
     campo VARCHAR(80) NOT NULL,
     motivo VARCHAR(255) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_error_carga (carga_id),
     CONSTRAINT fk_carga_error FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
 );
 
 CREATE TABLE IF NOT EXISTS clientes (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    nit VARCHAR(30) NOT NULL,
+    cuenta VARCHAR(80) NOT NULL,
     nombre VARCHAR(180) NOT NULL,
+    nit VARCHAR(30) NOT NULL,
+    direccion VARCHAR(220) NULL,
+    contacto VARCHAR(120) NULL,
+    telefono VARCHAR(60) NULL,
     canal VARCHAR(80) NULL,
     regional VARCHAR(80) NULL,
-    asesor_comercial VARCHAR(120) NULL,
-    ejecutivo_cartera VARCHAR(120) NULL,
-    uen VARCHAR(120) NULL,
-    marca VARCHAR(120) NULL,
+    empleado_ventas VARCHAR(120) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_nit (nit),
-    KEY idx_cliente_nit (nit),
-    KEY idx_cliente_canal (canal),
+    UNIQUE KEY uk_cliente_cuenta (cuenta),
     KEY idx_cliente_regional (regional),
-    KEY idx_cliente_uen (uen),
-    KEY idx_cliente_marca (marca)
+    KEY idx_cliente_canal (canal)
 );
 
-CREATE TABLE IF NOT EXISTS documentos (
+CREATE TABLE IF NOT EXISTS documentos_cartera (
     id INT AUTO_INCREMENT PRIMARY KEY,
     cliente_id INT NOT NULL,
-    tipo_documento ENUM('Factura', 'NC') NOT NULL,
-    numero_documento VARCHAR(80) NOT NULL,
-    fecha_emision DATE NOT NULL,
+    nro_documento VARCHAR(80) NOT NULL,
+    nro_ref_cliente VARCHAR(80) NULL,
+    tipo VARCHAR(50) NOT NULL,
+    fecha_contabilizacion DATE NOT NULL,
     fecha_vencimiento DATE NOT NULL,
-    valor_original DECIMAL(16,2) NOT NULL,
-    saldo_actual DECIMAL(16,2) NOT NULL,
-    dias_mora INT NOT NULL DEFAULT 0,
-    periodo VARCHAR(20) NULL,
-    estado_documento ENUM('vigente', 'vencido', 'cancelado') NOT NULL,
-    id_carga_origen INT NOT NULL,
+    valor_documento DECIMAL(16,2) NOT NULL,
+    saldo_pendiente DECIMAL(16,2) NOT NULL,
+    moneda VARCHAR(12) NOT NULL,
+    dias_vencido INT NOT NULL DEFAULT 0,
+    bucket_actual DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_1_30 DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_31_60 DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_61_90 DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_91_180 DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_181_360 DECIMAL(16,2) NOT NULL DEFAULT 0,
+    bucket_361_plus DECIMAL(16,2) NOT NULL DEFAULT 0,
+    carga_id INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_doc (cliente_id, tipo_documento, numero_documento),
-    KEY idx_doc_periodo (periodo),
-    KEY idx_doc_mora (dias_mora),
-    KEY idx_doc_estado (estado_documento),
-    KEY idx_doc_origen (id_carga_origen),
+    UNIQUE KEY uk_doc_cartera (cliente_id, nro_documento, tipo, fecha_contabilizacion),
+    KEY idx_doc_vencido (dias_vencido),
     CONSTRAINT fk_doc_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
-    CONSTRAINT fk_doc_carga_origen FOREIGN KEY (id_carga_origen) REFERENCES cargas_cartera(id)
-);
-
-CREATE TABLE IF NOT EXISTS documentos_snapshot (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    carga_id INT NOT NULL,
-    nit VARCHAR(30) NOT NULL,
-    nombre_cliente VARCHAR(180) NOT NULL,
-    tipo_documento ENUM('Factura', 'NC') NOT NULL,
-    numero_documento VARCHAR(80) NOT NULL,
-    fecha_emision DATE NOT NULL,
-    fecha_vencimiento DATE NOT NULL,
-    valor_original DECIMAL(16,2) NOT NULL,
-    saldo_actual DECIMAL(16,2) NOT NULL,
-    dias_mora INT NOT NULL DEFAULT 0,
-    periodo VARCHAR(20) NULL,
-    canal VARCHAR(80) NULL,
-    regional VARCHAR(80) NULL,
-    asesor_comercial VARCHAR(120) NULL,
-    ejecutivo_cartera VARCHAR(120) NULL,
-    uen VARCHAR(120) NULL,
-    marca VARCHAR(120) NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_snapshot_row (carga_id, nit, tipo_documento, numero_documento),
-    KEY idx_snapshot_lookup (nit, tipo_documento, numero_documento, carga_id),
-    CONSTRAINT fk_snapshot_carga FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
+    CONSTRAINT fk_doc_carga_origen FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
 );
 
 CREATE TABLE IF NOT EXISTS gestiones (
@@ -124,11 +98,8 @@ CREATE TABLE IF NOT EXISTS gestiones (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     anulada TINYINT(1) NOT NULL DEFAULT 0,
     motivo_anulacion VARCHAR(255) NULL,
-    KEY idx_gestion_tipo (tipo_gestion),
-    KEY idx_gestion_estado (estado_compromiso),
-    KEY idx_gestion_created (created_at),
     CONSTRAINT fk_g_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
-    CONSTRAINT fk_g_documento FOREIGN KEY (documento_id) REFERENCES documentos(id),
+    CONSTRAINT fk_g_documento FOREIGN KEY (documento_id) REFERENCES documentos_cartera(id),
     CONSTRAINT fk_g_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
@@ -141,9 +112,6 @@ CREATE TABLE IF NOT EXISTS auditoria_log (
     valor_nuevo TEXT NULL,
     usuario_id INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_aud_tabla (tabla),
-    KEY idx_aud_usuario (usuario_id),
-    KEY idx_aud_fecha (created_at),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 

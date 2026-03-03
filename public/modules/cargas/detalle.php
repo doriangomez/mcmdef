@@ -49,10 +49,11 @@ $cargaStmt->execute([$id]);
 $carga = $cargaStmt->fetch();
 
 $snapshotStmt = $pdo->prepare(
-    'SELECT nit, nombre_cliente, tipo_documento, numero_documento, saldo_actual, dias_mora
-     FROM documentos_snapshot
-     WHERE carga_id = ?
-     ORDER BY id DESC
+    'SELECT c.nit, c.nombre AS nombre_cliente, d.tipo AS tipo_documento, d.nro_documento AS numero_documento, d.saldo_pendiente AS saldo_actual, d.dias_vencido AS dias_mora
+     FROM documentos_cartera d
+     INNER JOIN clientes c ON c.id = d.cliente_id
+     WHERE d.carga_id = ?
+     ORDER BY d.id DESC
      LIMIT 100'
 );
 $snapshotStmt->execute([$id]);
@@ -110,7 +111,7 @@ ob_start(); ?>
   </table>
 <?php endif; ?>
 
-<h3>Registros de la carga (snapshot)</h3>
+<h3>Registros de la carga</h3>
 <table class="table">
   <tr><th>NIT</th><th>Cliente</th><th>Tipo</th><th>Número</th><th>Saldo</th><th>Días mora</th></tr>
   <?php foreach ($rows as $r): ?>

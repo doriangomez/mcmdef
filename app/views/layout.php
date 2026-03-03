@@ -98,14 +98,6 @@ function render_layout(string $title, string $content): void
         ],
         [
             'section' => 'Configuración',
-            'label' => 'Parametrización analítica',
-            'icon' => 'fa-solid fa-chart-line',
-            'url' => 'admin/configuracion.php?tab=analitica',
-            'match' => ['/admin/configuracion.php', '/modules/admin/configuracion.php'],
-            'roles' => ['admin'],
-        ],
-        [
-            'section' => 'Configuración',
             'label' => 'Gestión avanzada de roles',
             'icon' => 'fa-solid fa-user-shield',
             'url' => 'admin/configuracion.php?tab=roles',
@@ -143,7 +135,7 @@ function render_layout(string $title, string $content): void
           <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="sidebar-logo">
           <div>
             <div class="sidebar-brand-title">MCM</div>
-            <div class="sidebar-brand-subtitle">Plataforma Corporativa de Cartera</div>
+            <div class="sidebar-brand-subtitle">Cartera y Recaudos</div>
           </div>
         </div>
         <nav class="sidebar-nav">
@@ -176,7 +168,7 @@ function render_layout(string $title, string $content): void
           <div class="topbar-title-wrap">
             <p class="topbar-greeting">Hola, <?= htmlspecialchars((string)($user['nombre'] ?? 'equipo')) ?></p>
             <h1 class="topbar-title"><?= htmlspecialchars($title) ?></h1>
-            <p class="topbar-subtitle">Sistema de Gestión de Cartera y Recaudos</p>
+            <p class="topbar-subtitle">Centro analítico estratégico de cartera y recaudos</p>
           </div>
           <div class="topbar-user" id="topbarUserMenu">
             <button class="user-menu-trigger" id="userMenuToggle" type="button" aria-label="Abrir menú de usuario" aria-expanded="false">

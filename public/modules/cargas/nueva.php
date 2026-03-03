@@ -122,10 +122,10 @@ ob_start();
 <div class="card">
 <form method="post" enctype="multipart/form-data">
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
-      nit,nombre_cliente,tipo_documento,numero_documento,fecha_emision,fecha_vencimiento,valor_original,saldo_actual,dias_mora,periodo,canal,regional,asesor_comercial,ejecutivo_cartera,uen,marca
+      #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_plus_dias
     </p>
-    <p>Clave única de documento: <strong>nit + tipo_documento + numero_documento</strong>.</p>
-    <p>Días de mora: se usa valor del archivo; si viene vacío, se calcula con la fecha de vencimiento.</p>
+    <p>Clave única de documento: <strong>cuenta + nro_documento + tipo + fecha_contabilizacion</strong>.</p>
+    <p>Días vencido: se usa valor del archivo; si viene vacío, se calcula con fecha_vencimiento. Se permite saldo_pendiente negativo y nro_ref_de_cliente puede venir vacío.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
