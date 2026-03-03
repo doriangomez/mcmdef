@@ -82,10 +82,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             }
 
             if (!$hayErrorEstructural && empty($errors)) {
-                $duplicateErrors = validate_duplicate_keys_in_db($pdo, $validation['records']);
-                if (!empty($duplicateErrors)) {
-                    $errors = array_merge($errors, $duplicateErrors);
+                try {
+                    if (!table_exists($pdo, 'cartera_documentos')) {
+                        throw new RuntimeException('La tabla cartera_documentos no existe. Ejecute sql/schema.sql antes de cargar archivos.');
+                    }
+
+                    $duplicateErrors = validate_duplicate_keys_in_db($pdo, $validation['records']);
+                    if (!empty($duplicateErrors)) {
+                        $errors = array_merge($errors, $duplicateErrors);
+                        $hayErrores = true;
+                    }
+                } catch (Throwable $exception) {
+                    $errors[] = build_validation_error(0, 'base_datos', '', 'No fue posible validar duplicados: ' . $exception->getMessage());
                     $hayErrores = true;
+                    $hayErrorEstructural = true;
                 }
             }
 

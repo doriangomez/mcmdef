@@ -1,5 +1,8 @@
 <?php
 
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+
 if (!defined('APP_BASE_URL')) {
     $configuredBase = getenv('APP_BASE_URL');
     if (is_string($configuredBase) && trim($configuredBase) !== '') {
@@ -23,6 +26,13 @@ if (!function_exists('app_base_url')) {
     function app_base_url(): string
     {
         return APP_BASE_URL;
+    }
+}
+
+if (!function_exists('app_starts_with')) {
+    function app_starts_with(string $haystack, string $needle): bool
+    {
+        return $needle === '' || strncmp($haystack, $needle, strlen($needle)) === 0;
     }
 }
 
@@ -52,7 +62,7 @@ if (!function_exists('app_request_path')) {
         }
 
         $base = app_base_url();
-        if ($base !== '' && str_starts_with($uriPath, $base)) {
+        if ($base !== '' && app_starts_with($uriPath, $base)) {
             $uriPath = substr($uriPath, strlen($base));
         }
 
@@ -76,7 +86,7 @@ if (!function_exists('app_route_is')) {
             }
 
             $prefix = rtrim($normalized, '/') . '/';
-            if (str_starts_with($current, $prefix)) {
+            if (app_starts_with($current, $prefix)) {
                 return true;
             }
         }
