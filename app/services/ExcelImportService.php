@@ -34,6 +34,22 @@ function cartera_expected_headers(): array
     ];
 }
 
+function cartera_expected_required_headers(): array
+{
+    return [
+        'cuenta',
+        'cliente',
+        'nit',
+        'nro_documento',
+        'tipo',
+        'fecha_contabilizacion',
+        'fecha_vencimiento',
+        'valor_documento',
+        'saldo_pendiente',
+        'moneda',
+    ];
+}
+
 function normalize_header_name(string $header): string
 {
     $header = trim($header);
@@ -64,19 +80,24 @@ function normalize_header_name(string $header): string
 
 function supports_xlsx_import(): bool
 {
-    $vendorAutoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
-    if (is_file($vendorAutoload)) {
-        require_once $vendorAutoload;
-    }
-    return class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory');
+    return class_exists('\Shuchkin\SimpleXLSX');
 }
 
-function parse_input_file(string $path): array
+function parse_input_file(string $path, string $extension = ''): array
 {
-    if (supports_xlsx_import() && class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
-        return $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+    $extension = strtolower($extension);
+    if (in_array($extension, ['xlsx', 'xls'], true)) {
+        if (!supports_xlsx_import()) {
+            throw new RuntimeException('SimpleXLSX no está disponible.');
+        }
+
+        if ($xlsx = \Shuchkin\SimpleXLSX::parse($path)) {
+            return $xlsx->rows();
+        }
+
+        throw new RuntimeException(\Shuchkin\SimpleXLSX::parseError());
     }
+
     return parse_csv_rows($path);
 }
 
@@ -181,13 +202,12 @@ function validate_cartera_rows(array $rows): array
         return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => []];
     }
 
-    if (count($rows[0]) !== count($expected)) {
-        return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', count($rows[0]), 'Estructura inválida. Se esperaban exactamente 26 columnas')], 'headers' => $expected, 'records' => []];
-    }
-
     $headers = array_map(static fn($h): string => normalize_header_name((string)$h), $rows[0]);
-    if ($headers !== $expected) {
-        return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', implode(', ', $headers), 'Estructura inválida. Orden esperado: ' . implode(', ', $expected))], 'headers' => $expected, 'records' => []];
+    $requiredHeaders = cartera_expected_required_headers();
+    foreach ($requiredHeaders as $col) {
+        if (!in_array($col, $headers, true)) {
+            return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', $col, 'Falta la columna obligatoria: ' . $col)], 'headers' => $expected, 'records' => []];
+        }
     }
 
     $errors = [];
@@ -198,9 +218,15 @@ function validate_cartera_rows(array $rows): array
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
-        $rowData = array_combine($expected, array_pad($rows[$i], count($expected), ''));
-        if ($rowData === false) {
-            continue;
+        $normalizedRow = array_pad($rows[$i], count($headers), '');
+        $byHeader = [];
+        foreach ($headers as $idx => $headerName) {
+            $byHeader[$headerName] = $normalizedRow[$idx] ?? '';
+        }
+
+        $rowData = [];
+        foreach ($expected as $headerName) {
+            $rowData[$headerName] = $byHeader[$headerName] ?? '';
         }
 
         if (count(array_filter($rowData, static fn($v): bool => trim((string)$v) !== '')) === 0) {
@@ -236,6 +262,12 @@ function validate_cartera_rows(array $rows): array
 
         $valorDoc = normalize_decimal_value($rowData['valor_documento']);
         $saldoPend = normalize_decimal_value($rowData['saldo_pendiente']);
+        if ($valorDoc !== null && $valorDoc < 0) {
+            $errors[] = build_validation_error($excelRow, 'valor_documento', $rowData['valor_documento'], 'Valores negativos no permitidos');
+        }
+        if ($saldoPend !== null && $saldoPend < 0) {
+            $errors[] = build_validation_error($excelRow, 'saldo_pendiente', $rowData['saldo_pendiente'], 'Valores negativos no permitidos');
+        }
         $bucketActual = normalize_decimal_value($rowData['actual']) ?? 0.0;
         $bucket1_30 = normalize_decimal_value($rowData['1_30_dias']) ?? 0.0;
         $bucket31_60 = normalize_decimal_value($rowData['31_60_dias']) ?? 0.0;
