@@ -185,9 +185,11 @@ ob_start();
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
 </form>
 </div>
+
 <?php if ($cargaId): ?>
     <p><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . $cargaId)) ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>
 <?php endif; ?>
+
 <?php
 $content = ob_get_clean();
 render_layout('Carga cartera', $content);
