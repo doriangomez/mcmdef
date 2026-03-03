@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExcelImportService.php';
+require_once __DIR__ . '/../../../app/libraries/SimpleXLSX.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
 
 require_role(['admin', 'analista']);
@@ -47,8 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (!in_array($extension, $allowedExtensions, true)) {
             $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', 'Formato no permitido. Use CSV o XLSX/XLS');
-        } elseif (in_array($extension, ['xlsx', 'xls'], true) && !supports_xlsx_import()) {
-            $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', 'XLSX/XLS requiere PhpSpreadsheet vía Composer. Alternativa disponible: CSV.');
         }
     }
 
@@ -59,7 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
         if ($exists->fetch()) {
             $errors[] = build_validation_error(0, 'hash_archivo', $file['name'] ?? '', 'Archivo ya cargado previamente');
         } else {
-            $rows = parse_input_file($file['tmp_name']);
+            try {
+                $rows = parse_input_file($file['tmp_name'], $extension);
+            } catch (Throwable $exception) {
+                $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', $exception->getMessage());
+                $rows = [];
+            }
             $validation = validate_cartera_rows($rows);
             $errors = $validation['errors'];
             if (empty($errors)) {
@@ -152,7 +156,7 @@ ob_start();
       #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_plus_dias
     </p>
     <p>Clave única de documento: <strong>cuenta + nro_documento + tipo + fecha_contabilizacion</strong>.</p>
-    <p>Días vencido: se usa valor del archivo; si viene vacío, se calcula con fecha_vencimiento. Se permite saldo_pendiente negativo y nro_ref_de_cliente puede venir vacío.</p>
+    <p>Días vencido: se usa valor del archivo; si viene vacío, se calcula con fecha_vencimiento. No se permiten valores negativos en valor_documento ni saldo_pendiente y nro_ref_de_cliente puede venir vacío.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
