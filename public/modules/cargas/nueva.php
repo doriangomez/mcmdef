@@ -175,13 +175,13 @@ ob_start();
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if($estadoCarga === 'exitosa' && $summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
 <div class="card">
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" id="uploadCarteraForm" novalidate>
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
       #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
     </p>
     <p>Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio, y procesamiento batch de 1000 registros.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
-    <button class="btn" type="submit">Validar y procesar</button>
+    <button class="btn" type="submit" id="uploadSubmitBtn">Validar y procesar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
 </form>
 </div>
