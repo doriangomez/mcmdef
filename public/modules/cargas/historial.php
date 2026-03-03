@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borra
                 }
             }
 
-            audit_log($pdo, 'cargas_cartera', null, 'borrado_masivo_temporal', null, null, (int)current_user()['id']);
+            audit_log($pdo, 'cargas_cartera', 0, 'borrado_masivo_temporal', null, 'tablas=' . implode(',', $tablesToClear), (int)current_user()['id']);
             $pdo->commit();
             $msg = 'Se eliminaron temporalmente todos los datos de cargue para pruebas.';
         } catch (Throwable $exception) {
