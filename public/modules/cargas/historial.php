@@ -3,7 +3,34 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/AuditService.php';
 require_role(['admin', 'analista']);
+
+$msg = '';
+$errorMsg = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borrar_datos_cargue') {
+    if (current_user()['rol'] !== 'admin') {
+        $errorMsg = 'Solo el administrador puede borrar los datos del cargue.';
+    } else {
+        try {
+            $pdo->beginTransaction();
+            $pdo->exec('DELETE FROM bitacora_gestion');
+            $pdo->exec('DELETE FROM cartera_documentos');
+            $pdo->exec('DELETE FROM carga_errores');
+            $pdo->exec('DELETE FROM cargas_cartera');
+            $pdo->exec('DELETE FROM clientes');
+            audit_log($pdo, 'cargas_cartera', null, 'borrado_masivo_temporal', null, null, (int)current_user()['id']);
+            $pdo->commit();
+            $msg = 'Se eliminaron temporalmente todos los datos de cargue para pruebas.';
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errorMsg = 'No fue posible borrar los datos de cargue: ' . $exception->getMessage();
+        }
+    }
+}
 
 $cargas = $pdo->query(
     'SELECT c.*, u.nombre AS usuario
@@ -14,8 +41,16 @@ $cargas = $pdo->query(
 
 ob_start(); ?>
 <h1>Historial de cargas</h1>
+<?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+<?php if ($errorMsg): ?><div class="alert alert-error"><?= htmlspecialchars($errorMsg) ?></div><?php endif; ?>
 <div class="card">
   <a class="btn" href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>">Nueva carga</a>
+  <?php if (current_user()['rol'] === 'admin'): ?>
+    <form method="post" class="inline-form" onsubmit="return confirm('¿Seguro que quieres borrar TODOS los datos del cargue? Esta acción es temporal y no se puede deshacer.');">
+      <input type="hidden" name="action" value="borrar_datos_cargue">
+      <button class="btn btn-danger" type="submit">Borrar datos de cargue (temporal)</button>
+    </form>
+  <?php endif; ?>
 </div>
 <table class="table">
   <tr>
