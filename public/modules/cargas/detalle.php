@@ -39,6 +39,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'rever
     }
 }
 
+
+if (isset($_GET['export']) && $_GET['export'] === 'errores') {
+    require_once __DIR__ . '/../../../app/services/ExportService.php';
+    $expStmt = $pdo->prepare(
+        'SELECT fila_excel AS fila, campo, motivo
+         FROM carga_errores
+         WHERE carga_id = ?
+         ORDER BY id ASC'
+    );
+    $expStmt->execute([$id]);
+    $exportRows = $expStmt->fetchAll();
+    if (empty($exportRows)) {
+        $exportRows = [['fila' => '', 'campo' => '', 'motivo' => 'Sin errores registrados']];
+    }
+    export_csv('errores_carga_' . $id . '.csv', $exportRows);
+}
+
 $cargaStmt = $pdo->prepare(
     'SELECT c.*, u.nombre AS usuario
      FROM cargas_cartera c
@@ -96,6 +113,7 @@ ob_start(); ?>
 </div>
 
 <h3>Errores de validación/proceso</h3>
+<p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . $id . '&export=errores')) ?>">Descargar reporte de errores (CSV)</a></p>
 <?php if (empty($errorRows)): ?>
   <div class="card">Sin errores registrados.</div>
 <?php else: ?>

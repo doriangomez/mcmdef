@@ -37,6 +37,9 @@ function cartera_expected_headers(): array
 function normalize_header_name(string $header): string
 {
     $header = trim($header);
+    if ($header === '#') {
+        return '#';
+    }
     $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header) ?: $header;
     $header = strtolower($header);
     $header = str_replace('+', ' plus ', $header);
@@ -112,14 +115,27 @@ function normalize_date_value(mixed $value): ?string
         $base = new DateTimeImmutable('1899-12-30');
         return $base->modify('+' . (int)$raw . ' days')->format('Y-m-d');
     }
-    foreach (['d/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d'] as $format) {
-        $dt = DateTimeImmutable::createFromFormat('!' . $format, $raw);
-        if ($dt instanceof DateTimeImmutable) {
-            return $dt->format('Y-m-d');
-        }
+
+    if (!preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $raw)) {
+        return null;
     }
-    $timestamp = strtotime($raw);
-    return $timestamp === false ? null : date('Y-m-d', $timestamp);
+
+    $dt = DateTimeImmutable::createFromFormat('!d/m/Y', $raw);
+    if (!($dt instanceof DateTimeImmutable)) {
+        return null;
+    }
+
+    $errors = DateTimeImmutable::getLastErrors();
+    if (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0) {
+        return null;
+    }
+
+    return $dt->format('Y-m-d');
+}
+
+function approx_equal(float $a, float $b, float $epsilon = 0.01): bool
+{
+    return abs($a - $b) <= $epsilon;
 }
 
 function normalize_decimal_value(mixed $value): ?float
@@ -158,15 +174,20 @@ function validate_cartera_rows(array $rows): array
         return ['ok' => false, 'errors' => [['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Archivo vacío']], 'headers' => $expected, 'records' => []];
     }
 
-    $headers = array_map(static fn($h): string => normalize_header_name((string)$h), array_pad($rows[0], count($expected), ''));
+    if (count($rows[0]) !== count($expected)) {
+        return ['ok' => false, 'errors' => [['fila' => 1, 'campo' => 'columnas', 'motivo' => 'Estructura inválida. Se esperaban exactamente 26 columnas']], 'headers' => $expected, 'records' => []];
+    }
+
+    $headers = array_map(static fn($h): string => normalize_header_name((string)$h), $rows[0]);
     if ($headers !== $expected) {
         return ['ok' => false, 'errors' => [['fila' => 1, 'campo' => 'columnas', 'motivo' => 'Estructura inválida. Orden esperado: ' . implode(', ', $expected)]], 'headers' => $expected, 'records' => []];
     }
 
     $errors = [];
     $records = [];
-    $required = ['cuenta', 'cliente', 'nit', 'nro_documento', 'tipo', 'fecha_contabilizacion', 'fecha_vencimiento', 'saldo_pendiente', 'moneda'];
+    $required = ['cuenta', 'cliente', 'nit', 'nro_documento', 'tipo', 'fecha_contabilizacion', 'fecha_vencimiento', 'valor_documento', 'saldo_pendiente', 'moneda'];
     $duplicateMap = [];
+    $numericFields = ['valor_documento', 'saldo_pendiente', 'actual', '1_30_dias', '31_60_dias', '61_90_dias', '91_180_dias', '181_360_dias', '361_plus_dias'];
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
@@ -188,20 +209,39 @@ function validate_cartera_rows(array $rows): array
 
         $fechaCont = normalize_date_value($rowData['fecha_contabilizacion']);
         $fechaVen = normalize_date_value($rowData['fecha_vencimiento']);
-        if ($fechaCont === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_contabilizacion', 'motivo' => 'Fecha inválida'];
-        }
         if ($fechaVen === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Fecha inválida'];
+            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Fecha inválida. Formato requerido: dd/mm/yyyy'];
+        }
+
+        if ($fechaCont === null) {
+            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_contabilizacion', 'motivo' => 'Fecha inválida. Formato requerido: dd/mm/yyyy'];
+        }
+
+        if ($fechaCont !== null && $fechaVen !== null && $fechaVen < $fechaCont) {
+            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Debe ser mayor o igual a fecha_contabilizacion'];
+        }
+
+        foreach ($numericFields as $numericField) {
+            if (trim((string)$rowData[$numericField]) !== '' && normalize_decimal_value($rowData[$numericField]) === null) {
+                $errors[] = ['fila' => $excelRow, 'campo' => $numericField, 'motivo' => 'Valor numérico inválido'];
+            }
         }
 
         $valorDoc = normalize_decimal_value($rowData['valor_documento']);
         $saldoPend = normalize_decimal_value($rowData['saldo_pendiente']);
-        if ($valorDoc === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'valor_documento', 'motivo' => 'Valor numérico inválido'];
-        }
-        if ($saldoPend === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'saldo_pendiente', 'motivo' => 'Valor numérico inválido'];
+        $bucketActual = normalize_decimal_value($rowData['actual']) ?? 0.0;
+        $bucket1_30 = normalize_decimal_value($rowData['1_30_dias']) ?? 0.0;
+        $bucket31_60 = normalize_decimal_value($rowData['31_60_dias']) ?? 0.0;
+        $bucket61_90 = normalize_decimal_value($rowData['61_90_dias']) ?? 0.0;
+        $bucket91_180 = normalize_decimal_value($rowData['91_180_dias']) ?? 0.0;
+        $bucket181_360 = normalize_decimal_value($rowData['181_360_dias']) ?? 0.0;
+        $bucket361Plus = normalize_decimal_value($rowData['361_plus_dias']) ?? 0.0;
+
+        if ($saldoPend !== null) {
+            $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
+            if (!approx_equal($sumBuckets, $saldoPend)) {
+                $errors[] = ['fila' => $excelRow, 'campo' => 'buckets', 'motivo' => 'La suma de buckets debe coincidir con saldo_pendiente'];
+            }
         }
 
         $diasVencido = null;
@@ -242,13 +282,13 @@ function validate_cartera_rows(array $rows): array
             'saldo_pendiente' => $saldoPend ?? 0.0,
             'moneda' => trim((string)$rowData['moneda']),
             'dias_vencido' => $diasVencido,
-            'bucket_actual' => normalize_decimal_value($rowData['actual']) ?? 0.0,
-            'bucket_1_30' => normalize_decimal_value($rowData['1_30_dias']) ?? 0.0,
-            'bucket_31_60' => normalize_decimal_value($rowData['31_60_dias']) ?? 0.0,
-            'bucket_61_90' => normalize_decimal_value($rowData['61_90_dias']) ?? 0.0,
-            'bucket_91_180' => normalize_decimal_value($rowData['91_180_dias']) ?? 0.0,
-            'bucket_181_360' => normalize_decimal_value($rowData['181_360_dias']) ?? 0.0,
-            'bucket_361_plus' => normalize_decimal_value($rowData['361_plus_dias']) ?? 0.0,
+            'bucket_actual' => $bucketActual,
+            'bucket_1_30' => $bucket1_30,
+            'bucket_31_60' => $bucket31_60,
+            'bucket_61_90' => $bucket61_90,
+            'bucket_91_180' => $bucket91_180,
+            'bucket_181_360' => $bucket181_360,
+            'bucket_361_plus' => $bucket361Plus,
             'excel_row' => $excelRow,
         ];
     }
@@ -335,7 +375,7 @@ function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
     $errors = [];
     foreach ($records as $record) {
         $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
-        if ((int)$stmt->fetchColumn() > 1) {
+        if ((int)$stmt->fetchColumn() > 0) {
             $errors[] = ['fila' => (int)$record['excel_row'], 'campo' => 'clave', 'motivo' => 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)'];
         }
     }
