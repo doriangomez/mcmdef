@@ -4,9 +4,9 @@
 - PHP 8.x con extensión PDO MySQL.
 - MySQL 8.x o MariaDB.
 - Servidor web apuntando a `public/`.
-- Opcional: Composer + `phpoffice/phpspreadsheet` para XLSX/XLS.
+- Importación XLSX/XLS mediante `app/libraries/SimpleXLSX.php` (sin dependencias externas).
 
-> Si no hay Composer en ambiente, el sistema sigue operativo con importación CSV.
+> La importación XLSX/XLS funciona sin Composer usando SimpleXLSX embebido.
 
 ## 2) Instalación y configuración
 1. Ejecutar `sql/schema.sql` en MySQL.
