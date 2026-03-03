@@ -51,8 +51,26 @@ Incluye:
    - `DB_USER`
    - `DB_PASS`
 3. Configurar servidor web apuntando a `public/`.
-4. Ingresar por `/login.php`.
+4. Instalar dependencias de importación Excel en producción: `composer require phpoffice/phpspreadsheet` (esto genera `vendor/autoload.php`).
+5. Verificar permisos de logs: carpeta `logs/` y archivo `logs/php-errors.log` con permisos de escritura del usuario de PHP/Apache.
+6. Ingresar por `/login.php`.
 
 Usuario inicial:
 - Email: `admin@mcm.local`
 - Password objetivo: `Admin123*`
+
+
+## Logging de PHP en servidor
+- El bootstrap de conexión (`app/config/db.php`) crea `logs/php-errors.log` automáticamente.
+- Se configura:
+  - `display_errors = 0`
+  - `log_errors = 1`
+  - `error_reporting(E_ALL)`
+  - `error_log = /logs/php-errors.log` dentro del proyecto.
+
+## Carga de cartera (XLSX/XLS/CSV)
+- Extensiones permitidas: `.xlsx`, `.xls`, `.csv`.
+- Si no está disponible PhpSpreadsheet, el sistema informa el error de dependencia para Excel y permite CSV.
+- La validación recorre el archivo completo y acumula errores por fila/campo/valor/descripción antes de insertar.
+- Si hay un solo error, no se inserta ningún dato.
+- Se habilita descarga de reporte de errores en CSV desde la misma pantalla de carga.
