@@ -175,19 +175,125 @@ ob_start();
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if($estadoCarga === 'exitosa' && $summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
 <div class="card">
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" id="uploadCarteraForm" novalidate>
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
       #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
     </p>
     <p>Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio, y procesamiento batch de 1000 registros.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
-    <button class="btn" type="submit">Validar y procesar</button>
+    <button class="btn" type="submit" id="uploadSubmitBtn">Validar y procesar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
 </form>
+</div>
+
+<div class="upload-processing-overlay" id="uploadProcessingOverlay" aria-hidden="true">
+    <div class="upload-processing-panel" role="status" aria-live="assertive">
+        <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="upload-processing-logo">
+        <h2 class="upload-processing-title">Procesando carga estratégica de cartera…</h2>
+        <p class="upload-processing-subtitle">Validando estructura, integridad y reglas contables</p>
+        <div class="upload-processing-spinner" aria-hidden="true"></div>
+        <div class="upload-processing-progress-wrap" aria-label="Avance del procesamiento">
+            <div class="upload-processing-progress-label">
+                <span>Progreso del motor de validación</span>
+                <span id="uploadProcessingPercent">8%</span>
+            </div>
+            <div class="upload-processing-progress-track">
+                <div class="upload-processing-progress-bar" id="uploadProcessingBar"></div>
+            </div>
+        </div>
+    </div>
 </div>
 <?php if ($cargaId): ?>
     <p><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . $cargaId)) ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>
 <?php endif; ?>
+<script>
+  (function () {
+    var form = document.getElementById('uploadCarteraForm');
+    var submitBtn = document.getElementById('uploadSubmitBtn');
+    var overlay = document.getElementById('uploadProcessingOverlay');
+    var progressBar = document.getElementById('uploadProcessingBar');
+    var progressText = document.getElementById('uploadProcessingPercent');
+    if (!form || !submitBtn || !overlay || !progressBar || !progressText) return;
+
+    var processing = false;
+    var progress = 8;
+    var progressTimer = null;
+
+    function beforeUnloadHandler(event) {
+      if (!processing) return;
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    function protectNavigationWhileProcessing(event) {
+      if (!processing) return;
+      var target = event.target;
+      var link = target && target.closest ? target.closest('a[href]') : null;
+      if (link) {
+        event.preventDefault();
+      }
+    }
+
+    function tickProgress() {
+      if (progress < 78) {
+        progress += 4 + (Math.random() * 5);
+      } else if (progress < 92) {
+        progress += 1 + (Math.random() * 2.2);
+      } else if (progress < 97) {
+        progress += 0.45 + (Math.random() * 0.65);
+      } else if (progress < 99) {
+        progress += 0.12 + (Math.random() * 0.2);
+      }
+
+      progress = Math.min(99, progress);
+      progressBar.style.width = progress.toFixed(1) + '%';
+
+      if (progress >= 97) {
+        progressText.textContent = 'Finalizando validación...';
+      } else {
+        progressText.textContent = Math.round(progress) + '%';
+      }
+    }
+
+    function activateProcessingState() {
+      processing = true;
+      overlay.classList.add('is-active');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('is-processing-upload');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Procesando...';
+
+      progressBar.style.width = progress.toFixed(1) + '%';
+      progressText.textContent = Math.round(progress) + '%';
+      progressTimer = window.setInterval(tickProgress, 450);
+      window.addEventListener('beforeunload', beforeUnloadHandler);
+      document.addEventListener('click', protectNavigationWhileProcessing, true);
+    }
+
+    form.addEventListener('submit', function (event) {
+      if (processing) {
+        event.preventDefault();
+        return;
+      }
+
+      if (!form.checkValidity()) {
+        return;
+      }
+
+      activateProcessingState();
+    });
+
+    window.addEventListener('pageshow', function () {
+      processing = false;
+      if (progressTimer) {
+        window.clearInterval(progressTimer);
+      }
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      document.removeEventListener('click', protectNavigationWhileProcessing, true);
+      document.body.classList.remove('is-processing-upload');
+    });
+  })();
+</script>
 <?php
 $content = ob_get_clean();
 render_layout('Carga cartera', $content);
