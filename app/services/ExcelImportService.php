@@ -140,11 +140,6 @@ function normalize_date_value(mixed $value): ?string
     return $dt->format('Y-m-d');
 }
 
-function approx_equal(float $a, float $b, float $epsilon = 0.01): bool
-{
-    return abs($a - $b) <= $epsilon;
-}
-
 function normalize_decimal_value(mixed $value): ?float
 {
     if ($value === null) {
@@ -273,9 +268,6 @@ function validate_cartera_rows(array $rows): array
             $errors[] = build_validation_error($excelRow, 'fecha_contabilizacion', $rowData['fecha_contabilizacion'], 'Fecha inválida. Formato requerido: dd/mm/yyyy');
         }
 
-        if ($fechaCont !== null && $fechaVen !== null && $fechaVen < $fechaCont) {
-            $errors[] = build_validation_error($excelRow, 'fecha_vencimiento', $rowData['fecha_vencimiento'], 'Debe ser mayor o igual a fecha_contabilizacion');
-        }
 
         foreach ($numericFields as $numericField) {
             if (trim((string)$rowData[$numericField]) !== '' && normalize_decimal_value($rowData[$numericField]) === null) {
@@ -285,12 +277,6 @@ function validate_cartera_rows(array $rows): array
 
         $valorDoc = normalize_decimal_value($rowData['valor_documento']);
         $saldoPend = normalize_decimal_value($rowData['saldo_pendiente']);
-        if ($valorDoc !== null && $valorDoc < 0) {
-            $errors[] = build_validation_error($excelRow, 'valor_documento', $rowData['valor_documento'], 'Valores negativos no permitidos');
-        }
-        if ($saldoPend !== null && $saldoPend < 0) {
-            $errors[] = build_validation_error($excelRow, 'saldo_pendiente', $rowData['saldo_pendiente'], 'Valores negativos no permitidos');
-        }
         $bucketActual = normalize_decimal_value($rowData['actual']) ?? 0.0;
         $bucket1_30 = normalize_decimal_value($rowData['1_30_dias']) ?? 0.0;
         $bucket31_60 = normalize_decimal_value($rowData['31_60_dias']) ?? 0.0;
@@ -306,14 +292,8 @@ function validate_cartera_rows(array $rows): array
             $totalDocumentos++;
         }
 
-        foreach (['actual' => $bucketActual, '1_30_dias' => $bucket1_30, '31_60_dias' => $bucket31_60, '61_90_dias' => $bucket61_90, '91_180_dias' => $bucket91_180, '181_360_dias' => $bucket181_360, '361_dias' => $bucket361Plus] as $bucketField => $bucketValue) {
-            if ($bucketValue < 0) {
-                $errors[] = build_validation_error($excelRow, $bucketField, $rowData[$bucketField], 'Valores negativos no permitidos');
-            }
-        }
-
         if ($saldoPend !== null) {
-            if (!approx_equal($sumBuckets, $saldoPend)) {
+            if (round($sumBuckets, 2) !== round($saldoPend, 2)) {
                 $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'Fila ' . $excelRow . ': La suma de buckets no coincide con el saldo pendiente');
             }
         }
