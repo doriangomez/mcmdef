@@ -11,6 +11,7 @@ $msg = '';
 $errors = [];
 $cargaId = null;
 $allowedExtensions = ['csv', 'xlsx', 'xls'];
+$summary = ['total' => 0, 'validas' => 0, 'con_error' => 0];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
     $file = $_FILES['archivo'];
@@ -56,28 +57,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 }
             }
 
-            $insertLoad = $pdo->prepare(
-                'INSERT INTO cargas_cartera
-                 (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
-                 VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
-            );
-            $insertLoad->execute([
-                $file['name'],
-                $hash,
-                $_SESSION['user']['id'],
-                $recordCount,
-                count($errors),
-                'con_errores',
-                'Carga de cartera SAP',
-            ]);
-            $cargaId = (int)$pdo->lastInsertId();
+            $summary = [
+                'total' => $recordCount,
+                'con_error' => count(array_unique(array_map(static fn($e): int => (int)($e['fila'] ?? 0), array_filter($errors, static fn($e): bool => (int)($e['fila'] ?? 0) > 1)))),
+                'validas' => 0,
+            ];
+            $summary['validas'] = max(0, $summary['total'] - $summary['con_error']);
 
-            if (!empty($errors)) {
-                persist_carga_errors($pdo, $cargaId, $errors);
-                $msg = 'Se registró la carga con errores de validación. Revise el detalle de errores.';
-            } else {
-                try {
-                    $pdo->beginTransaction();
+            try {
+                $pdo->beginTransaction();
+
+                $insertLoad = $pdo->prepare(
+                    'INSERT INTO cargas_cartera
+                     (nombre_archivo, hash_archivo, usuario_id, fecha_carga, total_registros, total_errores, total_nuevos, total_actualizados, estado, observaciones, created_at, updated_at)
+                     VALUES (?, ?, ?, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())'
+                );
+                $insertLoad->execute([
+                    $file['name'],
+                    $hash,
+                    $_SESSION['user']['id'],
+                    $recordCount,
+                    count($errors),
+                    !empty($errors) ? 'con_errores' : 'procesado',
+                    'Carga de cartera SAP',
+                ]);
+                $cargaId = (int)$pdo->lastInsertId();
+
+                if (!empty($errors)) {
+                    persist_carga_errors($pdo, $cargaId, $errors);
+                    $pdo->commit();
+                    $msg = 'Validación fallida. No se insertó ningún registro. Revise el detalle de errores.';
+                } else {
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
 
                     $updateLoad = $pdo->prepare(
@@ -96,19 +106,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $msg = 'Carga procesada. ID #' . $cargaId
                         . ' | Nuevos: ' . $metrics['new_count']
                         . ' | Actualizados: ' . $metrics['updated_count'];
-                } catch (Throwable $exception) {
-                    if ($pdo->inTransaction()) {
-                        $pdo->rollBack();
-                    }
-                    $errors[] = ['fila' => 0, 'campo' => 'transacción', 'motivo' => $exception->getMessage()];
-                    persist_carga_errors($pdo, $cargaId, $errors);
-                    $updateLoad = $pdo->prepare(
-                        "UPDATE cargas_cartera
-                         SET total_errores = ?, estado = 'con_errores', observaciones = ?, updated_at = NOW()
-                         WHERE id = ?"
-                    );
-                    $updateLoad->execute([count($errors), 'Fallo en procesamiento', $cargaId]);
                 }
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $errors[] = ['fila' => 0, 'campo' => 'transacción', 'motivo' => $exception->getMessage()];
             }
         }
     }
@@ -119,6 +122,7 @@ ob_start();
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= $e['fila'] ?> - <?= htmlspecialchars($e['campo']) ?>: <?= htmlspecialchars($e['motivo']) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
+<?php if($summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas válidas: <?= (int)$summary['validas'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
 <div class="card">
 <form method="post" enctype="multipart/form-data">
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
