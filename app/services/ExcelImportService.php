@@ -496,15 +496,33 @@ function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
 
 function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
 {
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM cartera_documentos d WHERE d.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ? AND d.estado_documento = 'activo'");
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM cartera_documentos d WHERE d.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ? AND d.estado_documento = 'activo'");
+    } catch (PDOException $exception) {
+        throw new RuntimeException('La tabla cartera_documentos no existe o no está disponible. Ejecute el esquema de base de datos antes de cargar archivos.', 0, $exception);
+    }
+
     $errors = [];
     foreach ($records as $record) {
-        $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
+        try {
+            $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
+        } catch (PDOException $exception) {
+            throw new RuntimeException('Error validando duplicados en cartera_documentos: ' . $exception->getMessage(), 0, $exception);
+        }
+
         if ((int)$stmt->fetchColumn() > 0) {
             $errors[] = build_validation_error((int)$record['excel_row'], 'clave', implode('|', [$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]), 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)');
         }
     }
     return $errors;
+}
+
+
+function table_exists(PDO $pdo, string $table): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
+    $stmt->execute([$table]);
+    return (int)$stmt->fetchColumn() > 0;
 }
 
 function revert_last_carga(PDO $pdo, int $cargaId): array
