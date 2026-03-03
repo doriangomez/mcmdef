@@ -20,9 +20,10 @@ $params = [];
 if ($filters['periodo'] !== '') { $where[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?"; $params[] = $filters['periodo']; }
 if ($filters['regional'] !== '') { $where[] = "COALESCE(NULLIF(TRIM(c.regional), ''), 'Sin dato') = ?"; $params[] = $filters['regional']; }
 if ($filters['canal'] !== '') { $where[] = "COALESCE(NULLIF(TRIM(c.canal), ''), 'Sin dato') = ?"; $params[] = $filters['canal']; }
-$whereSql = empty($where) ? '' : (' WHERE ' . implode(' AND ', $where));
+$where[] = "d.estado_documento = 'activo'";
+$whereSql = ' WHERE ' . implode(' AND ', $where);
 
-$baseSql = ' FROM documentos_cartera d INNER JOIN clientes c ON c.id = d.cliente_id ' . $whereSql;
+$baseSql = ' FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id ' . $whereSql;
 $stmt = $pdo->prepare('SELECT COALESCE(SUM(d.saldo_pendiente),0) cartera_total, COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida, COALESCE(AVG(d.dias_vencido),0) aging_promedio, COUNT(*) documentos, COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END),0) docs_vencidos' . $baseSql);
 $stmt->execute($params);
 $m = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -30,12 +31,12 @@ $m = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 $carteraTotal = (float)($m['cartera_total'] ?? 0);
 $carteraVencida = (float)($m['cartera_vencida'] ?? 0);
 
-$top5 = $pdo->prepare('SELECT COALESCE(SUM(x.saldo),0) FROM (SELECT COALESCE(SUM(d.saldo_pendiente),0) saldo FROM documentos_cartera d INNER JOIN clientes c ON c.id = d.cliente_id ' . $whereSql . ' GROUP BY c.id ORDER BY saldo DESC LIMIT 5) x');
+$top5 = $pdo->prepare('SELECT COALESCE(SUM(x.saldo),0) FROM (SELECT COALESCE(SUM(d.saldo_pendiente),0) saldo FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id ' . $whereSql . ' GROUP BY c.id ORDER BY saldo DESC LIMIT 5) x');
 $top5->execute($params);
 $top5Total = (float)$top5->fetchColumn();
 $concentracion5 = $carteraTotal > 0 ? ($top5Total / $carteraTotal) * 100 : 0;
 
-$periods = $pdo->query("SELECT DISTINCT DATE_FORMAT(fecha_contabilizacion, '%Y-%m') p FROM documentos_cartera ORDER BY p DESC")->fetchAll(PDO::FETCH_COLUMN);
+$periods = $pdo->query("SELECT DISTINCT DATE_FORMAT(fecha_contabilizacion, '%Y-%m') p FROM cartera_documentos WHERE estado_documento = 'activo' ORDER BY p DESC")->fetchAll(PDO::FETCH_COLUMN);
 $regionales = $pdo->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(regional), ''), 'Sin dato') v FROM clientes ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $canales = $pdo->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(canal), ''), 'Sin dato') v FROM clientes ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 
