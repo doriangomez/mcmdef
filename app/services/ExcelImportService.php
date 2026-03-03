@@ -57,27 +57,6 @@ function cartera_expected_required_headers(): array
     ];
 }
 
-function normalize_header_name(string $header): string
-{
-    $header = trim($header);
-    if ($header === '#') {
-        return '#';
-    }
-
-    // Convertir a UTF-8 si viene mal codificado
-    $header = mb_convert_encoding($header, 'UTF-8', 'UTF-8');
-
-    // Quitar tildes correctamente
-    $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header);
-
-    $header = strtolower((string)$header);
-
-    // Reemplazar caracteres especiales
-    $header = preg_replace('/[^a-z0-9]+/', '_', $header);
-
-    return trim((string)$header, '_');
-}
-
 function supports_xlsx_import(): bool
 {
     if (!class_exists('\Shuchkin\SimpleXLSX')) {
@@ -205,7 +184,7 @@ function calculate_dias_mora(string $fechaVencimiento): int
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
-    $expectedColumnsCount = count($expected);
+    $columnasEsperadas = 26;
     $map = [
         'cuenta' => 1,
         'cliente' => 2,
@@ -243,11 +222,11 @@ function validate_cartera_rows(array $rows): array
     }
 
     $headers = $rows[0];
-    if (count($headers) !== $expectedColumnsCount) {
+    if (count($headers) !== $columnasEsperadas) {
         return [
             'ok' => false,
             'structural_error' => true,
-            'errors' => [build_validation_error(1, 'columnas', count($headers), 'Error estructural: Se esperaban ' . $expectedColumnsCount . ' columnas y se encontraron ' . count($headers))],
+            'errors' => [build_validation_error(1, 'columnas', count($headers), 'Error estructural: Se esperaban ' . $columnasEsperadas . ' columnas y se encontraron ' . count($headers))],
             'headers' => $expected,
             'records' => [],
             'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
@@ -265,7 +244,7 @@ function validate_cartera_rows(array $rows): array
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
-        $normalizedRow = array_slice(array_pad($rows[$i], $expectedColumnsCount, ''), 0, $expectedColumnsCount);
+        $normalizedRow = array_slice(array_pad($rows[$i], $columnasEsperadas, ''), 0, $columnasEsperadas);
 
         $rowData = ['#' => $normalizedRow[0] ?? ''];
         foreach ($map as $field => $columnIndex) {
