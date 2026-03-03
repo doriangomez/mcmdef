@@ -14,6 +14,11 @@ $cargaId = null;
 $allowedExtensions = ['csv', 'xlsx', 'xls'];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0];
 $errorReportToken = null;
+$estadoCarga = '';
+$hayErrores = false;
+$hayErrorEstructural = false;
+$totalInsertados = 0;
+$totalSaldoInsertado = 0.0;
 
 if (isset($_GET['download_errors'])) {
     $token = (string)($_GET['download_errors'] ?? '');
@@ -27,6 +32,7 @@ if (isset($_GET['download_errors'])) {
     header('Content-Disposition: attachment; filename="reporte_errores_validacion.csv"');
 
     $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
     fputcsv($out, ['Fila', 'Campo', 'Valor', 'Descripción del error']);
     foreach ($stored as $row) {
         fputcsv($out, [
@@ -57,47 +63,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
         $exists->execute([$hash]);
         if ($exists->fetch()) {
             $errors[] = build_validation_error(0, 'hash_archivo', $file['name'] ?? '', 'Archivo ya cargado previamente');
+            $hayErrores = true;
         } else {
             try {
                 $rows = parse_input_file($file['tmp_name'], $extension);
             } catch (Throwable $exception) {
                 $errors[] = build_validation_error(0, 'archivo', $file['name'] ?? '', $exception->getMessage());
                 $rows = [];
+                $hayErrores = true;
+                $hayErrorEstructural = true;
             }
+
             $validation = validate_cartera_rows($rows);
-            $errors = $validation['errors'];
-            if (empty($errors)) {
-                $errors = array_merge($errors, validate_duplicate_keys_in_db($pdo, $validation['records']));
+            $errors = array_merge($errors, $validation['errors'] ?? []);
+            $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
+            if ($hayErrorEstructural || !empty($errors)) {
+                $hayErrores = true;
             }
-            $recordCount = 0;
-            for ($i = 1, $totalRows = count($rows); $i < $totalRows; $i++) {
-                $hasData = false;
-                foreach ($rows[$i] as $value) {
-                    if (trim((string)$value) !== '') {
-                        $hasData = true;
-                        break;
-                    }
-                }
-                if ($hasData) {
-                    $recordCount++;
+
+            if (!$hayErrorEstructural && empty($errors)) {
+                $duplicateErrors = validate_duplicate_keys_in_db($pdo, $validation['records']);
+                if (!empty($duplicateErrors)) {
+                    $errors = array_merge($errors, $duplicateErrors);
+                    $hayErrores = true;
                 }
             }
 
-            $summary = [
-                'total' => $recordCount,
-                'con_error' => count(array_unique(array_map(static fn($e): int => (int)($e['fila'] ?? 0), array_filter($errors, static fn($e): bool => (int)($e['fila'] ?? 0) > 1)))),
-                'validas' => 0,
-            ];
-            $summary['validas'] = max(0, $summary['total'] - $summary['con_error']);
+            if (!$hayErrorEstructural) {
+                $recordCount = 0;
+                for ($i = 1, $totalRows = count($rows); $i < $totalRows; $i++) {
+                    $hasData = false;
+                    foreach ($rows[$i] as $value) {
+                        if (trim((string)$value) !== '') {
+                            $hasData = true;
+                            break;
+                        }
+                    }
+                    if ($hasData) {
+                        $recordCount++;
+                    }
+                }
+                $summary = [
+                    'total' => $recordCount,
+                    'con_error' => count(array_unique(array_map(static fn($e): int => (int)($e['fila'] ?? 0), array_filter($errors, static fn($e): bool => (int)($e['fila'] ?? 0) > 1)))),
+                    'validas' => max(0, $recordCount - count(array_unique(array_map(static fn($e): int => (int)($e['fila'] ?? 0), array_filter($errors, static fn($e): bool => (int)($e['fila'] ?? 0) > 1))))),
+                ];
+            }
 
             try {
                 $pdo->beginTransaction();
 
-                if (!empty($errors)) {
+                if ($hayErrores) {
                     $pdo->rollBack();
+                    $estadoCarga = 'rechazada';
                     $errorReportToken = bin2hex(random_bytes(16));
                     $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                    $msg = 'Validación fallida. No se insertó ningún registro. Descargue el reporte para revisar errores.';
+                    if ($hayErrorEstructural) {
+                        $msg = 'Carga rechazada por error estructural. Carga rechazada. No se insertó ningún registro.';
+                    } else {
+                        $msg = 'Carga rechazada. No se insertó ningún registro.';
+                    }
                 } else {
                     $insertLoad = $pdo->prepare(
                         'INSERT INTO cargas_cartera
@@ -108,14 +133,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                         $file['name'],
                         $hash,
                         $_SESSION['user']['id'],
-                        $recordCount,
+                        count($validation['records']),
                         0,
                         'procesado',
-                        'Carga de cartera SAP',
+                        'Carga exitosa',
                     ]);
                     $cargaId = (int)$pdo->lastInsertId();
 
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
+                    $totalInsertados = (int)$metrics['new_count'] + (int)$metrics['updated_count'];
+                    $totalSaldoInsertado = (float)($validation['totals']['saldo'] ?? 0.0);
 
                     $updateLoad = $pdo->prepare(
                         "UPDATE cargas_cartera
@@ -125,20 +152,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $updateLoad->execute([
                         $metrics['new_count'],
                         $metrics['updated_count'],
-                        'Carga procesada correctamente',
+                        'Carga exitosa. Se insertaron ' . $totalInsertados . ' documentos.',
                         $cargaId,
                     ]);
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'estado', 'con_errores', 'procesado', (int)$_SESSION['user']['id']);
                     $pdo->commit();
-                    $msg = 'Carga procesada. ID #' . $cargaId
-                        . ' | Nuevos: ' . $metrics['new_count']
-                        . ' | Actualizados: ' . $metrics['updated_count'];
+                    $estadoCarga = 'exitosa';
+                    $msg = 'Carga exitosa. Se insertaron ' . $totalInsertados . ' documentos por valor total de $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
                 }
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
                 $errors[] = build_validation_error(0, 'transacción', '', $exception->getMessage());
+                $estadoCarga = 'rechazada';
+                $msg = 'Carga rechazada. No se insertó ningún registro.';
             }
         }
     }
@@ -149,7 +177,7 @@ ob_start();
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
-<?php if($summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas válidas: <?= (int)$summary['validas'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
+<?php if($estadoCarga === 'exitosa' && $summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
 <div class="card">
 <form method="post" enctype="multipart/form-data">
     <p><strong>Plantilla esperada (orden exacto):</strong><br>

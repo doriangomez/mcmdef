@@ -218,23 +218,26 @@ function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
     if (count($rows) < 2) {
-        return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => []];
+        return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
     }
 
     if (empty($rows)) {
-        return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => []];
+        return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
     }
 
     $headers = array_map(static fn($h): string => normalize_header_name((string)$h), $rows[0]);
     $requiredHeaders = cartera_expected_required_headers();
     foreach ($requiredHeaders as $col) {
         if (!in_array($col, $headers, true)) {
-            return ['ok' => false, 'errors' => [build_validation_error(1, 'columnas', $col, 'Falta la columna obligatoria: ' . $col)], 'headers' => $expected, 'records' => []];
+            return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(1, 'columnas', $col, 'Falta la columna obligatoria: ' . $col)], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
         }
     }
 
     $errors = [];
     $records = [];
+    $totalSaldoGlobal = 0.0;
+    $totalBucketsGlobal = 0.0;
+    $totalDocumentos = 0;
     $required = cartera_expected_required_headers();
     $duplicateMap = [];
     $numericFields = ['valor_documento', 'saldo_pendiente', 'actual', '1_30_dias', '31_60_dias', '61_90_dias', '91_180_dias', '181_360_dias', '361_dias'];
@@ -299,6 +302,13 @@ function validate_cartera_rows(array $rows): array
         $bucket91_180 = normalize_decimal_value($rowData['91_180_dias']) ?? 0.0;
         $bucket181_360 = normalize_decimal_value($rowData['181_360_dias']) ?? 0.0;
         $bucket361Plus = normalize_decimal_value($rowData['361_dias']) ?? 0.0;
+        $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
+
+        if ($saldoPend !== null) {
+            $totalSaldoGlobal += $saldoPend;
+            $totalBucketsGlobal += $sumBuckets;
+            $totalDocumentos++;
+        }
 
         foreach (['actual' => $bucketActual, '1_30_dias' => $bucket1_30, '31_60_dias' => $bucket31_60, '61_90_dias' => $bucket61_90, '91_180_dias' => $bucket91_180, '181_360_dias' => $bucket181_360, '361_dias' => $bucket361Plus] as $bucketField => $bucketValue) {
             if ($bucketValue < 0) {
@@ -307,7 +317,6 @@ function validate_cartera_rows(array $rows): array
         }
 
         if ($saldoPend !== null) {
-            $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
             if (!approx_equal($sumBuckets, $saldoPend)) {
                 $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'Fila ' . $excelRow . ': La suma de buckets no coincide con el saldo pendiente');
             }
@@ -362,7 +371,21 @@ function validate_cartera_rows(array $rows): array
         ];
     }
 
-    return ['ok' => empty($errors), 'errors' => $errors, 'headers' => $expected, 'records' => $records];
+    if (round($totalSaldoGlobal, 2) !== round($totalBucketsGlobal, 2)) {
+        $errors[] = build_validation_error(0, 'global', '', 'Error global: La suma total de buckets no coincide con el total de saldo pendiente del archivo.');
+    }
+    if ($totalDocumentos === 0) {
+        $errors[] = build_validation_error(0, 'global', '', 'Error global: El archivo no contiene documentos válidos.');
+    }
+
+    return [
+        'ok' => empty($errors),
+        'structural_error' => false,
+        'errors' => $errors,
+        'headers' => $expected,
+        'records' => $records,
+        'totals' => ['saldo' => $totalSaldoGlobal, 'buckets' => $totalBucketsGlobal, 'documentos' => $totalDocumentos],
+    ];
 }
 
 function persist_carga_errors(PDO $pdo, int $cargaId, array $errors): void
