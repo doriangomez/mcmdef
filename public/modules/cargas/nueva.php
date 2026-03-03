@@ -153,9 +153,9 @@ ob_start();
 <div class="card">
 <form method="post" enctype="multipart/form-data">
     <p><strong>Plantilla esperada (orden exacto):</strong><br>
-      #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_plus_dias
+      #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
     </p>
-    <p>Clave única de documento: <strong>cuenta + nro_documento + tipo + fecha_contabilizacion</strong>.</p>
+    <p>Control de duplicados en archivo: <strong>cuenta + nro_documento + tipo</strong>.</p>
     <p>Días vencido: se usa valor del archivo; si viene vacío, se calcula con fecha_vencimiento. No se permiten valores negativos en valor_documento ni saldo_pendiente y nro_ref_de_cliente puede venir vacío.</p>
     <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
     <button class="btn" type="submit">Validar y procesar</button>

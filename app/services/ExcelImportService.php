@@ -30,7 +30,7 @@ function cartera_expected_headers(): array
         '61_90_dias',
         '91_180_dias',
         '181_360_dias',
-        '361_plus_dias',
+        '361_dias',
     ];
 }
 
@@ -47,6 +47,13 @@ function cartera_expected_required_headers(): array
         'valor_documento',
         'saldo_pendiente',
         'moneda',
+        'actual',
+        '1_30_dias',
+        '31_60_dias',
+        '61_90_dias',
+        '91_180_dias',
+        '181_360_dias',
+        '361_dias',
     ];
 }
 
@@ -58,7 +65,7 @@ function normalize_header_name(string $header): string
     }
     $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header) ?: $header;
     $header = strtolower($header);
-    $header = str_replace('+', ' plus ', $header);
+    $header = str_replace('+', ' ', $header);
     $header = preg_replace('/[^a-z0-9]+/', '_', $header) ?? $header;
     $header = trim((string)$header, '_');
 
@@ -72,7 +79,12 @@ function normalize_header_name(string $header): string
         '61_90_dias' => '61_90_dias',
         '91_180_dias' => '91_180_dias',
         '181_360_dias' => '181_360_dias',
-        '361_plus_dias' => '361_plus_dias',
+        '361_dias' => '361_dias',
+        '361_mas_dias' => '361_dias',
+        '361_plus_dias' => '361_dias',
+        'nro_documento' => 'nro_documento',
+        'fecha_contabilizacion' => 'fecha_contabilizacion',
+        'fecha_vencimiento' => 'fecha_vencimiento',
     ];
 
     return $aliases[$header] ?? $header;
@@ -80,6 +92,13 @@ function normalize_header_name(string $header): string
 
 function supports_xlsx_import(): bool
 {
+    if (!class_exists('\Shuchkin\SimpleXLSX')) {
+        $libraryPath = __DIR__ . '/../libraries/SimpleXLSX.php';
+        if (is_file($libraryPath)) {
+            require_once $libraryPath;
+        }
+    }
+
     return class_exists('\Shuchkin\SimpleXLSX');
 }
 
@@ -88,7 +107,7 @@ function parse_input_file(string $path, string $extension = ''): array
     $extension = strtolower($extension);
     if (in_array($extension, ['xlsx', 'xls'], true)) {
         if (!supports_xlsx_import()) {
-            throw new RuntimeException('SimpleXLSX no está disponible.');
+            throw new RuntimeException('No fue posible inicializar el lector SimpleXLSX embebido.');
         }
 
         if ($xlsx = \Shuchkin\SimpleXLSX::parse($path)) {
@@ -198,6 +217,10 @@ function calculate_dias_mora(string $fechaVencimiento): int
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
+    if (count($rows) < 2) {
+        return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => []];
+    }
+
     if (empty($rows)) {
         return ['ok' => false, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => []];
     }
@@ -212,9 +235,9 @@ function validate_cartera_rows(array $rows): array
 
     $errors = [];
     $records = [];
-    $required = ['cuenta', 'cliente', 'nit', 'nro_documento', 'tipo', 'fecha_contabilizacion', 'fecha_vencimiento', 'valor_documento', 'saldo_pendiente', 'moneda'];
+    $required = cartera_expected_required_headers();
     $duplicateMap = [];
-    $numericFields = ['valor_documento', 'saldo_pendiente', 'actual', '1_30_dias', '31_60_dias', '61_90_dias', '91_180_dias', '181_360_dias', '361_plus_dias'];
+    $numericFields = ['valor_documento', 'saldo_pendiente', 'actual', '1_30_dias', '31_60_dias', '61_90_dias', '91_180_dias', '181_360_dias', '361_dias'];
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
@@ -230,6 +253,7 @@ function validate_cartera_rows(array $rows): array
         }
 
         if (count(array_filter($rowData, static fn($v): bool => trim((string)$v) !== '')) === 0) {
+            $errors[] = build_validation_error($excelRow, 'fila', '', 'No se permiten filas totalmente vacías');
             continue;
         }
 
@@ -274,12 +298,18 @@ function validate_cartera_rows(array $rows): array
         $bucket61_90 = normalize_decimal_value($rowData['61_90_dias']) ?? 0.0;
         $bucket91_180 = normalize_decimal_value($rowData['91_180_dias']) ?? 0.0;
         $bucket181_360 = normalize_decimal_value($rowData['181_360_dias']) ?? 0.0;
-        $bucket361Plus = normalize_decimal_value($rowData['361_plus_dias']) ?? 0.0;
+        $bucket361Plus = normalize_decimal_value($rowData['361_dias']) ?? 0.0;
+
+        foreach (['actual' => $bucketActual, '1_30_dias' => $bucket1_30, '31_60_dias' => $bucket31_60, '61_90_dias' => $bucket61_90, '91_180_dias' => $bucket91_180, '181_360_dias' => $bucket181_360, '361_dias' => $bucket361Plus] as $bucketField => $bucketValue) {
+            if ($bucketValue < 0) {
+                $errors[] = build_validation_error($excelRow, $bucketField, $rowData[$bucketField], 'Valores negativos no permitidos');
+            }
+        }
 
         if ($saldoPend !== null) {
             $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
             if (!approx_equal($sumBuckets, $saldoPend)) {
-                $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'La suma de buckets debe coincidir con saldo_pendiente');
+                $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'Fila ' . $excelRow . ': La suma de buckets no coincide con el saldo pendiente');
             }
         }
 
@@ -292,9 +322,9 @@ function validate_cartera_rows(array $rows): array
             }
         }
 
-        $key = implode('|', [trim((string)$rowData['cuenta']), trim((string)$rowData['nro_documento']), trim((string)$rowData['tipo']), (string)$fechaCont]);
+        $key = implode('|', [trim((string)$rowData['cuenta']), trim((string)$rowData['nro_documento']), trim((string)$rowData['tipo'])]);
         if (isset($duplicateMap[$key])) {
-            $errors[] = build_validation_error($excelRow, 'clave', $key, 'Duplicado en archivo por (cuenta+nro_documento+tipo+fecha_contabilizacion)');
+            $errors[] = build_validation_error($excelRow, 'clave', $key, 'Duplicado en archivo por (cuenta+nro_documento+tipo)');
         }
         $duplicateMap[$key] = true;
 
