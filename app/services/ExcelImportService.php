@@ -63,6 +63,7 @@ function normalize_header_name(string $header): string
     if ($header === '#') {
         return '#';
     }
+    $header = mb_convert_encoding($header, 'UTF-8', 'UTF-8');
     $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header) ?: $header;
     $header = strtolower($header);
     $header = str_replace('+', ' ', $header);
