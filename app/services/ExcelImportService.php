@@ -64,35 +64,18 @@ function normalize_header_name(string $header): string
         return '#';
     }
 
-    // Convertir a UTF-8 si viene mal codificado.
+    // Convertir a UTF-8 si viene mal codificado
     $header = mb_convert_encoding($header, 'UTF-8', 'UTF-8');
 
-    // Quitar tildes correctamente.
-    $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header) ?: $header;
-    $header = strtolower($header);
-    $header = str_replace('+', ' ', $header);
-    $header = preg_replace('/[^a-z0-9]+/', '_', $header) ?? $header;
-    $header = trim((string)$header, '_');
+    // Quitar tildes correctamente
+    $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header);
 
-    $aliases = [
-        'cliente' => 'cliente',
-        'empleado_de_ventas' => 'empleado_de_ventas',
-        'dias_vencido' => 'dias_vencido',
-        'actual' => 'actual',
-        '1_30_dias' => '1_30_dias',
-        '31_60_dias' => '31_60_dias',
-        '61_90_dias' => '61_90_dias',
-        '91_180_dias' => '91_180_dias',
-        '181_360_dias' => '181_360_dias',
-        '361_dias' => '361_dias',
-        '361_mas_dias' => '361_dias',
-        '361_plus_dias' => '361_dias',
-        'nro_documento' => 'nro_documento',
-        'fecha_contabilizacion' => 'fecha_contabilizacion',
-        'fecha_vencimiento' => 'fecha_vencimiento',
-    ];
+    $header = strtolower((string)$header);
 
-    return $aliases[$header] ?? $header;
+    // Reemplazar caracteres especiales
+    $header = preg_replace('/[^a-z0-9]+/', '_', $header);
+
+    return trim((string)$header, '_');
 }
 
 function supports_xlsx_import(): bool
