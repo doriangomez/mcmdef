@@ -21,6 +21,7 @@ ob_start(); ?>
   <tr>
     <th>ID</th>
     <th>Archivo</th>
+    <th>Hash SHA-256</th>
     <th>Estado</th>
     <th>Errores</th>
     <th>Nuevos</th>
@@ -34,6 +35,7 @@ ob_start(); ?>
     <tr>
       <td><?= (int)$c['id'] ?></td>
       <td><?= htmlspecialchars($c['nombre_archivo']) ?></td>
+      <td><code><?= htmlspecialchars($c['hash_archivo']) ?></code></td>
       <td>
         <?php
           if ($c['estado'] === 'procesado') {

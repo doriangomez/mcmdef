@@ -94,6 +94,7 @@ ob_start(); ?>
 <div class="card">
   <?php if ($carga): ?>
     <p><strong>Archivo:</strong> <?= htmlspecialchars($carga['nombre_archivo']) ?></p>
+    <p><strong>Hash SHA-256:</strong> <code><?= htmlspecialchars($carga['hash_archivo']) ?></code></p>
     <p><strong>Estado:</strong> <?= htmlspecialchars($carga['estado']) ?> | <strong>Usuario:</strong> <?= htmlspecialchars($carga['usuario'] ?? '-') ?> | <strong>Fecha:</strong> <?= htmlspecialchars($carga['fecha_carga']) ?></p>
     <p>
       <strong>Registros:</strong> <?= (int)$carga['total_registros'] ?> |
