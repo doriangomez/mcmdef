@@ -8,29 +8,24 @@ require_role(['admin']);
 $tab = $_GET['tab'] ?? 'general';
 $sections = [
     'general' => [
-        'title' => 'Configuración general del sistema',
-        'description' => 'Define políticas transversales: identidad visual, parámetros de operación y ciclos de actualización.',
-        'items' => ['Ambiente y seguridad', 'Identidad y branding MCM', 'Parámetros de notificaciones'],
+        'title' => 'Configuración general',
+        'description' => 'Administra parámetros base de la plataforma corporativa.',
+        'items' => ['Nombre sistema', 'Logo editable', 'Año fiscal', 'Moneda'],
     ],
     'mora' => [
-        'title' => 'Parametrización de mora',
-        'description' => 'Controla reglas de segmentación por días de mora, niveles de riesgo y automatizaciones de cobranza.',
-        'items' => ['Tramos de mora', 'Matriz de riesgo', 'Reglas de priorización'],
+        'title' => 'Parametrización de rangos de mora',
+        'description' => 'Edición de buckets y reglas de envejecimiento para analítica de riesgo.',
+        'items' => ['Bucket Actual', 'Bucket 1-30', 'Bucket 31-60', 'Bucket 61-90', 'Bucket 91-180', 'Bucket 181-360', 'Bucket 361+'],
     ],
     'comercial' => [
-        'title' => 'Parametrización comercial',
-        'description' => 'Administra catálogos comerciales para canal, regional, UEN y marcas de negocio.',
-        'items' => ['Canales y subcanales', 'Regional y estructura UEN', 'Portafolio de marcas'],
-    ],
-    'analitica' => [
-        'title' => 'Parametrización analítica',
-        'description' => 'Gestiona variables de modelos, umbrales de alertas y definiciones para tableros ejecutivos.',
-        'items' => ['Variables de scoring', 'Diccionario de indicadores', 'Alertas y umbrales'],
+        'title' => 'Gestión comercial',
+        'description' => 'Catálogos maestros para segmentación estratégica.',
+        'items' => ['Gestión de canales', 'Gestión de regionales', 'Gestión de empleados de ventas'],
     ],
     'roles' => [
         'title' => 'Gestión avanzada de roles',
-        'description' => 'Orquesta permisos granulares por rol, módulo y acción para fortalecer gobierno y trazabilidad.',
-        'items' => ['Matriz de permisos', 'Roles personalizados', 'Delegación y aprobaciones'],
+        'description' => 'Permisos granulares por módulo y acción.',
+        'items' => ['Matriz de permisos', 'Roles personalizados', 'Aprobaciones y delegaciones'],
     ],
 ];
 
@@ -44,29 +39,19 @@ ob_start();
 <div class="card">
   <div class="card-header">
     <h3><?= htmlspecialchars($current['title']) ?></h3>
-    <?= ui_badge('Módulo corporativo', 'info') ?>
+    <?= ui_badge('Configuración corporativa', 'info') ?>
   </div>
   <p class="muted"><?= htmlspecialchars($current['description']) ?></p>
 </div>
 
 <div class="card">
-  <div class="card-header">
-    <h3>Capacidades incluidas</h3>
-  </div>
   <table class="table">
-    <thead>
-      <tr>
-        <th>Componente</th>
-        <th>Estado</th>
-        <th>Prioridad</th>
-      </tr>
-    </thead>
+    <thead><tr><th>Componente</th><th>Estado</th></tr></thead>
     <tbody>
       <?php foreach ($current['items'] as $item): ?>
         <tr>
           <td><?= htmlspecialchars($item) ?></td>
-          <td><?= ui_badge('Activo', 'success') ?></td>
-          <td><?= ui_badge('Alta', 'warning') ?></td>
+          <td><?= ui_badge('Editable', 'success') ?></td>
         </tr>
       <?php endforeach; ?>
     </tbody>

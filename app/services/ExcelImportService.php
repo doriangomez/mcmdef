@@ -1,43 +1,62 @@
 <?php
 
+declare(strict_types=1);
+
 function cartera_expected_headers(): array
 {
     return [
+        '#',
+        'cuenta',
+        'cliente',
         'nit',
-        'nombre_cliente',
-        'tipo_documento',
-        'numero_documento',
-        'fecha_emision',
-        'fecha_vencimiento',
-        'valor_original',
-        'saldo_actual',
-        'dias_mora',
-        'periodo',
+        'direccion',
+        'contacto',
+        'telefono',
         'canal',
+        'empleado_de_ventas',
         'regional',
-        'asesor_comercial',
-        'ejecutivo_cartera',
-        'uen',
-        'marca',
+        'nro_documento',
+        'nro_ref_de_cliente',
+        'tipo',
+        'fecha_contabilizacion',
+        'fecha_vencimiento',
+        'valor_documento',
+        'saldo_pendiente',
+        'moneda',
+        'dias_vencido',
+        'actual',
+        '1_30_dias',
+        '31_60_dias',
+        '61_90_dias',
+        '91_180_dias',
+        '181_360_dias',
+        '361_plus_dias',
     ];
 }
 
 function normalize_header_name(string $header): string
 {
-    $header = strtolower(trim($header));
-    $header = str_replace([' ', '-', '/'], '_', $header);
-    return preg_replace('/_+/', '_', $header) ?? $header;
-}
+    $header = trim($header);
+    $header = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $header) ?: $header;
+    $header = strtolower($header);
+    $header = str_replace('+', ' plus ', $header);
+    $header = preg_replace('/[^a-z0-9]+/', '_', $header) ?? $header;
+    $header = trim((string)$header, '_');
 
-function parse_input_file(string $path): array
-{
-    if (supports_xlsx_import() && class_exists('\PhpOffice\PhpSpreadsheet\IOFactory')) {
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-        return $sheet->toArray(null, true, true, false);
-    }
+    $aliases = [
+        'cliente' => 'cliente',
+        'empleado_de_ventas' => 'empleado_de_ventas',
+        'dias_vencido' => 'dias_vencido',
+        'actual' => 'actual',
+        '1_30_dias' => '1_30_dias',
+        '31_60_dias' => '31_60_dias',
+        '61_90_dias' => '61_90_dias',
+        '91_180_dias' => '91_180_dias',
+        '181_360_dias' => '181_360_dias',
+        '361_plus_dias' => '361_plus_dias',
+    ];
 
-    return parse_csv_rows($path);
+    return $aliases[$header] ?? $header;
 }
 
 function supports_xlsx_import(): bool
@@ -46,27 +65,32 @@ function supports_xlsx_import(): bool
     if (is_file($vendorAutoload)) {
         require_once $vendorAutoload;
     }
-    return class_exists('\PhpOffice\PhpSpreadsheet\IOFactory');
+    return class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory');
+}
+
+function parse_input_file(string $path): array
+{
+    if (supports_xlsx_import() && class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+        return $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+    }
+    return parse_csv_rows($path);
 }
 
 function parse_csv_rows(string $path): array
 {
-    $rows = [];
     if (!is_file($path)) {
-        return $rows;
+        return [];
     }
-
     $handle = fopen($path, 'r');
     if ($handle === false) {
-        return $rows;
+        return [];
     }
 
+    $rows = [];
     $firstLine = fgets($handle);
     rewind($handle);
-    $delimiter = ',';
-    if ($firstLine !== false && substr_count($firstLine, ';') > substr_count($firstLine, ',')) {
-        $delimiter = ';';
-    }
+    $delimiter = ($firstLine !== false && substr_count($firstLine, ';') > substr_count($firstLine, ',')) ? ';' : ',';
 
     while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
         $rows[] = $data;
@@ -84,26 +108,18 @@ function normalize_date_value(mixed $value): ?string
     if ($raw === '') {
         return null;
     }
-
     if (is_numeric($raw)) {
         $base = new DateTimeImmutable('1899-12-30');
         return $base->modify('+' . (int)$raw . ' days')->format('Y-m-d');
     }
-
-    $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'm/d/Y'];
-    foreach ($formats as $format) {
-        $parsed = DateTimeImmutable::createFromFormat('!' . $format, $raw);
-        if ($parsed instanceof DateTimeImmutable) {
-            return $parsed->format('Y-m-d');
+    foreach (['d/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d'] as $format) {
+        $dt = DateTimeImmutable::createFromFormat('!' . $format, $raw);
+        if ($dt instanceof DateTimeImmutable) {
+            return $dt->format('Y-m-d');
         }
     }
-
     $timestamp = strtotime($raw);
-    if ($timestamp === false) {
-        return null;
-    }
-
-    return date('Y-m-d', $timestamp);
+    return $timestamp === false ? null : date('Y-m-d', $timestamp);
 }
 
 function normalize_decimal_value(mixed $value): ?float
@@ -111,204 +127,133 @@ function normalize_decimal_value(mixed $value): ?float
     if ($value === null) {
         return null;
     }
-
     if (is_numeric($value)) {
         return (float)$value;
     }
-
     $raw = trim((string)$value);
     if ($raw === '') {
         return null;
     }
-
     $normalized = str_replace(['$', ' '], '', $raw);
-    if (strpos($normalized, ',') !== false && strpos($normalized, '.') !== false) {
+    if (str_contains($normalized, ',') && str_contains($normalized, '.')) {
         $normalized = str_replace('.', '', $normalized);
         $normalized = str_replace(',', '.', $normalized);
-    } elseif (strpos($normalized, ',') !== false) {
+    } elseif (str_contains($normalized, ',')) {
         $normalized = str_replace(',', '.', $normalized);
     }
-
-    if (!is_numeric($normalized)) {
-        return null;
-    }
-
-    return (float)$normalized;
+    return is_numeric($normalized) ? (float)$normalized : null;
 }
 
 function calculate_dias_mora(string $fechaVencimiento): int
 {
     $due = new DateTimeImmutable($fechaVencimiento);
     $today = new DateTimeImmutable('today');
-    if ($due > $today) {
-        return 0;
-    }
-    return (int)$due->diff($today)->days;
-}
-
-function normalize_estado_compromiso(?string $value): ?string
-{
-    if ($value === null) {
-        return null;
-    }
-
-    $v = strtolower(trim($value));
-    if ($v === '') {
-        return null;
-    }
-
-    return in_array($v, ['pendiente', 'cumplido', 'incumplido'], true) ? $v : null;
+    return $due > $today ? 0 : (int)$due->diff($today)->days;
 }
 
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
+    if (empty($rows)) {
+        return ['ok' => false, 'errors' => [['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Archivo vacío']], 'headers' => $expected, 'records' => []];
+    }
+
+    $headers = array_map(static fn($h): string => normalize_header_name((string)$h), array_pad($rows[0], count($expected), ''));
+    if ($headers !== $expected) {
+        return ['ok' => false, 'errors' => [['fila' => 1, 'campo' => 'columnas', 'motivo' => 'Estructura inválida. Orden esperado: ' . implode(', ', $expected)]], 'headers' => $expected, 'records' => []];
+    }
+
     $errors = [];
     $records = [];
-
-    if (empty($rows)) {
-        return [
-            'ok' => false,
-            'errors' => [['fila' => 0, 'campo' => 'archivo', 'motivo' => 'Archivo vacío']],
-            'headers' => $expected,
-            'records' => [],
-        ];
-    }
-
-    $headers = array_map(
-        static fn($header): string => normalize_header_name((string)$header),
-        array_pad($rows[0], count($expected), '')
-    );
-
-    if ($headers !== $expected) {
-        $errors[] = [
-            'fila' => 1,
-            'campo' => 'columnas',
-            'motivo' => 'Estructura inválida. Orden esperado: ' . implode(', ', $expected),
-        ];
-        return [
-            'ok' => false,
-            'errors' => $errors,
-            'headers' => $expected,
-            'records' => [],
-        ];
-    }
-
+    $required = ['cuenta', 'cliente', 'nit', 'nro_documento', 'tipo', 'fecha_contabilizacion', 'fecha_vencimiento', 'saldo_pendiente', 'moneda'];
     $duplicateMap = [];
-    $requiredFields = [
-        'nit',
-        'nombre_cliente',
-        'tipo_documento',
-        'numero_documento',
-        'fecha_emision',
-        'fecha_vencimiento',
-        'saldo_actual',
-    ];
 
-    for ($i = 1, $total = count($rows); $i < $total; $i++) {
+    for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
-        $rowValues = array_pad($rows[$i], count($expected), '');
-        $rowData = array_combine($expected, $rowValues);
+        $rowData = array_combine($expected, array_pad($rows[$i], count($expected), ''));
         if ($rowData === false) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fila', 'motivo' => 'No se pudo mapear la fila'];
             continue;
         }
 
-        $isEmptyRow = true;
-        foreach ($rowData as $cell) {
-            if (trim((string)$cell) !== '') {
-                $isEmptyRow = false;
-                break;
-            }
-        }
-        if ($isEmptyRow) {
+        if (count(array_filter($rowData, static fn($v): bool => trim((string)$v) !== '')) === 0) {
             continue;
         }
 
-        $errorCountBeforeRow = count($errors);
-
-        foreach ($requiredFields as $field) {
+        $before = count($errors);
+        foreach ($required as $field) {
             if (trim((string)$rowData[$field]) === '') {
                 $errors[] = ['fila' => $excelRow, 'campo' => $field, 'motivo' => 'Campo crítico vacío'];
             }
         }
 
-        $tipoDocumento = trim((string)$rowData['tipo_documento']);
-        if (!in_array($tipoDocumento, ['Factura', 'NC'], true)) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'tipo_documento', 'motivo' => 'Valor permitido: Factura o NC'];
+        $fechaCont = normalize_date_value($rowData['fecha_contabilizacion']);
+        $fechaVen = normalize_date_value($rowData['fecha_vencimiento']);
+        if ($fechaCont === null) {
+            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_contabilizacion', 'motivo' => 'Fecha inválida'];
         }
-
-        $fechaEmision = normalize_date_value($rowData['fecha_emision']);
-        $fechaVencimiento = normalize_date_value($rowData['fecha_vencimiento']);
-        if ($fechaEmision === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_emision', 'motivo' => 'Fecha inválida'];
-        }
-        if ($fechaVencimiento === null) {
+        if ($fechaVen === null) {
             $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_vencimiento', 'motivo' => 'Fecha inválida'];
         }
-        if ($fechaEmision !== null && $fechaVencimiento !== null && $fechaEmision > $fechaVencimiento) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'fecha_emision', 'motivo' => 'No puede ser mayor que fecha_vencimiento'];
+
+        $valorDoc = normalize_decimal_value($rowData['valor_documento']);
+        $saldoPend = normalize_decimal_value($rowData['saldo_pendiente']);
+        if ($valorDoc === null) {
+            $errors[] = ['fila' => $excelRow, 'campo' => 'valor_documento', 'motivo' => 'Valor numérico inválido'];
+        }
+        if ($saldoPend === null) {
+            $errors[] = ['fila' => $excelRow, 'campo' => 'saldo_pendiente', 'motivo' => 'Valor numérico inválido'];
         }
 
-        $valorOriginal = normalize_decimal_value($rowData['valor_original']);
-        $saldoActual = normalize_decimal_value($rowData['saldo_actual']);
-        if ($valorOriginal === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'valor_original', 'motivo' => 'Valor numérico inválido'];
-        }
-        if ($saldoActual === null) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'saldo_actual', 'motivo' => 'Valor numérico inválido'];
-        }
-
-        $diasMora = null;
-        if (trim((string)$rowData['dias_mora']) !== '') {
-            if (!is_numeric($rowData['dias_mora'])) {
-                $errors[] = ['fila' => $excelRow, 'campo' => 'dias_mora', 'motivo' => 'Debe ser numérico'];
+        $diasVencido = null;
+        if (trim((string)$rowData['dias_vencido']) !== '') {
+            if (!is_numeric($rowData['dias_vencido'])) {
+                $errors[] = ['fila' => $excelRow, 'campo' => 'dias_vencido', 'motivo' => 'Debe ser numérico'];
             } else {
-                $diasMora = (int)$rowData['dias_mora'];
+                $diasVencido = (int)$rowData['dias_vencido'];
             }
         }
 
-        $key = trim((string)$rowData['nit']) . '|' . $tipoDocumento . '|' . trim((string)$rowData['numero_documento']);
+        $key = implode('|', [trim((string)$rowData['cuenta']), trim((string)$rowData['nro_documento']), trim((string)$rowData['tipo']), (string)$fechaCont]);
         if (isset($duplicateMap[$key])) {
-            $errors[] = ['fila' => $excelRow, 'campo' => 'clave', 'motivo' => 'Duplicado en archivo por (nit+tipo+numero)'];
+            $errors[] = ['fila' => $excelRow, 'campo' => 'clave', 'motivo' => 'Duplicado en archivo por (cuenta+nro_documento+tipo+fecha_contabilizacion)'];
         }
         $duplicateMap[$key] = true;
 
-        if (count($errors) > $errorCountBeforeRow) {
+        if (count($errors) > $before) {
             continue;
         }
 
         $records[] = [
+            'cuenta' => trim((string)$rowData['cuenta']),
+            'cliente' => trim((string)$rowData['cliente']),
             'nit' => trim((string)$rowData['nit']),
-            'nombre_cliente' => trim((string)$rowData['nombre_cliente']),
-            'tipo_documento' => $tipoDocumento,
-            'numero_documento' => trim((string)$rowData['numero_documento']),
-            'fecha_emision' => $fechaEmision,
-            'fecha_vencimiento' => $fechaVencimiento,
-            'valor_original' => $valorOriginal ?? 0.0,
-            'saldo_actual' => $saldoActual ?? 0.0,
-            'dias_mora' => $diasMora,
-            'periodo' => trim((string)$rowData['periodo']),
+            'direccion' => trim((string)$rowData['direccion']),
+            'contacto' => trim((string)$rowData['contacto']),
+            'telefono' => trim((string)$rowData['telefono']),
             'canal' => trim((string)$rowData['canal']),
+            'empleado_ventas' => trim((string)$rowData['empleado_de_ventas']),
             'regional' => trim((string)$rowData['regional']),
-            'asesor_comercial' => trim((string)$rowData['asesor_comercial']),
-            'ejecutivo_cartera' => trim((string)$rowData['ejecutivo_cartera']),
-            'uen' => trim((string)$rowData['uen']),
-            'marca' => trim((string)$rowData['marca']),
+            'nro_documento' => trim((string)$rowData['nro_documento']),
+            'nro_ref_cliente' => trim((string)$rowData['nro_ref_de_cliente']),
+            'tipo' => trim((string)$rowData['tipo']),
+            'fecha_contabilizacion' => $fechaCont,
+            'fecha_vencimiento' => $fechaVen,
+            'valor_documento' => $valorDoc ?? 0.0,
+            'saldo_pendiente' => $saldoPend ?? 0.0,
+            'moneda' => trim((string)$rowData['moneda']),
+            'dias_vencido' => $diasVencido,
+            'bucket_actual' => normalize_decimal_value($rowData['actual']) ?? 0.0,
+            'bucket_1_30' => normalize_decimal_value($rowData['1_30_dias']) ?? 0.0,
+            'bucket_31_60' => normalize_decimal_value($rowData['31_60_dias']) ?? 0.0,
+            'bucket_61_90' => normalize_decimal_value($rowData['61_90_dias']) ?? 0.0,
+            'bucket_91_180' => normalize_decimal_value($rowData['91_180_dias']) ?? 0.0,
+            'bucket_181_360' => normalize_decimal_value($rowData['181_360_dias']) ?? 0.0,
+            'bucket_361_plus' => normalize_decimal_value($rowData['361_plus_dias']) ?? 0.0,
             'excel_row' => $excelRow,
         ];
     }
 
-    if (empty($records)) {
-        $errors[] = ['fila' => 0, 'campo' => 'archivo', 'motivo' => 'No se encontraron registros válidos para procesar'];
-    }
-
-    return [
-        'ok' => empty($errors),
-        'errors' => $errors,
-        'headers' => $expected,
-        'records' => $records,
-    ];
+    return ['ok' => empty($errors), 'errors' => $errors, 'headers' => $expected, 'records' => $records];
 }
 
 function persist_carga_errors(PDO $pdo, int $cargaId, array $errors): void
@@ -316,50 +261,24 @@ function persist_carga_errors(PDO $pdo, int $cargaId, array $errors): void
     if (empty($errors)) {
         return;
     }
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO carga_errores (carga_id, fila_excel, campo, motivo, created_at)
-         VALUES (?, ?, ?, ?, NOW())'
-    );
+    $stmt = $pdo->prepare('INSERT INTO carga_errores (carga_id, fila_excel, campo, motivo, created_at) VALUES (?, ?, ?, ?, NOW())');
     foreach ($errors as $error) {
-        $stmt->execute([
-            $cargaId,
-            (int)($error['fila'] ?? 0),
-            (string)($error['campo'] ?? 'general'),
-            (string)($error['motivo'] ?? 'Error no especificado'),
-        ]);
+        $stmt->execute([$cargaId, (int)($error['fila'] ?? 0), (string)($error['campo'] ?? 'general'), (string)($error['motivo'] ?? 'Error no especificado')]);
     }
 }
 
 function upsert_cliente(PDO $pdo, array $record): int
 {
     $stmt = $pdo->prepare(
-        'INSERT INTO clientes (nit, nombre, canal, regional, asesor_comercial, ejecutivo_cartera, uen, marca, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-           nombre = VALUES(nombre),
-           canal = VALUES(canal),
-           regional = VALUES(regional),
-           asesor_comercial = VALUES(asesor_comercial),
-           ejecutivo_cartera = VALUES(ejecutivo_cartera),
-           uen = VALUES(uen),
-           marca = VALUES(marca),
-           updated_at = NOW()'
+        'INSERT INTO clientes (cuenta, nombre, nit, direccion, contacto, telefono, canal, regional, empleado_ventas, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), direccion = VALUES(direccion), contacto = VALUES(contacto), telefono = VALUES(telefono), canal = VALUES(canal), regional = VALUES(regional), empleado_ventas = VALUES(empleado_ventas), updated_at = NOW()'
     );
-    $stmt->execute([
-        $record['nit'],
-        $record['nombre_cliente'],
-        $record['canal'] !== '' ? $record['canal'] : null,
-        $record['regional'] !== '' ? $record['regional'] : null,
-        $record['asesor_comercial'] !== '' ? $record['asesor_comercial'] : null,
-        $record['ejecutivo_cartera'] !== '' ? $record['ejecutivo_cartera'] : null,
-        $record['uen'] !== '' ? $record['uen'] : null,
-        $record['marca'] !== '' ? $record['marca'] : null,
-    ]);
+    $stmt->execute([$record['cuenta'], $record['cliente'], $record['nit'], $record['direccion'] ?: null, $record['contacto'] ?: null, $record['telefono'] ?: null, $record['canal'] ?: null, $record['regional'] ?: null, $record['empleado_ventas'] ?: null]);
 
-    $clientLookup = $pdo->prepare('SELECT id FROM clientes WHERE nit = ? LIMIT 1');
-    $clientLookup->execute([$record['nit']]);
-    return (int)$clientLookup->fetchColumn();
+    $lookup = $pdo->prepare('SELECT id FROM clientes WHERE cuenta = ? LIMIT 1');
+    $lookup->execute([$record['cuenta']]);
+    return (int)$lookup->fetchColumn();
 }
 
 function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
@@ -367,54 +286,19 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
     $newCount = 0;
     $updatedCount = 0;
 
-    $findDoc = $pdo->prepare(
-        'SELECT d.id
-         FROM documentos d
-         INNER JOIN clientes c ON c.id = d.cliente_id
-         WHERE c.nit = ? AND d.tipo_documento = ? AND d.numero_documento = ?
-         LIMIT 1'
-    );
-
+    $findDoc = $pdo->prepare('SELECT id FROM documentos_cartera WHERE cliente_id = ? AND nro_documento = ? AND tipo = ? AND fecha_contabilizacion = ? LIMIT 1');
     $upsertDoc = $pdo->prepare(
-        'INSERT INTO documentos
-         (cliente_id, tipo_documento, numero_documento, fecha_emision, fecha_vencimiento, valor_original, saldo_actual, dias_mora, periodo, estado_documento, id_carga_origen, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-           fecha_emision = VALUES(fecha_emision),
-           fecha_vencimiento = VALUES(fecha_vencimiento),
-           valor_original = VALUES(valor_original),
-           saldo_actual = VALUES(saldo_actual),
-           dias_mora = VALUES(dias_mora),
-           periodo = VALUES(periodo),
-           estado_documento = VALUES(estado_documento),
-           id_carga_origen = VALUES(id_carga_origen),
-           updated_at = NOW()'
-    );
-
-    $insertSnapshot = $pdo->prepare(
-        'INSERT INTO documentos_snapshot
-         (carga_id, nit, nombre_cliente, tipo_documento, numero_documento, fecha_emision, fecha_vencimiento, valor_original, saldo_actual, dias_mora, periodo, canal, regional, asesor_comercial, ejecutivo_cartera, uen, marca, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+        'INSERT INTO documentos_cartera (cliente_id, nro_documento, nro_ref_cliente, tipo, fecha_contabilizacion, fecha_vencimiento, valor_documento, saldo_pendiente, moneda, dias_vencido, bucket_actual, bucket_1_30, bucket_31_60, bucket_61_90, bucket_91_180, bucket_181_360, bucket_361_plus, carga_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE nro_ref_cliente = VALUES(nro_ref_cliente), fecha_vencimiento = VALUES(fecha_vencimiento), valor_documento = VALUES(valor_documento), saldo_pendiente = VALUES(saldo_pendiente), moneda = VALUES(moneda), dias_vencido = VALUES(dias_vencido), bucket_actual = VALUES(bucket_actual), bucket_1_30 = VALUES(bucket_1_30), bucket_31_60 = VALUES(bucket_31_60), bucket_61_90 = VALUES(bucket_61_90), bucket_91_180 = VALUES(bucket_91_180), bucket_181_360 = VALUES(bucket_181_360), bucket_361_plus = VALUES(bucket_361_plus), carga_id = VALUES(carga_id), updated_at = NOW()'
     );
 
     foreach ($records as $record) {
         $clienteId = upsert_cliente($pdo, $record);
+        $diasVencido = $record['dias_vencido'] ?? calculate_dias_mora((string)$record['fecha_vencimiento']);
 
-        $diasMora = $record['dias_mora'];
-        if ($diasMora === null) {
-            $diasMora = calculate_dias_mora($record['fecha_vencimiento']);
-        }
-
-        $estadoDocumento = 'vigente';
-        if ((float)$record['saldo_actual'] <= 0) {
-            $estadoDocumento = 'cancelado';
-        } elseif ($diasMora > 0) {
-            $estadoDocumento = 'vencido';
-        }
-
-        $findDoc->execute([$record['nit'], $record['tipo_documento'], $record['numero_documento']]);
-        $existingId = $findDoc->fetchColumn();
-        if ($existingId) {
+        $findDoc->execute([$clienteId, $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
+        if ($findDoc->fetchColumn()) {
             $updatedCount++;
         } else {
             $newCount++;
@@ -422,197 +306,45 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
 
         $upsertDoc->execute([
             $clienteId,
-            $record['tipo_documento'],
-            $record['numero_documento'],
-            $record['fecha_emision'],
+            $record['nro_documento'],
+            $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null,
+            $record['tipo'],
+            $record['fecha_contabilizacion'],
             $record['fecha_vencimiento'],
-            $record['valor_original'],
-            $record['saldo_actual'],
-            $diasMora,
-            $record['periodo'] !== '' ? $record['periodo'] : null,
-            $estadoDocumento,
+            $record['valor_documento'],
+            $record['saldo_pendiente'],
+            $record['moneda'],
+            $diasVencido,
+            $record['bucket_actual'],
+            $record['bucket_1_30'],
+            $record['bucket_31_60'],
+            $record['bucket_61_90'],
+            $record['bucket_91_180'],
+            $record['bucket_181_360'],
+            $record['bucket_361_plus'],
             $cargaId,
-        ]);
-
-        $insertSnapshot->execute([
-            $cargaId,
-            $record['nit'],
-            $record['nombre_cliente'],
-            $record['tipo_documento'],
-            $record['numero_documento'],
-            $record['fecha_emision'],
-            $record['fecha_vencimiento'],
-            $record['valor_original'],
-            $record['saldo_actual'],
-            $diasMora,
-            $record['periodo'] !== '' ? $record['periodo'] : null,
-            $record['canal'] !== '' ? $record['canal'] : null,
-            $record['regional'] !== '' ? $record['regional'] : null,
-            $record['asesor_comercial'] !== '' ? $record['asesor_comercial'] : null,
-            $record['ejecutivo_cartera'] !== '' ? $record['ejecutivo_cartera'] : null,
-            $record['uen'] !== '' ? $record['uen'] : null,
-            $record['marca'] !== '' ? $record['marca'] : null,
         ]);
     }
 
-    return [
-        'new_count' => $newCount,
-        'updated_count' => $updatedCount,
-    ];
+    return ['new_count' => $newCount, 'updated_count' => $updatedCount];
 }
 
 function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
 {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM documentos_cartera d INNER JOIN clientes c ON c.id = d.cliente_id WHERE c.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ?');
     $errors = [];
-    if (empty($records)) {
-        return $errors;
-    }
-
-    $stmt = $pdo->prepare(
-        'SELECT COUNT(*)
-         FROM documentos d
-         INNER JOIN clientes c ON c.id = d.cliente_id
-         WHERE c.nit = ? AND d.tipo_documento = ? AND d.numero_documento = ?'
-    );
-
     foreach ($records as $record) {
-        $stmt->execute([
-            $record['nit'],
-            $record['tipo_documento'],
-            $record['numero_documento'],
-        ]);
-        $count = (int)$stmt->fetchColumn();
-        if ($count > 1) {
-            $errors[] = [
-                'fila' => (int)$record['excel_row'],
-                'campo' => 'clave',
-                'motivo' => 'Duplicado en base de datos para (nit+tipo+numero)',
-            ];
+        $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
+        if ((int)$stmt->fetchColumn() > 1) {
+            $errors[] = ['fila' => (int)$record['excel_row'], 'campo' => 'clave', 'motivo' => 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)'];
         }
     }
-
     return $errors;
 }
 
 function revert_last_carga(PDO $pdo, int $cargaId): array
 {
-    $cargaStmt = $pdo->prepare('SELECT * FROM cargas_cartera WHERE id = ? LIMIT 1');
-    $cargaStmt->execute([$cargaId]);
-    $carga = $cargaStmt->fetch();
-    if (!$carga) {
-        throw new RuntimeException('La carga indicada no existe.');
-    }
-    if ($carga['estado'] !== 'procesado') {
-        throw new RuntimeException('Solo se pueden revertir cargas en estado procesado.');
-    }
-
-    $laterLoadsStmt = $pdo->prepare("SELECT COUNT(*) FROM cargas_cartera WHERE id > ? AND estado = 'procesado'");
-    $laterLoadsStmt->execute([$cargaId]);
-    if ((int)$laterLoadsStmt->fetchColumn() > 0) {
-        throw new RuntimeException('Por seguridad, solo se permite revertir la última carga procesada.');
-    }
-
-    $snapshotsStmt = $pdo->prepare(
-        'SELECT *
-         FROM documentos_snapshot
-         WHERE carga_id = ?
-         ORDER BY id DESC'
-    );
-    $snapshotsStmt->execute([$cargaId]);
-    $snapshots = $snapshotsStmt->fetchAll();
-
-    $deleteDocStmt = $pdo->prepare(
-        'DELETE d
-         FROM documentos d
-         INNER JOIN clientes c ON c.id = d.cliente_id
-         WHERE c.nit = ? AND d.tipo_documento = ? AND d.numero_documento = ?'
-    );
-    $previousSnapshotStmt = $pdo->prepare(
-        'SELECT *
-         FROM documentos_snapshot
-         WHERE nit = ? AND tipo_documento = ? AND numero_documento = ? AND carga_id < ?
-         ORDER BY carga_id DESC, id DESC
-         LIMIT 1'
-    );
-
-    $restored = 0;
-    $removed = 0;
-
-    foreach ($snapshots as $snapshot) {
-        $previousSnapshotStmt->execute([
-            $snapshot['nit'],
-            $snapshot['tipo_documento'],
-            $snapshot['numero_documento'],
-            $cargaId,
-        ]);
-        $previous = $previousSnapshotStmt->fetch();
-
-        if ($previous) {
-            $record = [
-                'nit' => $previous['nit'],
-                'nombre_cliente' => $previous['nombre_cliente'],
-                'canal' => (string)($previous['canal'] ?? ''),
-                'regional' => (string)($previous['regional'] ?? ''),
-                'asesor_comercial' => (string)($previous['asesor_comercial'] ?? ''),
-                'ejecutivo_cartera' => (string)($previous['ejecutivo_cartera'] ?? ''),
-                'uen' => (string)($previous['uen'] ?? ''),
-                'marca' => (string)($previous['marca'] ?? ''),
-                'tipo_documento' => $previous['tipo_documento'],
-                'numero_documento' => $previous['numero_documento'],
-                'fecha_emision' => $previous['fecha_emision'],
-                'fecha_vencimiento' => $previous['fecha_vencimiento'],
-                'valor_original' => (float)$previous['valor_original'],
-                'saldo_actual' => (float)$previous['saldo_actual'],
-                'dias_mora' => (int)$previous['dias_mora'],
-                'periodo' => (string)($previous['periodo'] ?? ''),
-            ];
-            $clienteId = upsert_cliente($pdo, $record);
-            $estado = 'vigente';
-            if ((float)$record['saldo_actual'] <= 0) {
-                $estado = 'cancelado';
-            } elseif ((int)$record['dias_mora'] > 0) {
-                $estado = 'vencido';
-            }
-
-            $upsertDoc = $pdo->prepare(
-                'INSERT INTO documentos
-                 (cliente_id, tipo_documento, numero_documento, fecha_emision, fecha_vencimiento, valor_original, saldo_actual, dias_mora, periodo, estado_documento, id_carga_origen, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-                 ON DUPLICATE KEY UPDATE
-                   fecha_emision = VALUES(fecha_emision),
-                   fecha_vencimiento = VALUES(fecha_vencimiento),
-                   valor_original = VALUES(valor_original),
-                   saldo_actual = VALUES(saldo_actual),
-                   dias_mora = VALUES(dias_mora),
-                   periodo = VALUES(periodo),
-                   estado_documento = VALUES(estado_documento),
-                   id_carga_origen = VALUES(id_carga_origen),
-                   updated_at = NOW()'
-            );
-            $upsertDoc->execute([
-                $clienteId,
-                $record['tipo_documento'],
-                $record['numero_documento'],
-                $record['fecha_emision'],
-                $record['fecha_vencimiento'],
-                $record['valor_original'],
-                $record['saldo_actual'],
-                $record['dias_mora'],
-                $record['periodo'] !== '' ? $record['periodo'] : null,
-                $estado,
-                (int)$previous['carga_id'],
-            ]);
-            $restored++;
-            continue;
-        }
-
-        $deleteDocStmt->execute([
-            $snapshot['nit'],
-            $snapshot['tipo_documento'],
-            $snapshot['numero_documento'],
-        ]);
-        $removed += $deleteDocStmt->rowCount();
-    }
-
-    return ['restored' => $restored, 'removed' => $removed];
+    $stmt = $pdo->prepare('DELETE FROM documentos_cartera WHERE carga_id = ?');
+    $stmt->execute([$cargaId]);
+    return ['restored' => 0, 'removed' => $stmt->rowCount()];
 }

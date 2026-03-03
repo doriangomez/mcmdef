@@ -7,9 +7,9 @@ ob_start();
 <section class="card dashboard-hero strategic-hero">
   <div class="hero-main">
     <p class="hero-kicker">MCM | Inteligencia financiera</p>
-    <h2 class="hero-title">Panel Estratégico de Riesgo de Cartera</h2>
+    <h2 class="hero-title">Centro de Inteligencia de Cartera</h2>
     <p class="hero-copy">
-      Visualiza exposición, mora, concentración y dispersión territorial con lectura ejecutiva de riesgo.
+      Plataforma estratégica para control, riesgo y analítica de cartera.
     </p>
   </div>
   <div class="hero-controls">
@@ -32,18 +32,12 @@ ob_start();
           <option value="">Todos los canales</option>
         </select>
       </label>
-      <label class="filter-field">
-        <span>UEN</span>
-        <select name="uen" id="filterUen" data-placeholder="Todas las UEN">
-          <option value="">Todas las UEN</option>
-        </select>
-      </label>
       <div class="filter-actions">
         <button type="submit" class="btn">Aplicar</button>
         <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
         <button type="button" class="btn btn-secondary" id="dashboardRefresh">
           <i class="fa-solid fa-rotate"></i>
-          <span>Actualizar</span>
+          <span>Actualizar análisis</span>
         </button>
       </div>
     </form>
@@ -309,8 +303,7 @@ ob_start();
       updateSelectOptions(document.getElementById('filterPeriodo'), filterOptions.periodo || [], selectedFilters.periodo || '');
       updateSelectOptions(document.getElementById('filterRegional'), filterOptions.regional || [], selectedFilters.regional || '');
       updateSelectOptions(document.getElementById('filterCanal'), filterOptions.canal || [], selectedFilters.canal || '');
-      updateSelectOptions(document.getElementById('filterUen'), filterOptions.uen || [], selectedFilters.uen || '');
-      isHydratingFilters = false;
+            isHydratingFilters = false;
     }
 
     function renderRiskInsight(insight) {
