@@ -15,11 +15,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borra
     } else {
         try {
             $pdo->beginTransaction();
-            $pdo->exec('DELETE FROM bitacora_gestion');
-            $pdo->exec('DELETE FROM cartera_documentos');
-            $pdo->exec('DELETE FROM carga_errores');
-            $pdo->exec('DELETE FROM cargas_cartera');
-            $pdo->exec('DELETE FROM clientes');
+            $tablesToClear = ['bitacora_gestion', 'cartera_documentos', 'carga_errores', 'cargas_cartera', 'clientes'];
+            $existingTables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            $existingLookup = array_flip($existingTables);
+
+            foreach ($tablesToClear as $tableName) {
+                if (isset($existingLookup[$tableName])) {
+                    $pdo->exec('DELETE FROM ' . $tableName);
+                }
+            }
+
             audit_log($pdo, 'cargas_cartera', null, 'borrado_masivo_temporal', null, null, (int)current_user()['id']);
             $pdo->commit();
             $msg = 'Se eliminaron temporalmente todos los datos de cargue para pruebas.';
