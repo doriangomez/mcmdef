@@ -47,18 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$docScope = portfolio_client_scope_sql('c');
-$docStmt = $pdo->prepare(
-    'SELECT d.*, c.nombre AS cliente_nombre, c.nit, c.telefono, c.contacto, c.canal, c.regional
-     FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.id = ? AND d.estado_documento = "activo"' . $docScope['sql'] . '
-     LIMIT 1'
-);
-$docStmt->execute(array_merge([$documentoId], $docScope['params']));
-$documento = $docStmt->fetch();
+if ($clienteId <= 0 && $documentoId > 0) {
+    $clienteLookup = $pdo->prepare('SELECT cliente_id FROM cartera_documentos WHERE id = ? LIMIT 1');
+    $clienteLookup->execute([$documentoId]);
+    $clienteId = (int)$clienteLookup->fetchColumn();
+}
 
-$docsCliente = [];
+$cliente = null;
+$resumen = ['saldo_total' => 0, 'documentos' => 0, 'promedio_mora' => 0];
+$documentos = [];
 $gestiones = [];
 
 if ($clienteId > 0) {
@@ -109,6 +106,7 @@ if ($clienteId > 0) {
 
 ob_start(); ?>
 <h1>Vista operativa integral del cliente</h1>
+<?php if ($documentoId > 0): ?><p class="kpi-subtext">Documento seleccionado para gestionar: <strong>#<?= (int)$documentoId ?></strong></p><?php endif; ?>
 <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
@@ -139,19 +137,19 @@ ob_start(); ?>
     <table class="table">
       <tr><th>Documento</th><th>Tipo</th><th>Saldo</th><th>Días de mora</th><th>Estado</th><th>Acción</th></tr>
       <?php foreach ($documentos as $doc): ?>
-        <tr>
+        <tr class="<?= (int)$doc['id'] === $documentoId ? 'selected-document-row' : '' ?>">
           <td><?= htmlspecialchars((string)$doc['nro_documento']) ?></td>
           <td><?= htmlspecialchars((string)$doc['tipo']) ?></td>
           <td>$<?= number_format((float)$doc['saldo_pendiente'], 2, ',', '.') ?></td>
           <td><?= ui_badge((string)((int)$doc['dias_vencido']) . ' días', gestion_mora_badge_variant((int)$doc['dias_vencido'])) ?></td>
           <td><?= htmlspecialchars((string)$doc['estado_documento']) ?></td>
-          <td><a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . $clienteId . '&documento_id=' . (int)$doc['id'])) ?>">Gestionar</a></td>
+          <td><a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . $clienteId . '&documento_id=' . (int)$doc['id'] . '#registro-gestion')) ?>">Gestionar</a></td>
         </tr>
       <?php endforeach; ?>
     </table>
   </div>
 
-  <form class="card" method="post">
+  <form id="registro-gestion" class="card" method="post">
     <input type="hidden" name="cliente_id" value="<?= $clienteId ?>">
     <div class="card-header"><h3>Registrar gestión</h3></div>
     <div class="row">

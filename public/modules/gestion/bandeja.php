@@ -97,7 +97,7 @@ ob_start(); ?>
       <td><?= ui_badge($estadoTexto, $estadoColor) ?></td>
       <td><?= htmlspecialchars((string)($row['responsable'] ?? 'Sin responsable')) ?></td>
       <td>
-        <a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . (int)$row['cliente_id'] . '&documento_id=' . (int)$row['id'])) ?>">Ver</a>
+        <a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . (int)$row['cliente_id'] . '&documento_id=' . (int)$row['id'] . '#registro-gestion')) ?>">Gestionar</a>
       </td>
     </tr>
   <?php endforeach; ?>

@@ -1420,3 +1420,12 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+
+.selected-document-row td {
+  background: #EAF3FF !important;
+}
+
+.selected-document-row td:first-child {
+  border-left: 4px solid #1E5AA8;
+}

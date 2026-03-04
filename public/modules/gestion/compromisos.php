@@ -33,8 +33,7 @@ $stmt = $pdo->prepare(
      ) ult ON ult.last_id = g.id
      INNER JOIN usuarios u ON u.id = g.usuario_id
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE g.compromiso_pago IS NOT NULL' . gestion_scope_condition($responsableId, 'd')['sql'] . '
+     WHERE (? <= 0 OR g.usuario_id = ?)
      ORDER BY g.compromiso_pago ASC, g.id DESC
      LIMIT 400'
 );
@@ -68,7 +67,7 @@ ob_start(); ?>
       <td><?= htmlspecialchars((string)$row['compromiso_pago']) ?></td>
       <td><?= htmlspecialchars((string)$row['responsable']) ?></td>
       <td><?= ui_badge($estadoTexto, $estadoColor) ?></td>
-      <td><a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . (int)$row['cliente_id'] . '&documento_id=' . (int)$row['id_documento'])) ?>">Gestionar</a></td>
+      <td><a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . (int)$row['cliente_id'] . '&documento_id=' . (int)$row['id_documento'] . '#registro-gestion')) ?>">Gestionar</a></td>
     </tr>
   <?php endforeach; ?>
 </table>
