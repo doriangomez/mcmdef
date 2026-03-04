@@ -25,10 +25,11 @@ $docsStmt->execute([$id]);
 $documents = $docsStmt->fetchAll();
 
 $gestionesStmt = $pdo->prepare(
-    'SELECT g.*, u.nombre AS usuario
-     FROM gestiones g
+    'SELECT g.id, g.id_documento, g.tipo_gestion, g.observacion, g.compromiso_pago, g.valor_compromiso, g.created_at, u.nombre AS usuario
+     FROM bitacora_gestion g
+     INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN usuarios u ON u.id = g.usuario_id
-     WHERE g.cliente_id = ?
+     WHERE d.cliente_id = ?
      ORDER BY g.id DESC'
 );
 $gestionesStmt->execute([$id]);
@@ -126,28 +127,25 @@ ob_start(); ?>
   <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php?cliente_id=' . $id)) ?>">Nueva gestión</a>
 <?php endif; ?>
 <table class="table">
-  <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado</th><th>Anulada</th><th>Usuario</th></tr>
+  <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado</th><th>Usuario</th></tr>
   <?php foreach ($gestiones as $gestion): ?>
     <tr>
       <td><?= htmlspecialchars($gestion['created_at']) ?></td>
       <td><?= htmlspecialchars($gestion['tipo_gestion']) ?></td>
-      <td><?= htmlspecialchars($gestion['descripcion']) ?></td>
-      <td><?= htmlspecialchars((string)$gestion['fecha_compromiso']) ?> / <?= htmlspecialchars((string)$gestion['valor_compromiso']) ?></td>
+      <td><?= htmlspecialchars($gestion['observacion']) ?></td>
+      <td><?= htmlspecialchars((string)$gestion['compromiso_pago']) ?> / <?= htmlspecialchars((string)$gestion['valor_compromiso']) ?></td>
       <td>
         <?php
-          $estado = strtolower((string)$gestion['estado_compromiso']);
-          if ($estado === 'pendiente') {
-              echo ui_badge('Pendiente', 'warning');
-          } elseif ($estado === 'cumplido') {
-              echo ui_badge('Cumplido', 'success');
-          } elseif ($estado === 'incumplido') {
-              echo ui_badge('Incumplido', 'danger');
+          if (!empty($gestion['compromiso_pago'])) {
+              $fechaCompromiso = strtotime((string)$gestion['compromiso_pago']);
+              $estadoCompromiso = ($fechaCompromiso !== false && $fechaCompromiso < strtotime(date('Y-m-d'))) ? 'Vencido' : 'Pendiente';
+              $badgeType = $estadoCompromiso === 'Vencido' ? 'danger' : 'warning';
+              echo ui_badge($estadoCompromiso, $badgeType);
           } else {
-              echo ui_badge((string)$gestion['estado_compromiso'], 'default');
+              echo ui_badge('Sin compromiso', 'default');
           }
         ?>
       </td>
-      <td><?= (int)$gestion['anulada'] === 1 ? 'Sí' : 'No' ?></td>
       <td><?= htmlspecialchars($gestion['usuario']) ?></td>
     </tr>
   <?php endforeach; ?>
