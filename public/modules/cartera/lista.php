@@ -334,6 +334,7 @@ ob_start(); ?>
   .table-responsive { overflow-x:auto; }
   .action-links { display:flex; flex-wrap:wrap; gap:6px; }
   .action-links a { font-size:12px; }
+  .action-links .btn { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 10px; }
   .badge-mora-orange { background: rgba(249, 115, 22, 0.18); color:#c2410c; border:1px solid rgba(194, 65, 12, 0.22); display:inline-flex; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:600; }
   .critical-row td { background:rgba(239, 68, 68, 0.06); }
   .doc-mini { margin-top:8px; border-top:1px dashed #dbe4f1; padding-top:8px; }
@@ -425,7 +426,7 @@ ob_start(); ?>
     <td><?= (int)$r['total_documentos'] ?></td>
     <td><?= (int)$r['total_documentos_vencidos'] ?></td>
     <td><?= cartera_mora_badge((int)round((float)$r['promedio_mora'])) ?></td>
-    <td><div class="action-links"><a href="<?= htmlspecialchars(app_url('cartera/cliente.php?id=' . $clienteId)) ?>">Ver historial</a><a href="<?= htmlspecialchars(app_url('cartera/lista.php?vista=documento&cliente_id=' . $clienteId . '&cliente=' . urlencode((string)$r['cliente']))) ?>">Ver documentos</a></div></td>
+    <td><div class="action-links"><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . $clienteId)) ?>"><i class="fa-solid fa-address-card"></i> Ver historial</a><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/lista.php?vista=documento&cliente_id=' . $clienteId . '&cliente=' . urlencode((string)$r['cliente']))) ?>"><i class="fa-solid fa-file-lines"></i> Ver documentos</a></div></td>
   </tr>
   <tr><td colspan="7"><div class="doc-mini"><table><tr><th>Tipo</th><th>Número</th><th>Saldo</th><th>Mora</th><th>Detalle</th></tr><?php foreach (($docsByClient[$clienteId] ?? []) as $doc): ?><tr><td><?= htmlspecialchars((string)$doc['tipo']) ?></td><td><?= htmlspecialchars((string)$doc['nro_documento']) ?></td><td>$ <?= number_format((float)$doc['saldo_pendiente'], 0, ',', '.') ?></td><td><?= cartera_mora_badge((int)$doc['dias_vencido']) ?></td><td><a href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$doc['id'])) ?>">Abrir</a></td></tr><?php endforeach; ?></table></div></td></tr>
 <?php endforeach; ?>
@@ -434,7 +435,7 @@ ob_start(); ?>
 <?php foreach ($rows as $r): ?>
 <tr>
   <td><?= (int)$r['id'] ?></td><td><?= htmlspecialchars($r['nit']) ?></td><td><?= htmlspecialchars($r['nombre']) ?></td><td><?= htmlspecialchars($r['tipo']) ?></td><td><?= htmlspecialchars($r['nro_documento']) ?></td><td>$ <?= number_format((float)$r['saldo_pendiente'],2,',','.') ?></td><td><?= cartera_mora_badge((int)$r['dias_vencido']) ?></td><td><?= htmlspecialchars($r['estado_documento']) ?></td>
-  <td><div class="action-links"><a href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$r['id'])) ?>">Ver detalle</a><a href="<?= htmlspecialchars(app_url('cartera/cliente.php?id=' . (int)$r['cliente_id'])) ?>">Ver historial</a><a href="<?= htmlspecialchars(app_url('cartera/cliente.php?id=' . (int)$r['cliente_id'])) ?>">Comportamiento mora</a></div></td>
+  <td><div class="action-links"><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$r['id'])) ?>"><i class="fa-solid fa-magnifying-glass"></i> Ver detalle</a><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)$r['cliente_id'] . '&view=mora')) ?>"><i class="fa-solid fa-chart-line"></i> Ver comportamiento de mora</a></div></td>
 </tr>
 <?php endforeach; ?>
 <?php endif; ?>
