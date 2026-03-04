@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../config/app.php';
+require_once __DIR__ . '/../services/SystemSettingsService.php';
 
 function ui_badge(string $text, string $variant = 'default'): string
 {
@@ -122,7 +123,8 @@ function render_layout(string $title, string $content): void
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title><?= htmlspecialchars($title) ?> - MCM Cartera</title>
-      <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>">
+      <?php $logoUrl = system_logo_url(); ?>
+      <link rel="icon" href="<?= htmlspecialchars($logoUrl) ?>">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -132,8 +134,8 @@ function render_layout(string $title, string $content): void
     <body>
       <aside class="app-sidebar" id="appSidebar">
         <div class="sidebar-brand">
-          <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="sidebar-logo">
-          <div>
+          <img src="<?= htmlspecialchars($logoUrl) ?>" alt="MCM" class="sidebar-logo">
+          <div class="sidebar-brand-text">
             <div class="sidebar-brand-title">MCM</div>
             <div class="sidebar-brand-subtitle">Cartera y Recaudos</div>
           </div>
@@ -214,8 +216,13 @@ function render_layout(string $title, string $content): void
           }
 
           toggle.addEventListener('click', function () {
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('show');
+            if (window.innerWidth <= 1024) {
+              sidebar.classList.toggle('open');
+              overlay.classList.toggle('show');
+              return;
+            }
+
+            document.body.classList.toggle('sidebar-collapsed');
           });
 
           overlay.addEventListener('click', closeSidebar);

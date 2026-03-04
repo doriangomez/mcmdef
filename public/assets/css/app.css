@@ -43,42 +43,51 @@ a:hover {
 .app-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  width: 260px;
+  width: 280px;
   background: #0F2A50;
   color: #E6EEFF;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 40;
-  padding: 18px 14px 14px;
+  padding: 20px 14px 14px;
   overflow-y: auto;
 }
 
 .sidebar-brand {
-  display: flex;
-  align-items: center;
+  display: grid;
+  justify-items: center;
+  text-align: center;
   gap: 14px;
-  padding: 14px;
-  border: 1px solid rgba(195, 217, 255, 0.25);
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
-  border-radius: 16px;
-  margin-bottom: 18px;
+  padding: 24px 16px 18px;
+  border: 1px solid rgba(195, 217, 255, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04));
+  border-radius: 18px;
+  margin-bottom: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 26px rgba(0, 0, 0, 0.2);
 }
 
 .sidebar-logo {
-  width: 72px;
-  height: 72px;
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25));
+  width: min(86%, 132px);
+  max-height: 128px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(9, 19, 35, 0.5));
+}
+
+.sidebar-brand-text {
+  display: grid;
+  gap: 4px;
 }
 
 .sidebar-brand-title {
   font-weight: 700;
+  font-size: 15px;
   color: #fff;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.6px;
 }
 
 .sidebar-brand-subtitle {
-  font-size: 12px;
-  color: #C4D5F2;
-  margin-top: 3px;
+  font-size: 11px;
+  color: #BFD0ED;
+  margin-top: 0;
 }
 
 .sidebar-nav {
@@ -143,10 +152,39 @@ a:hover {
 }
 
 .app-main {
-  margin-left: 260px;
+  margin-left: 280px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+
+body.sidebar-collapsed .app-sidebar {
+  width: 112px;
+}
+
+body.sidebar-collapsed .app-main {
+  margin-left: 112px;
+}
+
+body.sidebar-collapsed .sidebar-brand {
+  padding: 18px 8px;
+}
+
+body.sidebar-collapsed .sidebar-brand-text,
+body.sidebar-collapsed .sidebar-section-label,
+body.sidebar-collapsed .sidebar-link span {
+  display: none;
+}
+
+body.sidebar-collapsed .sidebar-logo {
+  width: 84px;
+  max-height: 84px;
+}
+
+body.sidebar-collapsed .sidebar-link {
+  justify-content: center;
+  padding: 10px;
 }
 
 .app-topbar {
@@ -242,7 +280,7 @@ a:hover {
   border: 1px solid var(--mcm-border);
   background: #fff;
   color: var(--mcm-dark);
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 }
