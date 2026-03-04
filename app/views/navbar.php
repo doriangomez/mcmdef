@@ -1,11 +1,12 @@
 <?php
 require_once __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../config/app.php';
+require_once __DIR__ . '/../services/SystemSettingsService.php';
 $user = current_user();
 ?>
 <header class="navbar">
   <div class="brand">
-    <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="logo">
+    <img src="<?= htmlspecialchars(system_logo_url()) ?>" alt="MCM" class="logo">
     <span>Sistema Cartera y Recaudos</span>
   </div>
   <?php if ($user): ?>

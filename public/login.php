@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../app/config/db.php';
 require_once __DIR__ . '/../app/config/auth.php';
 require_once __DIR__ . '/../app/config/app.php';
+require_once __DIR__ . '/../app/services/SystemSettingsService.php';
 
 if (is_logged_in()) {
     redirect_to('index.php');
@@ -31,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login MCM</title>
-    <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>">
+    <link rel="icon" href="<?= htmlspecialchars(system_logo_url()) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -39,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="auth-page">
 <div class="login-wrap">
-    <img src="<?= htmlspecialchars(app_url('assets/img/logo-mcm.svg')) ?>" alt="MCM" class="logo">
+    <img src="<?= htmlspecialchars(system_logo_url()) ?>" alt="MCM" class="logo">
     <p class="eyebrow">MCM</p>
     <h2>Ingreso al sistema</h2>
     <p class="muted">Gestión de Cartera y Recaudos</p>
