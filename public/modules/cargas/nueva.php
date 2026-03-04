@@ -20,6 +20,43 @@ $hayErrorEstructural = false;
 $totalInsertados = 0;
 $totalSaldoInsertado = 0.0;
 
+$kpiStmt = $pdo->query(
+    'SELECT
+        COUNT(*) AS total_cargas,
+        COALESCE(SUM(total_documentos), 0) AS total_documentos,
+        COALESCE(SUM(total_saldo), 0) AS total_saldo
+     FROM cargas_cartera'
+);
+$kpiData = $kpiStmt ? ($kpiStmt->fetch(PDO::FETCH_ASSOC) ?: []) : [];
+
+$ultimaCargaStmt = $pdo->query(
+    'SELECT c.fecha_carga, c.total_documentos, c.total_saldo, c.estado, u.nombre AS usuario
+     FROM cargas_cartera c
+     LEFT JOIN usuarios u ON u.id = c.usuario_id
+     ORDER BY c.fecha_carga DESC, c.id DESC
+     LIMIT 1'
+);
+$ultimaCarga = $ultimaCargaStmt ? ($ultimaCargaStmt->fetch(PDO::FETCH_ASSOC) ?: null) : null;
+
+$ultimaExitosaStmt = $pdo->query(
+    'SELECT c.fecha_carga, c.total_documentos, c.total_saldo, u.nombre AS usuario
+     FROM cargas_cartera c
+     LEFT JOIN usuarios u ON u.id = c.usuario_id
+     WHERE c.estado = "activa"
+     ORDER BY c.fecha_carga DESC, c.id DESC
+     LIMIT 1'
+);
+$ultimaExitosa = $ultimaExitosaStmt ? ($ultimaExitosaStmt->fetch(PDO::FETCH_ASSOC) ?: null) : null;
+
+$historialRecienteStmt = $pdo->query(
+    'SELECT c.id, c.fecha_carga, c.nombre_archivo, c.total_documentos, c.total_saldo, c.estado, u.nombre AS usuario
+     FROM cargas_cartera c
+     LEFT JOIN usuarios u ON u.id = c.usuario_id
+     ORDER BY c.fecha_carga DESC, c.id DESC
+     LIMIT 20'
+);
+$historialReciente = $historialRecienteStmt ? $historialRecienteStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
 if (isset($_GET['download_errors'])) {
     $token = (string)($_GET['download_errors'] ?? '');
     $stored = $_SESSION['import_error_reports'][$token] ?? null;
@@ -173,18 +210,109 @@ ob_start();
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
-<?php if($estadoCarga === 'exitosa' && $summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
-<div class="card">
-<form method="post" enctype="multipart/form-data" id="uploadCarteraForm" novalidate>
-    <p><strong>Plantilla esperada (orden exacto):</strong><br>
-      #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
+<?php if ($ultimaExitosa): ?>
+  <div class="card carga-highlight-success">
+    <i class="fa-solid fa-circle-check"></i>
+    <p>
+      <strong>Última carga exitosa:</strong>
+      <?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$ultimaExitosa['fecha_carga']))) ?>
+      por <?= htmlspecialchars((string)($ultimaExitosa['usuario'] ?? 'Usuario no identificado')) ?>
+      con <?= (int)$ultimaExitosa['total_documentos'] ?> documentos por valor de
+      $<?= number_format((float)$ultimaExitosa['total_saldo'], 2, ',', '.') ?>.
     </p>
-    <p>Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio, y procesamiento batch de 1000 registros.</p>
-    <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
-    <button class="btn" type="submit" id="uploadSubmitBtn">Validar y procesar</button>
-    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial</a>
-</form>
-</div>
+  </div>
+<?php endif; ?>
+<section class="control-kpi-grid" aria-label="Resumen rápido de cargas">
+  <article class="control-kpi-card">
+    <div class="control-kpi-icon"><i class="fa-solid fa-layer-group"></i></div>
+    <p class="control-kpi-label">Total cargas realizadas</p>
+    <p class="control-kpi-value"><?= number_format((int)($kpiData['total_cargas'] ?? 0), 0, ',', '.') ?></p>
+  </article>
+  <article class="control-kpi-card">
+    <div class="control-kpi-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
+    <p class="control-kpi-label">Última carga</p>
+    <p class="control-kpi-value control-kpi-value-sm">
+      <?php if ($ultimaCarga): ?>
+        <?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$ultimaCarga['fecha_carga']))) ?>
+      <?php else: ?>
+        Sin registros
+      <?php endif; ?>
+    </p>
+    <p class="control-kpi-subtext">
+      Usuario: <?= htmlspecialchars((string)($ultimaCarga['usuario'] ?? 'N/A')) ?>
+    </p>
+  </article>
+  <article class="control-kpi-card">
+    <div class="control-kpi-icon"><i class="fa-solid fa-file-lines"></i></div>
+    <p class="control-kpi-label">Documentos cargados históricos</p>
+    <p class="control-kpi-value"><?= number_format((int)($kpiData['total_documentos'] ?? 0), 0, ',', '.') ?></p>
+  </article>
+  <article class="control-kpi-card">
+    <div class="control-kpi-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+    <p class="control-kpi-label">Saldo histórico cargado</p>
+    <p class="control-kpi-value">$<?= number_format((float)($kpiData['total_saldo'] ?? 0), 2, ',', '.') ?></p>
+  </article>
+</section>
+<?php if($estadoCarga === 'exitosa' && $summary['total'] > 0): ?><div class="card"><strong>Resumen:</strong> Total filas: <?= (int)$summary['total'] ?> | Filas con error: <?= (int)$summary['con_error'] ?></div><?php endif; ?>
+<section class="card carga-control-form-card">
+  <div class="card-header carga-form-header">
+    <h3>Centro de control de cargas</h3>
+    <span class="badge badge-info">Batch seguro</span>
+  </div>
+  <form method="post" enctype="multipart/form-data" id="uploadCarteraForm" novalidate>
+      <p class="carga-template"><strong>Plantilla esperada (orden exacto):</strong><br>
+        #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
+      </p>
+      <p class="carga-rules">Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio y procesamiento batch de 1000 registros.</p>
+      <div class="carga-form-actions">
+        <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
+        <button class="btn carga-btn-primary" type="submit" id="uploadSubmitBtn"><i class="fa-solid fa-play"></i> Validar y procesar</button>
+        <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/historial.php')) ?>">Ver historial completo</a>
+      </div>
+      <p class="carga-helper-text">Procesamiento batch seguro con validación estructural y control de duplicados.</p>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h3>Historial reciente de cargas</h3>
+  </div>
+  <?php if (!empty($historialReciente)): ?>
+    <table class="table table-cargas-recientes">
+      <thead>
+      <tr>
+        <th>ID</th>
+        <th>Fecha y hora</th>
+        <th>Usuario</th>
+        <th>Archivo</th>
+        <th>Documentos</th>
+        <th>Saldo</th>
+        <th>Estado</th>
+        <th>Acción</th>
+      </tr>
+      </thead>
+      <tbody>
+      <?php foreach ($historialReciente as $item): ?>
+        <tr>
+          <td><?= (int)$item['id'] ?></td>
+          <td><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$item['fecha_carga']))) ?></td>
+          <td><?= htmlspecialchars((string)($item['usuario'] ?? 'N/A')) ?></td>
+          <td><?= htmlspecialchars((string)$item['nombre_archivo']) ?></td>
+          <td><?= number_format((int)$item['total_documentos'], 0, ',', '.') ?></td>
+          <td>$<?= number_format((float)$item['total_saldo'], 2, ',', '.') ?></td>
+          <td><?= (($item['estado'] ?? '') === 'activa') ? ui_badge('Activa', 'success') : ui_badge('Rechazada', 'danger') ?></td>
+          <td><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$item['id'])) ?>">Ver detalle</a></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  <?php else: ?>
+    <div class="carga-empty-state">
+      <i class="fa-regular fa-folder-open"></i>
+      <p>No hay cargas registradas.</p>
+    </div>
+  <?php endif; ?>
+</section>
 
 <?php if ($cargaId): ?>
     <p><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . $cargaId)) ?>">Abrir detalle de la carga #<?= $cargaId ?></a></p>

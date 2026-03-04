@@ -556,6 +556,143 @@ textarea {
   color: #991B1B;
 }
 
+.carga-highlight-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-left: 4px solid var(--mcm-success);
+  background: linear-gradient(110deg, #F3FBF6 0%, #FFFFFF 65%);
+}
+
+.carga-highlight-success i {
+  color: #16A34A;
+  margin-top: 2px;
+}
+
+.carga-highlight-success p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.control-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.control-kpi-card {
+  background: #fff;
+  border: 1px solid #D9E3F2;
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: var(--shadow-xs);
+}
+
+.control-kpi-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 90, 168, 0.12);
+  color: var(--mcm-blue);
+  margin-bottom: 8px;
+}
+
+.control-kpi-label {
+  margin: 0;
+  font-size: 12px;
+  color: #64748B;
+}
+
+.control-kpi-value {
+  margin: 5px 0 0;
+  font-size: 23px;
+  color: #0F2A50;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.control-kpi-value-sm {
+  font-size: 18px;
+}
+
+.control-kpi-subtext {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748B;
+}
+
+.carga-control-form-card {
+  border: 1px solid #CFE0F7;
+}
+
+.carga-form-header h3 {
+  color: #0F2A50;
+}
+
+.carga-template {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.carga-rules {
+  margin: 0 0 14px;
+  color: #1E3A5F;
+  background: #F1F6FF;
+  border: 1px dashed #B9CFF0;
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.carga-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.carga-btn-primary {
+  box-shadow: 0 10px 20px rgba(30, 90, 168, 0.25);
+}
+
+.carga-helper-text {
+  margin: 10px 0 0;
+  color: #64748B;
+  font-size: 12px;
+}
+
+.table-cargas-recientes tbody tr {
+  transition: background-color .2s ease;
+}
+
+.table-cargas-recientes tbody tr:hover td {
+  background: #F2F7FF;
+}
+
+.carga-empty-state {
+  border: 1px dashed #C8D5E8;
+  border-radius: 16px;
+  padding: 28px 20px;
+  text-align: center;
+  color: #64748B;
+}
+
+.carga-empty-state i {
+  font-size: 24px;
+  color: #93A7C6;
+  margin-bottom: 8px;
+}
+
+.carga-empty-state p {
+  margin: 0;
+}
+
 .pagination {
   display: flex;
   justify-content: space-between;
@@ -1056,6 +1193,7 @@ textarea {
 }
 
 @media (max-width: 1200px) {
+  .control-kpi-grid,
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1116,6 +1254,7 @@ textarea {
     padding: 16px;
   }
 
+  .control-kpi-grid,
   .kpi-grid {
     grid-template-columns: 1fr;
   }
