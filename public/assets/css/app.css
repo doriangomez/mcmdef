@@ -1334,3 +1334,89 @@ textarea {
 .priority-high td:first-child {
   border-left: 4px solid #EF4444;
 }
+
+.priority-medium-high td:first-child {
+  border-left: 4px solid #F97316;
+}
+
+.section-title {
+  margin: 8px 0 12px;
+  font-size: 17px;
+}
+
+.kpi-grid-compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-two-cols {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+}
+
+.mora-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.mora-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 140px;
+  align-items: center;
+  gap: 10px;
+}
+
+.mora-bucket {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.mora-track {
+  height: 12px;
+  border-radius: 999px;
+  background: #E2E8F0;
+  overflow: hidden;
+}
+
+.mora-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #1E5AA8 0%, #3B82F6 100%);
+}
+
+.mora-value {
+  font-size: 12px;
+  text-align: right;
+  color: #334155;
+}
+
+.alert-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 10px;
+  color: #334155;
+}
+
+.client-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.client-grid p {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  background: #F8FAFC;
+  font-size: 13px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-two-cols,
+  .client-grid {
+    grid-template-columns: 1fr;
+  }
+}
