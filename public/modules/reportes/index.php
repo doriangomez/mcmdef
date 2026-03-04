@@ -4,6 +4,14 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExportService.php';
 
+function report_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
+    $stmt->execute([$column]);
+
+    return (bool)$stmt->fetch();
+}
+
 $tipo = $_GET['tipo'] ?? 'vigente_vencida';
 $periodo = trim($_GET['periodo'] ?? '');
 $canal = trim($_GET['canal'] ?? '');
@@ -11,6 +19,13 @@ $regional = trim($_GET['regional'] ?? '');
 $uen = trim($_GET['uen'] ?? '');
 $asesor = trim($_GET['asesor'] ?? '');
 $estadoCompromiso = trim($_GET['estado_compromiso'] ?? '');
+
+$uenSourceExpr = 'NULL';
+if (report_column_exists($pdo, 'clientes', 'uen')) {
+    $uenSourceExpr = 'c.uen';
+} elseif (report_column_exists($pdo, 'cartera_documentos', 'uen')) {
+    $uenSourceExpr = 'd.uen';
+}
 
 $docWhere = [];
 $docParams = [];
@@ -27,8 +42,8 @@ if ($regional !== '') {
     $docWhere[] = 'c.regional LIKE ?';
     $docParams[] = '%' . $regional . '%';
 }
-if ($uen !== '') {
-    $docWhere[] = 'c.uen LIKE ?';
+if ($uen !== '' && $uenSourceExpr !== 'NULL') {
+    $docWhere[] = $uenSourceExpr . ' LIKE ?';
     $docParams[] = '%' . $uen . '%';
 }
 if ($asesor !== '') {
@@ -81,11 +96,11 @@ if ($tipo === 'vigente_vencida') {
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'uen') {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(c.uen, "sin_uen") AS categoria, SUM(d.saldo_pendiente) AS total
+        'SELECT COALESCE(' . $uenSourceExpr . ', "sin_uen") AS categoria, SUM(d.saldo_pendiente) AS total
          FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
-        ' GROUP BY c.uen'
+        ' GROUP BY categoria'
     );
     $stmt->execute($docParams);
     $rows = $stmt->fetchAll();
@@ -110,7 +125,7 @@ if ($tipo === 'vigente_vencida') {
     $stmt->execute($docParams);
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'compromisos') {
-    $gestionWhere = ['g.compromiso_pago IS NOT NULL'];
+    $gestionWhere = ['compromiso_pago IS NOT NULL'];
     $gestionParams = [];
     if ($estadoCompromiso !== '') {
         $gestionWhere[] = 'estado_compromiso = ?';
@@ -122,6 +137,7 @@ if ($tipo === 'vigente_vencida') {
         "SELECT estado_compromiso AS categoria, COUNT(*) AS total
          FROM (
              SELECT
+                 g.compromiso_pago,
                  CASE
                      WHEN d.saldo_pendiente <= 0 THEN 'cumplido'
                      WHEN g.compromiso_pago < CURDATE() THEN 'incumplido'
