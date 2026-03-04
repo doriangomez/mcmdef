@@ -63,28 +63,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$docsStmt = $pdo->query(
+    'SELECT d.id, d.cliente, d.nro_documento
+     FROM cartera_documentos d
+     WHERE d.estado_documento = "activo"
+     ORDER BY d.dias_vencido DESC, d.saldo_pendiente DESC
+     LIMIT 500'
+);
+$documentos = $docsStmt->fetchAll() ?: [];
+
 ob_start(); ?>
-<h1>Registrar gestión</h1>
+<h1>Formulario de nueva gestión</h1>
 <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 <form class="card" method="post">
 <div class="row">
-<input type="number" min="1" name="documento_id" placeholder="Documento ID" value="<?= $documentoId > 0 ? (int)$documentoId : '' ?>" required>
+<select name="documento_id" required>
+  <option value="">Cliente / Documento</option>
+  <?php foreach ($documentos as $documento): ?>
+    <option value="<?= (int)$documento['id'] ?>" <?= (int)$documento['id'] === $documentoId ? 'selected' : '' ?>>
+      <?= htmlspecialchars((string)$documento['cliente']) ?> · <?= htmlspecialchars((string)$documento['nro_documento']) ?>
+    </option>
+  <?php endforeach; ?>
+</select>
 <select name="tipo_gestion" required>
   <option value="">Tipo de gestión</option>
+  <option value="llamada" <?= $tipoGestion === 'llamada' ? 'selected' : '' ?>>Llamada telefónica</option>
+  <option value="correo" <?= $tipoGestion === 'correo' ? 'selected' : '' ?>>Correo electrónico</option>
+  <option value="whatsapp" <?= $tipoGestion === 'whatsapp' ? 'selected' : '' ?>>WhatsApp</option>
+  <option value="visita" <?= $tipoGestion === 'visita' ? 'selected' : '' ?>>Visita</option>
+  <option value="compromiso_pago" <?= $tipoGestion === 'compromiso_pago' ? 'selected' : '' ?>>Compromiso de pago</option>
+  <option value="promesa_pago" <?= $tipoGestion === 'promesa_pago' ? 'selected' : '' ?>>Promesa de pago</option>
   <option value="novedad" <?= $tipoGestion === 'novedad' ? 'selected' : '' ?>>Novedad</option>
-  <option value="compromiso" <?= $tipoGestion === 'compromiso' ? 'selected' : '' ?>>Compromiso</option>
-  <option value="seguimiento" <?= $tipoGestion === 'seguimiento' ? 'selected' : '' ?>>Seguimiento</option>
-  <option value="otro" <?= $tipoGestion === 'otro' ? 'selected' : '' ?>>Otro</option>
 </select>
 </div>
 <div class="row"><textarea name="observacion" placeholder="Observación" required style="width:100%"><?= htmlspecialchars($observacion) ?></textarea></div>
 <div class="row">
 <input type="date" name="compromiso_pago" value="<?= htmlspecialchars($compromisoPago) ?>">
-<input type="number" step="0.01" min="0" name="valor_compromiso" placeholder="Valor compromiso" value="<?= htmlspecialchars($valorCompromiso) ?>">
+<input type="number" step="0.01" min="0" name="valor_compromiso" placeholder="Valor comprometido" value="<?= htmlspecialchars($valorCompromiso) ?>">
 </div>
 <button class="btn">Guardar</button>
-<a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Ver historial</a>
+<a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/dashboard.php')) ?>">Dashboard de gestión</a>
 </form>
 <?php
 $content = ob_get_clean();

@@ -43,10 +43,18 @@ function render_layout(string $title, string $content): void
         ],
         [
             'section' => 'Operación',
-            'label' => 'Gestión',
+            'label' => 'Gestión de cartera',
             'icon' => 'fa-solid fa-list-check',
-            'url' => 'gestion/lista.php',
+            'url' => 'gestion/dashboard.php',
             'match' => ['/gestion', '/modules/gestion'],
+            'roles' => ['admin', 'analista'],
+        ],
+        [
+            'section' => 'Operación',
+            'label' => 'Compromisos',
+            'icon' => 'fa-solid fa-handshake',
+            'url' => 'gestion/compromisos.php',
+            'match' => ['/gestion/compromisos.php', '/modules/gestion/compromisos.php'],
             'roles' => ['admin', 'analista'],
         ],
         [

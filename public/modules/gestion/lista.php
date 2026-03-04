@@ -3,11 +3,14 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/helpers.php';
 
 require_role(['admin', 'analista']);
 
 $tipo = trim($_GET['tipo'] ?? '');
 $clienteFiltro = trim($_GET['cliente'] ?? '');
+$responsableId = (int)($_GET['responsable_id'] ?? 0);
+$responsables = gestion_get_responsables($pdo);
 
 $where = [];
 $params = [];
@@ -16,12 +19,17 @@ if ($tipo !== '') {
     $params[] = $tipo;
 }
 if ($clienteFiltro !== '') {
-    $where[] = '(d.cliente LIKE ? OR c.nit LIKE ?)';
+    $where[] = '(d.cliente LIKE ? OR c.nit LIKE ? OR d.nro_documento LIKE ?)';
+    $params[] = '%' . $clienteFiltro . '%';
     $params[] = '%' . $clienteFiltro . '%';
     $params[] = '%' . $clienteFiltro . '%';
 }
+if ($responsableId > 0) {
+    $where[] = 'g.usuario_id = ?';
+    $params[] = $responsableId;
+}
 
-$sql = 'SELECT g.*, u.nombre AS usuario, d.cliente, c.nit, d.nro_documento
+$sql = 'SELECT g.*, u.nombre AS usuario, d.cliente, c.nit, d.nro_documento, d.dias_vencido, d.saldo_pendiente
         FROM bitacora_gestion g
         INNER JOIN usuarios u ON u.id = g.usuario_id
         INNER JOIN cartera_documentos d ON d.id = g.id_documento
@@ -29,18 +37,24 @@ $sql = 'SELECT g.*, u.nombre AS usuario, d.cliente, c.nit, d.nro_documento
 if (!empty($where)) {
     $sql .= ' WHERE ' . implode(' AND ', $where);
 }
-$sql .= ' ORDER BY g.id DESC';
+$sql .= ' ORDER BY g.created_at DESC LIMIT 500';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
-$rows = $stmt->fetchAll();
+$rows = $stmt->fetchAll() ?: [];
 
 ob_start(); ?>
-<h1>Historial de gestiones</h1>
+<h1>Historial analítico de gestiones</h1>
 
-<form class="card">
+<form class="card" method="get">
   <div class="row">
-    <input name="tipo" placeholder="Tipo (novedad, compromiso...)" value="<?= htmlspecialchars($tipo) ?>">
-    <input name="cliente" placeholder="Cliente / NIT" value="<?= htmlspecialchars($clienteFiltro) ?>">
+    <input name="tipo" placeholder="Tipo de gestión" value="<?= htmlspecialchars($tipo) ?>">
+    <input name="cliente" placeholder="Cliente / NIT / Documento" value="<?= htmlspecialchars($clienteFiltro) ?>">
+    <select name="responsable_id">
+      <option value="0">Todos los responsables</option>
+      <?php foreach ($responsables as $responsable): ?>
+        <option value="<?= (int)$responsable['id'] ?>" <?= (int)$responsable['id'] === $responsableId ? 'selected' : '' ?>><?= htmlspecialchars((string)$responsable['nombre']) ?></option>
+      <?php endforeach; ?>
+    </select>
     <button class="btn">Filtrar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Limpiar</a>
     <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php')) ?>">Nueva gestión</a>
@@ -48,20 +62,23 @@ ob_start(); ?>
 </form>
 
 <table class="table">
-  <tr><th>ID</th><th>Fecha</th><th>Cliente</th><th>Documento</th><th>Tipo</th><th>Observación</th><th>Compromiso</th><th>Usuario</th></tr>
+  <tr><th>Fecha gestión</th><th>Cliente</th><th>Documento</th><th>Días mora</th><th>Tipo</th><th>Observación</th><th>Valor comprometido</th><th>Fecha compromiso</th><th>Responsable</th><th>Estado compromiso</th></tr>
   <?php foreach ($rows as $row): ?>
+    <?php [$estadoTexto, $estadoColor] = gestion_commitment_status($row['compromiso_pago'] ?? null, (float)$row['saldo_pendiente']); ?>
     <tr>
-      <td><?= (int)$row['id'] ?></td>
-      <td><?= htmlspecialchars($row['created_at']) ?></td>
-      <td><?= htmlspecialchars((string)$row['cliente']) ?> (<?= htmlspecialchars((string)$row['nit']) ?>)</td>
-      <td><?= htmlspecialchars((string)$row['nro_documento']) ?></td>
-      <td><?= htmlspecialchars($row['tipo_gestion']) ?></td>
-      <td><?= htmlspecialchars($row['observacion']) ?></td>
-      <td><?= htmlspecialchars((string)$row['compromiso_pago']) ?> / <?= htmlspecialchars((string)$row['valor_compromiso']) ?></td>
-      <td><?= htmlspecialchars($row['usuario']) ?></td>
+      <td><?= htmlspecialchars((string)$row['created_at']) ?></td>
+      <td><?= htmlspecialchars((string)$row['cliente']) ?><br><small><?= htmlspecialchars((string)$row['nit']) ?></small></td>
+      <td><a href="<?= htmlspecialchars(app_url('gestion/detalle.php?documento_id=' . (int)$row['id_documento'])) ?>"><?= htmlspecialchars((string)$row['nro_documento']) ?></a></td>
+      <td><?= (int)$row['dias_vencido'] ?></td>
+      <td><?= htmlspecialchars((string)$row['tipo_gestion']) ?></td>
+      <td><?= htmlspecialchars((string)$row['observacion']) ?></td>
+      <td>$<?= number_format((float)($row['valor_compromiso'] ?? 0), 2, ',', '.') ?></td>
+      <td><?= htmlspecialchars((string)($row['compromiso_pago'] ?? '-')) ?></td>
+      <td><?= htmlspecialchars((string)$row['usuario']) ?></td>
+      <td><?= ui_badge($estadoTexto, $estadoColor) ?></td>
     </tr>
   <?php endforeach; ?>
 </table>
 <?php
 $content = ob_get_clean();
-render_layout('Gestiones', $content);
+render_layout('Historial de gestiones', $content);
