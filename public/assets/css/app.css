@@ -1429,3 +1429,90 @@ textarea {
 .selected-document-row td:first-child {
   border-left: 4px solid #1E5AA8;
 }
+
+.cartera-dashboard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.gd-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.gd-kpi-card {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+  color: #f8fafc;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.2);
+}
+
+.gd-kpi-card span {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.gd-kpi-card strong {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.gd-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.gd-chart-card h3 {
+  margin-top: 0;
+}
+
+.gd-promise-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gd-promise-panel > div {
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.gd-promise-panel span {
+  font-size: 12px;
+  color: #475569;
+  display: block;
+}
+
+.gd-promise-panel strong {
+  font-size: 24px;
+  color: #0f172a;
+}
+
+@media (max-width: 1200px) {
+  .gd-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .cartera-dashboard-head,
+  .gd-grid-2,
+  .gd-promise-panel {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .gd-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
