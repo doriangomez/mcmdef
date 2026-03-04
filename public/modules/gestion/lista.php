@@ -60,7 +60,7 @@ ob_start(); ?>
     </select>
     <button class="btn">Filtrar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php')) ?>">Limpiar</a>
-    <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php')) ?>">Nueva gestión</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('gestion/bandeja.php')) ?>">Ir a gestión unificada</a>
   </div>
 </form>
 
