@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 $id = (int)($_GET['id_documento'] ?? 0);
 $docStmt = $pdo->prepare(
@@ -14,19 +15,23 @@ $docStmt = $pdo->prepare(
             d.id_carga AS id_carga_origen
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.id = ? AND d.estado_documento = "activo"'
+     WHERE d.id = ? AND d.estado_documento = "activo"' . portfolio_client_scope_sql('c')['sql']
 );
-$docStmt->execute([$id]);
+$docScope = portfolio_client_scope_sql('c');
+$docStmt->execute(array_merge([$id], $docScope['params']));
 $document = $docStmt->fetch();
 
 $gestionesStmt = $pdo->prepare(
-    'SELECT g.*, u.nombre AS usuario
-     FROM gestiones g
+    'SELECT g.id, g.tipo_gestion, g.observacion, g.compromiso_pago, g.valor_compromiso, g.created_at, u.nombre AS usuario
+     FROM bitacora_gestion g
      INNER JOIN usuarios u ON u.id = g.usuario_id
-     WHERE g.documento_id = ?
+     INNER JOIN cartera_documentos d ON d.id = g.id_documento
+     INNER JOIN clientes c ON c.id = d.cliente_id
+     WHERE g.id_documento = ?' . portfolio_client_scope_sql('c')['sql'] . '
      ORDER BY g.id DESC'
 );
-$gestionesStmt->execute([$id]);
+$scopeGest = portfolio_client_scope_sql('c');
+$gestionesStmt->execute(array_merge([$id], $scopeGest['params']));
 $gestiones = $gestionesStmt->fetchAll();
 
 $canManage = in_array(current_user()['rol'], ['admin', 'analista'], true);
@@ -52,28 +57,25 @@ ob_start(); ?>
 <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)($document['cliente_id'] ?? 0))) ?>">Volver al cliente</a>
 
 <table class="table">
-  <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado compromiso</th><th>Anulada</th><th>Usuario</th></tr>
+  <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado compromiso</th><th>Usuario</th></tr>
   <?php foreach ($gestiones as $gestion): ?>
     <tr>
       <td><?= htmlspecialchars($gestion['created_at']) ?></td>
       <td><?= htmlspecialchars($gestion['tipo_gestion']) ?></td>
-      <td><?= htmlspecialchars($gestion['descripcion']) ?></td>
-      <td><?= htmlspecialchars((string)$gestion['fecha_compromiso']) ?> / <?= htmlspecialchars((string)$gestion['valor_compromiso']) ?></td>
+      <td><?= htmlspecialchars($gestion['observacion']) ?></td>
+      <td><?= htmlspecialchars((string)$gestion['compromiso_pago']) ?> / <?= htmlspecialchars((string)$gestion['valor_compromiso']) ?></td>
       <td>
         <?php
-          $estado = strtolower((string)$gestion['estado_compromiso']);
-          if ($estado === 'pendiente') {
-              echo ui_badge('Pendiente', 'warning');
-          } elseif ($estado === 'cumplido') {
-              echo ui_badge('Cumplido', 'success');
-          } elseif ($estado === 'incumplido') {
-              echo ui_badge('Incumplido', 'danger');
+          if (!empty($gestion['compromiso_pago'])) {
+              $fechaCompromiso = strtotime((string)$gestion['compromiso_pago']);
+              $estadoCompromiso = ($fechaCompromiso !== false && $fechaCompromiso < strtotime(date('Y-m-d'))) ? 'Vencido' : 'Pendiente';
+              $badgeType = $estadoCompromiso === 'Vencido' ? 'danger' : 'warning';
+              echo ui_badge($estadoCompromiso, $badgeType);
           } else {
-              echo ui_badge((string)$gestion['estado_compromiso'], 'default');
+              echo ui_badge('Sin compromiso', 'default');
           }
         ?>
       </td>
-      <td><?= (int)$gestion['anulada'] === 1 ? 'Sí' : 'No' ?></td>
       <td><?= htmlspecialchars($gestion['usuario']) ?></td>
     </tr>
   <?php endforeach; ?>

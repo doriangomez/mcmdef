@@ -3,10 +3,10 @@
 function gestion_get_responsables(PDO $pdo): array
 {
     $stmt = $pdo->query(
-        'SELECT DISTINCT u.id, u.nombre
-         FROM usuarios u
-         INNER JOIN bitacora_gestion g ON g.usuario_id = u.id
-         ORDER BY u.nombre ASC'
+        "SELECT id, nombre
+         FROM usuarios
+         WHERE estado = 'activo' AND rol IN ('admin', 'analista')
+         ORDER BY nombre ASC"
     );
 
     return $stmt->fetchAll() ?: [];
@@ -19,7 +19,7 @@ function gestion_scope_condition(int $responsableId, string $documentAlias = 'd'
     }
 
     return [
-        'sql' => " AND EXISTS (SELECT 1 FROM bitacora_gestion gr WHERE gr.id_documento = {$documentAlias}.id AND gr.usuario_id = ?)",
+        'sql' => " AND EXISTS (SELECT 1 FROM clientes cgr WHERE cgr.id = {$documentAlias}.cliente_id AND cgr.responsable_usuario_id = ?)",
         'params' => [$responsableId],
     ];
 }

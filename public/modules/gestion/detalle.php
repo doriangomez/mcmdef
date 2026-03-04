@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
