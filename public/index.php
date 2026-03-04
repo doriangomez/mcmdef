@@ -15,6 +15,8 @@ ob_start();
       <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" data-placeholder="Todos los periodos"><option value="">Todos los periodos</option></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
+      <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
+      <label class="filter-field"><span>Cliente</span><select name="cliente" id="filterCliente" data-placeholder="Todos los clientes"><option value="">Todos los clientes</option></select></label>
       <div class="filter-actions">
         <button type="submit" class="btn">Aplicar</button>
         <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
@@ -29,10 +31,10 @@ ob_start();
 <section class="dashboard-panels-grid">
   <article class="card chart-card"><div class="card-header"><h3>Distribución por Aging</h3></div><div id="agingChart" class="chart-area chart-area-sm"></div></article>
   <article class="card chart-card"><div class="card-header"><h3>Tendencia de Exposición por Periodo</h3></div><div id="trendChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card"><div class="card-header"><h3>Top 10 Clientes por Saldo</h3></div><div id="topClientsChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card"><div class="card-header"><h3>Concentración por Regional</h3></div><div id="regionalChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card"><div class="card-header"><h3>Concentración por Canal</h3></div><div id="canalChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Heatmap de Riesgo (Regional vs Bucket)</h3></div><div id="heatmapChart" class="chart-area chart-area-medium"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Promedio Días Vencido por Regional</h3></div><div id="avgDaysRegionalChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Promedio Días Vencido por Canal</h3></div><div id="avgDaysCanalChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Promedio Días Vencido por Empleado de Ventas</h3></div><div id="avgDaysEmpleadoChart" class="chart-area chart-area-medium"></div></article>
+  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Pareto Concentración Clientes (Top 10)</h3></div><div id="paretoChart" class="chart-area chart-area-medium"></div></article>
   <article class="card chart-card chart-card-main"><div class="card-header"><h3>Score General de Cartera</h3></div><div id="scoreChart" class="chart-area chart-area-sm"></div></article>
 </section>
 
@@ -81,9 +83,13 @@ ob_start();
     el.value = selected || '';
   }
 
-  function renderKpis(kpis) {
-    kpiGrid.innerHTML = (kpis || []).map(function (kpi) {
-      return '<article class="kpi-premium-card" title="' + (kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + kpi.title + '</p><span class="kpi-premium-icon"><i class="' + (kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value">' + f(kpi.value, kpi.unit) + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + (kpi.tooltip || '') + '</span></div></article>';
+  function renderKpis(kpis, emptyMessage) {
+    if (!kpis || !kpis.length) {
+      kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Sin datos</p><p class="kpi-premium-subtext">' + (emptyMessage || 'No hay datos para los filtros seleccionados.') + '</p></article>';
+      return;
+    }
+    kpiGrid.innerHTML = kpis.map(function (kpi) {
+      return '<article class="kpi-premium-card kpi-status-' + (kpi.status || 'neutral') + '" title="' + (kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + kpi.title + '</p><span class="kpi-premium-icon"><i class="' + (kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value">' + f(kpi.value, kpi.unit) + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + (kpi.tooltip || '') + '</span></div></article>';
     }).join('');
   }
 
@@ -105,41 +111,44 @@ ob_start();
       tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Variación: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
     }));
 
-    var top = data.top_clients || [];
-    upsert('top', 'topClientsChart', Object.assign(noDataOptions(280), {
+    var regional = data.avg_days_regional || [];
+    upsert('avgRegional', 'avgDaysRegionalChart', Object.assign(noDataOptions(280), {
       chart: { type: 'bar', height: 280 },
-      series: [{ name: 'Saldo', data: top.map(function (r) { return r.saldo; }) }],
-      plotOptions: { bar: { horizontal: false } },
-      xaxis: { categories: top.map(function (r) { return r.cliente; }) },
-      tooltip: { y: { formatter: function (v, ctx) { var r = top[ctx.dataPointIndex] || {}; return currency.format(v) + ' (' + decimal.format(r.pct || 0) + '%)'; } } }
-    }));
-
-    var regional = data.regional || [];
-    upsert('regional', 'regionalChart', Object.assign(noDataOptions(280), {
-      chart: { type: 'bar', height: 280 },
-      series: [{ name: 'Saldo', data: regional.map(function (r) { return r.saldo; }) }],
+      series: [{ name: 'Promedio días', data: regional.map(function (r) { return r.avg_dias; }) }],
       xaxis: { categories: regional.map(function (r) { return r.regional; }) },
-      tooltip: { y: { formatter: function (v, ctx) { var r = regional[ctx.dataPointIndex] || {}; return currency.format(v) + ' (' + decimal.format(r.pct || 0) + '%)'; } } }
+      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
     }));
 
-    var canal = data.canal || [];
-    upsert('canal', 'canalChart', Object.assign(noDataOptions(280), {
-      chart: { type: 'donut', height: 280 },
-      labels: canal.map(function (r) { return r.canal; }),
-      series: canal.map(function (r) { return r.saldo; }),
-      tooltip: { y: { formatter: function (v, ctx) { var r = canal[ctx.seriesIndex] || {}; return currency.format(v) + ' (' + decimal.format(r.pct || 0) + '%)'; } } }
+    var canal = data.avg_days_canal || [];
+    upsert('avgCanal', 'avgDaysCanalChart', Object.assign(noDataOptions(280), {
+      chart: { type: 'bar', height: 280 },
+      series: [{ name: 'Promedio días', data: canal.map(function (r) { return r.avg_dias; }) }],
+      xaxis: { categories: canal.map(function (r) { return r.canal; }) },
+      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
     }));
 
-    upsert('heatmap', 'heatmapChart', Object.assign(noDataOptions(320), {
-      chart: { type: 'heatmap', height: 320 },
-      series: (data.heatmap && data.heatmap.series) || [],
-      plotOptions: { heatmap: { colorScale: { ranges: [
-        { from: 0, to: 1, color: '#16A34A', name: 'Bajo' },
-        { from: 1, to: 10000000, color: '#EAB308', name: 'Medio' },
-        { from: 10000000, to: 50000000, color: '#EF4444', name: 'Alto' },
-        { from: 50000000, to: 999999999999, color: '#7F1D1D', name: 'Crítico' }
-      ] } } },
-      tooltip: { custom: function (opts) { var p = opts.w.config.series[opts.seriesIndex].data[opts.dataPointIndex]; return '<div class="apex-tooltip">Regional: ' + opts.w.config.series[opts.seriesIndex].name + '<br>Tramo: ' + p.x + '<br>Saldo: ' + currency.format(p.y || 0) + '<br>% en regional: ' + decimal.format(p.pct_regional || 0) + '%</div>'; } }
+    var empleados = data.avg_days_empleado || [];
+    upsert('avgEmpleado', 'avgDaysEmpleadoChart', Object.assign(noDataOptions(320), {
+      chart: { type: 'bar', height: 320 },
+      series: [{ name: 'Promedio días', data: empleados.map(function (r) { return r.avg_dias; }) }],
+      plotOptions: { bar: { horizontal: true } },
+      xaxis: { categories: empleados.map(function (r) { return r.empleado; }) },
+      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
+    }));
+
+    var paretoRows = (data.pareto_top5 && data.pareto_top5.rows) || [];
+    upsert('pareto', 'paretoChart', Object.assign(noDataOptions(320), {
+      chart: { type: 'line', height: 320, stacked: false },
+      series: [
+        { name: 'Saldo', type: 'column', data: paretoRows.map(function (r) { return r.saldo; }) },
+        { name: '% Acumulado', type: 'line', data: paretoRows.map(function (r) { return r.cum_pct; }) }
+      ],
+      xaxis: { categories: paretoRows.map(function (r) { return r.cliente; }) },
+      yaxis: [
+        { title: { text: 'Saldo' }, labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, max: 100, title: { text: '% acumulado' }, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
+      ],
+      tooltip: { shared: true }
     }));
 
     var score = (data.score && data.score.value) || 0;
@@ -160,7 +169,9 @@ ob_start();
         hydrateSelect('filterPeriodo', payload.filter_options.periodo, payload.meta.selected_filters.periodo);
         hydrateSelect('filterRegional', payload.filter_options.regional, payload.meta.selected_filters.regional);
         hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
-        renderKpis(payload.kpis || []);
+        hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
+        hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
+        renderKpis(payload.kpis || [], payload.empty_message || '');
         renderCharts(payload.charts || {});
         updatedAtEl.textContent = 'Actualizado: ' + (payload.meta.generated_at_human || '--');
       });

@@ -902,6 +902,19 @@ textarea {
   font-size: 12px;
 }
 
+.kpi-status-good {
+  border-color: #86EFAC;
+}
+
+.kpi-status-warning {
+  border-color: #FCD34D;
+}
+
+.kpi-status-critical {
+  border-color: #FCA5A5;
+  box-shadow: 0 12px 20px rgba(185, 28, 28, 0.12);
+}
+
 .dashboard-panels-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
