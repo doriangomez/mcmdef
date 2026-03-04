@@ -51,12 +51,12 @@ $canalesDisponibles = [
 ];
 
 $respuestasRapidas = [
-    'Cliente promete pagar mañana.',
-    'Cliente no contesta en los intentos realizados.',
-    'Cliente solicita plazo adicional para ponerse al día.',
-    'Cliente confirma que pagará esta semana.',
-    'Número incorrecto, se debe validar dato de contacto.',
-    'Se solicita enviar estado de cuenta actualizado.',
+    'Cliente promete pagar mañana',
+    'Cliente solicita plazo',
+    'Cliente pagará esta semana',
+    'Cliente no contesta',
+    'Número incorrecto',
+    'Enviar estado de cuenta',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -75,9 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!array_key_exists($tipoGestion, $tiposGestionDisponibles)) {
         $error = 'Seleccione un tipo de gestión válido.';
-    } elseif ($resultadoGestion !== '' && !array_key_exists($resultadoGestion, $resultadosDisponibles)) {
+    } elseif (!array_key_exists($resultadoGestion, $resultadosDisponibles)) {
         $error = 'Seleccione un resultado de gestión válido.';
-    } elseif ($canalContacto !== '' && !array_key_exists($canalContacto, $canalesDisponibles)) {
+    } elseif (!array_key_exists($canalContacto, $canalesDisponibles)) {
         $error = 'Seleccione un canal de contacto válido.';
     }
 
@@ -258,9 +258,10 @@ ob_start(); ?>
       <p><strong>Cliente</strong><?= htmlspecialchars((string)$cliente['nombre']) ?></p>
       <p><strong>Cuenta</strong><?= htmlspecialchars((string)($documentoSeleccionado['cuenta'] ?? $cliente['cuenta'] ?? '-')) ?></p>
       <p><strong>Documento</strong><?= htmlspecialchars((string)($documentoSeleccionado['nro_documento'] ?? '-')) ?></p>
-      <p><strong>Valor deuda</strong>$<?= number_format((float)($documentoSeleccionado['saldo_pendiente'] ?? 0), 0, ',', '.') ?></p>
+      <p><strong>Saldo</strong>$<?= number_format((float)($documentoSeleccionado['saldo_pendiente'] ?? 0), 0, ',', '.') ?></p>
       <p><strong>Días de mora</strong><?= (int)($documentoSeleccionado['dias_vencido'] ?? 0) ?> días</p>
       <p><strong>Teléfono</strong><?= htmlspecialchars((string)($cliente['telefono'] ?? '-')) ?></p>
+      <p><strong>Contacto</strong><?= htmlspecialchars((string)($cliente['contacto'] ?? '-')) ?></p>
       <p><strong>Última gestión</strong><?= htmlspecialchars($ultimaGestionTexto) ?></p>
     </div>
     <div class="gestion-grid">
@@ -278,13 +279,13 @@ ob_start(); ?>
           <option value="<?= htmlspecialchars($tipoId) ?>" <?= $tipoGestion === $tipoId ? 'selected' : '' ?>><?= htmlspecialchars($tipoLabel) ?></option>
         <?php endforeach; ?>
       </select>
-      <select name="resultado_gestion">
+      <select name="resultado_gestion" required>
         <option value="">Resultado de gestión</option>
         <?php foreach ($resultadosDisponibles as $resultadoId => $resultadoLabel): ?>
           <option value="<?= htmlspecialchars($resultadoId) ?>" <?= $resultadoGestion === $resultadoId ? 'selected' : '' ?>><?= htmlspecialchars($resultadoLabel) ?></option>
         <?php endforeach; ?>
       </select>
-      <select name="canal_contacto">
+      <select name="canal_contacto" required>
         <option value="">Canal de contacto</option>
         <?php foreach ($canalesDisponibles as $canalId => $canalLabel): ?>
           <option value="<?= htmlspecialchars($canalId) ?>" <?= $canalContacto === $canalId ? 'selected' : '' ?>><?= htmlspecialchars($canalLabel) ?></option>

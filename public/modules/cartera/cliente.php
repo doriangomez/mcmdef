@@ -160,7 +160,7 @@ ob_start(); ?>
 
 <h3>Gestiones</h3>
 <?php if ($canManage): ?>
-  <a class="btn" href="<?= htmlspecialchars(app_url('gestion/nueva.php?cliente_id=' . $id)) ?>">Nueva gestión</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . $id)) ?>">Nueva gestión</a>
 <?php endif; ?>
 <table class="table">
   <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Compromiso</th><th>Estado</th><th>Usuario</th></tr>
