@@ -62,7 +62,7 @@ function gestion_compromiso_estado(?string $estadoCompromiso, ?string $compromis
     $estado = strtolower(trim((string)$estadoCompromiso));
 
     if ($estado === 'cumplido') {
-        return ['Cumplido', 'success'];
+        return ['Cumplido', 'info'];
     }
     if ($estado === 'incumplido') {
         return ['Incumplido', 'danger'];
@@ -79,8 +79,11 @@ function gestion_compromiso_estado(?string $estadoCompromiso, ?string $compromis
     if ($days < 0) {
         return ['Vencido', 'danger'];
     }
+    if ($days === 0) {
+        return ['Vence hoy', 'warning'];
+    }
     if ($days <= 3) {
-        return ['Próximo a vencer', 'warning'];
+        return ['Próximo', 'success'];
     }
 
     return ['Vigente', 'success'];
