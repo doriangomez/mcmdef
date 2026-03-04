@@ -24,14 +24,52 @@ function gestion_scope_condition(int $responsableId, string $documentAlias = 'd'
     ];
 }
 
-function gestion_commitment_status(?string $compromisoPago, float $saldoPendiente = 1): array
+function gestion_mora_bucket_label(int $diasMora): string
 {
-    if ($compromisoPago === null || $compromisoPago === '') {
-        return ['Sin compromiso', 'default'];
+    if ($diasMora <= 30) {
+        return '0-30';
+    }
+    if ($diasMora <= 60) {
+        return '31-60';
+    }
+    if ($diasMora <= 90) {
+        return '61-90';
+    }
+    if ($diasMora <= 180) {
+        return '91-180';
     }
 
-    if ($saldoPendiente <= 0) {
-        return ['Compromiso cumplido', 'success'];
+    return '180+';
+}
+
+function gestion_mora_badge_variant(int $diasMora): string
+{
+    if ($diasMora <= 30) {
+        return 'success';
+    }
+    if ($diasMora <= 60) {
+        return 'warning';
+    }
+    if ($diasMora <= 90) {
+        return 'info';
+    }
+
+    return 'danger';
+}
+
+function gestion_compromiso_estado(?string $estadoCompromiso, ?string $compromisoPago): array
+{
+    $estado = strtolower(trim((string)$estadoCompromiso));
+
+    if ($estado === 'cumplido') {
+        return ['Cumplido', 'success'];
+    }
+    if ($estado === 'incumplido') {
+        return ['Incumplido', 'danger'];
+    }
+
+    if ($compromisoPago === null || $compromisoPago === '') {
+        return ['Sin compromiso', 'default'];
     }
 
     $today = new DateTimeImmutable('today');
@@ -39,21 +77,24 @@ function gestion_commitment_status(?string $compromisoPago, float $saldoPendient
     $days = (int)$today->diff($dueDate)->format('%r%a');
 
     if ($days < 0) {
-        return ['Compromiso vencido', 'danger'];
+        return ['Vencido', 'danger'];
     }
     if ($days <= 3) {
-        return ['Compromiso próximo a vencer', 'warning'];
+        return ['Próximo a vencer', 'warning'];
     }
 
-    return ['Compromiso vigente', 'success'];
+    return ['Vigente', 'success'];
 }
 
 function gestion_priority_class(int $diasMora): string
 {
-    if ($diasMora >= 90) {
+    if ($diasMora > 90) {
         return 'priority-high';
     }
-    if ($diasMora >= 31) {
+    if ($diasMora > 60) {
+        return 'priority-medium-high';
+    }
+    if ($diasMora > 30) {
         return 'priority-medium';
     }
 

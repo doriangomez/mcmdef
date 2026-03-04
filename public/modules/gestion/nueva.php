@@ -15,6 +15,7 @@ $tipoGestion = trim($_POST['tipo_gestion'] ?? '');
 $observacion = trim($_POST['observacion'] ?? '');
 $compromisoPago = trim($_POST['compromiso_pago'] ?? '');
 $valorCompromiso = trim($_POST['valor_compromiso'] ?? '');
+$estadoCompromiso = trim($_POST['estado_compromiso'] ?? 'pendiente');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($documentoId <= 0) {
@@ -36,13 +37,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($observacion === '') {
         $error = 'La observación es obligatoria.';
     }
+    if (!in_array($estadoCompromiso, ['pendiente', 'cumplido', 'incumplido'], true)) {
+        $error = 'El estado del compromiso no es válido.';
+    }
 
     if ($error === '') {
         try {
             $insert = $pdo->prepare(
                 'INSERT INTO bitacora_gestion
-                 (id_documento, usuario_id, tipo_gestion, observacion, compromiso_pago, valor_compromiso, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, NOW())'
+                 (id_documento, usuario_id, tipo_gestion, observacion, compromiso_pago, valor_compromiso, estado_compromiso, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())'
             );
             $insert->execute([
                 $documentoId,
@@ -51,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $observacion,
                 $compromisoPago !== '' ? $compromisoPago : null,
                 $valorCompromiso !== '' ? $valorCompromiso : null,
+                $compromisoPago !== '' ? $estadoCompromiso : null,
             ]);
             $gestionId = (int)$pdo->lastInsertId();
             audit_log($pdo, 'bitacora_gestion', $gestionId, 'gestion_creada', null, 'ok', (int)$_SESSION['user']['id']);
@@ -59,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $observacion = '';
             $compromisoPago = '';
             $valorCompromiso = '';
+            $estadoCompromiso = 'pendiente';
         } catch (Throwable $exception) {
             $error = 'No se pudo registrar la gestión: ' . $exception->getMessage();
         }
@@ -99,6 +105,11 @@ ob_start(); ?>
   <option value="compromiso_pago" <?= $tipoGestion === 'compromiso_pago' ? 'selected' : '' ?>>Compromiso de pago</option>
   <option value="promesa_pago" <?= $tipoGestion === 'promesa_pago' ? 'selected' : '' ?>>Promesa de pago</option>
   <option value="novedad" <?= $tipoGestion === 'novedad' ? 'selected' : '' ?>>Novedad</option>
+</select>
+<select name="estado_compromiso">
+  <option value="pendiente" <?= $estadoCompromiso === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
+  <option value="cumplido" <?= $estadoCompromiso === 'cumplido' ? 'selected' : '' ?>>Cumplido</option>
+  <option value="incumplido" <?= $estadoCompromiso === 'incumplido' ? 'selected' : '' ?>>Incumplido</option>
 </select>
 </div>
 <div class="row"><textarea name="observacion" placeholder="Observación" required style="width:100%"><?= htmlspecialchars($observacion) ?></textarea></div>

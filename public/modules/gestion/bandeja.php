@@ -15,17 +15,16 @@ $orden = $_GET['orden'] ?? 'mora';
 $responsables = gestion_get_responsables($pdo);
 
 $orderMap = [
-    'saldo' => 'd.saldo_pendiente DESC',
-    'mora' => 'd.dias_vencido DESC',
-    'compromisos_vencidos' => 'estado_compromiso_orden DESC, d.dias_vencido DESC',
-    'criticos' => 'cliente_critico DESC, d.saldo_pendiente DESC',
+    'mora' => 'd.dias_vencido DESC, d.saldo_pendiente DESC',
+    'saldo' => 'd.saldo_pendiente DESC, d.dias_vencido DESC',
+    'compromisos_vencidos' => 'compromiso_orden DESC, d.dias_vencido DESC',
 ];
 $orderSql = $orderMap[$orden] ?? $orderMap['mora'];
-
 $scope = gestion_scope_condition($responsableId, 'd');
 
 $sql = 'SELECT
             d.id,
+            d.cliente_id,
             d.cliente,
             c.nit,
             d.nro_documento,
@@ -34,16 +33,13 @@ $sql = 'SELECT
             ult.tipo_gestion AS ultima_gestion,
             ult.created_at AS fecha_ultima_gestion,
             ult.compromiso_pago,
+            ult.estado_compromiso,
+            ur.nombre AS responsable,
             CASE
-                WHEN ult.compromiso_pago IS NULL THEN 0
-                WHEN ult.compromiso_pago < CURDATE() THEN 3
-                WHEN ult.compromiso_pago <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 2
-                ELSE 1
-            END AS estado_compromiso_orden,
-            CASE
-                WHEN d.saldo_pendiente >= 10000000 OR d.dias_vencido >= 120 THEN 1
+                WHEN ult.compromiso_pago IS NOT NULL AND COALESCE(ult.estado_compromiso, "pendiente") = "pendiente" AND ult.compromiso_pago < CURDATE() THEN 2
+                WHEN ult.compromiso_pago IS NOT NULL THEN 1
                 ELSE 0
-            END AS cliente_critico
+            END AS compromiso_orden
         FROM cartera_documentos d
         INNER JOIN clientes c ON c.id = d.cliente_id
         LEFT JOIN (
@@ -53,17 +49,18 @@ $sql = 'SELECT
                 SELECT id_documento, MAX(id) AS last_id
                 FROM bitacora_gestion
                 GROUP BY id_documento
-            ) last ON last.last_id = g1.id
+            ) lu ON lu.last_id = g1.id
         ) ult ON ult.id_documento = d.id
+        LEFT JOIN usuarios ur ON ur.id = ult.usuario_id
         WHERE d.estado_documento = "activo"' . $scope['sql'] . '
         ORDER BY ' . $orderSql . '
-        LIMIT 300';
+        LIMIT 400';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($scope['params']);
 $rows = $stmt->fetchAll() ?: [];
 
 ob_start(); ?>
-<h1>Bandeja operativa del gestor</h1>
+<h1>Bandeja de trabajo del gestor</h1>
 <form class="card" method="get">
   <div class="row">
     <select name="responsable_id">
@@ -73,33 +70,35 @@ ob_start(); ?>
       <?php endforeach; ?>
     </select>
     <select name="orden">
-      <option value="saldo" <?= $orden === 'saldo' ? 'selected' : '' ?>>Mayor saldo</option>
-      <option value="mora" <?= $orden === 'mora' ? 'selected' : '' ?>>Mayor mora</option>
-      <option value="compromisos_vencidos" <?= $orden === 'compromisos_vencidos' ? 'selected' : '' ?>>Compromisos vencidos</option>
-      <option value="criticos" <?= $orden === 'criticos' ? 'selected' : '' ?>>Clientes críticos</option>
+      <option value="mora" <?= $orden === 'mora' ? 'selected' : '' ?>>Priorizar por mayor mora</option>
+      <option value="saldo" <?= $orden === 'saldo' ? 'selected' : '' ?>>Priorizar por mayor saldo</option>
+      <option value="compromisos_vencidos" <?= $orden === 'compromisos_vencidos' ? 'selected' : '' ?>>Priorizar por compromisos vencidos</option>
     </select>
-    <button class="btn">Priorizar</button>
+    <button class="btn">Aplicar prioridad</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/dashboard.php?responsable_id=' . $responsableId)) ?>">Dashboard</a>
-    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/lista.php?responsable_id=' . $responsableId)) ?>">Historial</a>
   </div>
 </form>
 
 <table class="table">
-  <tr><th>Cliente</th><th>Documento</th><th>Saldo</th><th>Días mora</th><th>Última gestión</th><th>Fecha última gestión</th><th>Estado compromiso</th><th>Acción</th></tr>
+  <tr><th>Cliente</th><th>Documento</th><th>Saldo</th><th>Días de mora</th><th>Última gestión</th><th>Fecha última gestión</th><th>Compromiso activo</th><th>Responsable</th><th>Acción</th></tr>
   <?php foreach ($rows as $row): ?>
-    <?php [$estadoTexto, $estadoColor] = gestion_commitment_status($row['compromiso_pago'] ?? null, (float)$row['saldo_pendiente']); ?>
-    <tr class="<?= htmlspecialchars(gestion_priority_class((int)$row['dias_vencido'])) ?>">
+    <?php [$estadoTexto, $estadoColor] = gestion_compromiso_estado((string)($row['estado_compromiso'] ?? ''), $row['compromiso_pago'] ?? null); ?>
+    <?php $mora = (int)$row['dias_vencido']; ?>
+    <tr class="<?= htmlspecialchars(gestion_priority_class($mora)) ?>">
       <td>
-        <?= htmlspecialchars((string)$row['cliente']) ?><br>
+        <strong><?= htmlspecialchars((string)$row['cliente']) ?></strong><br>
         <small><?= htmlspecialchars((string)$row['nit']) ?></small>
       </td>
       <td><?= htmlspecialchars((string)$row['nro_documento']) ?></td>
       <td>$<?= number_format((float)$row['saldo_pendiente'], 2, ',', '.') ?></td>
-      <td><?= (int)$row['dias_vencido'] ?></td>
+      <td><?= ui_badge((string)$mora . ' días', gestion_mora_badge_variant($mora)) ?></td>
       <td><?= htmlspecialchars((string)($row['ultima_gestion'] ?? 'Sin gestión')) ?></td>
       <td><?= htmlspecialchars((string)($row['fecha_ultima_gestion'] ?? '-')) ?></td>
       <td><?= ui_badge($estadoTexto, $estadoColor) ?></td>
-      <td><a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?documento_id=' . (int)$row['id'])) ?>">Gestionar</a></td>
+      <td><?= htmlspecialchars((string)($row['responsable'] ?? 'Sin responsable')) ?></td>
+      <td>
+        <a class="btn btn-sm" href="<?= htmlspecialchars(app_url('gestion/detalle.php?cliente_id=' . (int)$row['cliente_id'] . '&documento_id=' . (int)$row['id'])) ?>">Ver</a>
+      </td>
     </tr>
   <?php endforeach; ?>
 </table>

@@ -67,7 +67,7 @@ ob_start(); ?>
 <table class="table">
   <tr><th>Fecha gestión</th><th>Cliente</th><th>Documento</th><th>Días mora</th><th>Tipo</th><th>Observación</th><th>Valor comprometido</th><th>Fecha compromiso</th><th>Responsable</th><th>Estado compromiso</th></tr>
   <?php foreach ($rows as $row): ?>
-    <?php [$estadoTexto, $estadoColor] = gestion_commitment_status($row['compromiso_pago'] ?? null, (float)$row['saldo_pendiente']); ?>
+    <?php [$estadoTexto, $estadoColor] = gestion_compromiso_estado((string)($row['estado_compromiso'] ?? ""), $row['compromiso_pago'] ?? null); ?>
     <tr>
       <td><?= htmlspecialchars((string)$row['created_at']) ?></td>
       <td><?= htmlspecialchars((string)$row['cliente']) ?><br><small><?= htmlspecialchars((string)$row['nit']) ?></small></td>

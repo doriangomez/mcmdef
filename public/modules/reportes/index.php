@@ -4,6 +4,14 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExportService.php';
 
+function report_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
+    $stmt->execute([$column]);
+
+    return (bool)$stmt->fetch();
+}
+
 $tipo = $_GET['tipo'] ?? 'vigente_vencida';
 $periodo = trim($_GET['periodo'] ?? '');
 $canal = trim($_GET['canal'] ?? '');
@@ -12,10 +20,18 @@ $uen = trim($_GET['uen'] ?? '');
 $asesor = trim($_GET['asesor'] ?? '');
 $estadoCompromiso = trim($_GET['estado_compromiso'] ?? '');
 
+$uenSourceExpr = 'NULL';
+if (report_column_exists($pdo, 'clientes', 'uen')) {
+    $uenSourceExpr = 'c.uen';
+} elseif (report_column_exists($pdo, 'cartera_documentos', 'uen')) {
+    $uenSourceExpr = 'd.uen';
+}
+
 $docWhere = [];
 $docParams = [];
+$docWhere[] = "d.estado_documento = 'activo'";
 if ($periodo !== '') {
-    $docWhere[] = 'd.periodo = ?';
+    $docWhere[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?";
     $docParams[] = $periodo;
 }
 if ($canal !== '') {
@@ -26,12 +42,12 @@ if ($regional !== '') {
     $docWhere[] = 'c.regional LIKE ?';
     $docParams[] = '%' . $regional . '%';
 }
-if ($uen !== '') {
-    $docWhere[] = 'c.uen LIKE ?';
+if ($uen !== '' && $uenSourceExpr !== 'NULL') {
+    $docWhere[] = $uenSourceExpr . ' LIKE ?';
     $docParams[] = '%' . $uen . '%';
 }
 if ($asesor !== '') {
-    $docWhere[] = 'c.asesor_comercial LIKE ?';
+    $docWhere[] = 'c.empleado_ventas LIKE ?';
     $docParams[] = '%' . $asesor . '%';
 }
 
@@ -43,8 +59,8 @@ if (!empty($docWhere)) {
 $rows = [];
 if ($tipo === 'vigente_vencida') {
     $stmt = $pdo->prepare(
-        'SELECT d.estado_documento AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
+        'SELECT d.estado_documento AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
         ' GROUP BY d.estado_documento'
@@ -54,14 +70,14 @@ if ($tipo === 'vigente_vencida') {
 } elseif ($tipo === 'mora_rangos') {
     $stmt = $pdo->prepare(
         "SELECT CASE
-                  WHEN d.dias_mora = 0 THEN '0'
-                  WHEN d.dias_mora BETWEEN 1 AND 30 THEN '1-30'
-                  WHEN d.dias_mora BETWEEN 31 AND 60 THEN '31-60'
-                  WHEN d.dias_mora BETWEEN 61 AND 90 THEN '61-90'
+                  WHEN d.dias_vencido = 0 THEN '0'
+                  WHEN d.dias_vencido BETWEEN 1 AND 30 THEN '1-30'
+                  WHEN d.dias_vencido BETWEEN 31 AND 60 THEN '31-60'
+                  WHEN d.dias_vencido BETWEEN 61 AND 90 THEN '61-90'
                   ELSE '91+'
                 END AS categoria,
-                SUM(d.saldo_actual) AS total
-         FROM documentos d
+                SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id"
         . $docWhereSql .
         ' GROUP BY categoria'
@@ -70,8 +86,8 @@ if ($tipo === 'vigente_vencida') {
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'canal') {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(c.canal, "sin_canal") AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
+        'SELECT COALESCE(c.canal, "sin_canal") AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
         ' GROUP BY c.canal'
@@ -80,18 +96,18 @@ if ($tipo === 'vigente_vencida') {
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'uen') {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(c.uen, "sin_uen") AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
+        'SELECT COALESCE(' . $uenSourceExpr . ', "sin_uen") AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
-        ' GROUP BY c.uen'
+        ' GROUP BY categoria'
     );
     $stmt->execute($docParams);
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'regional') {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(c.regional, "sin_regional") AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
+        'SELECT COALESCE(c.regional, "sin_regional") AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
         ' GROUP BY c.regional'
@@ -100,39 +116,49 @@ if ($tipo === 'vigente_vencida') {
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'asesor') {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(c.asesor_comercial, "sin_asesor") AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
+        'SELECT COALESCE(c.empleado_ventas, "sin_asesor") AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
          INNER JOIN clientes c ON c.id = d.cliente_id'
         . $docWhereSql .
-        ' GROUP BY c.asesor_comercial'
+        ' GROUP BY c.empleado_ventas'
     );
     $stmt->execute($docParams);
     $rows = $stmt->fetchAll();
 } elseif ($tipo === 'compromisos') {
-    $gestionWhere = ['g.anulada = 0'];
+    $gestionWhere = ['compromiso_pago IS NOT NULL'];
     $gestionParams = [];
     if ($estadoCompromiso !== '') {
-        $gestionWhere[] = 'g.estado_compromiso = ?';
+        $gestionWhere[] = 'estado_compromiso = ?';
         $gestionParams[] = $estadoCompromiso;
     }
     $gestionWhereSql = ' WHERE ' . implode(' AND ', $gestionWhere);
 
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(g.estado_compromiso, "sin_estado") AS categoria, COUNT(*) AS total
-         FROM gestiones g'
+        "SELECT estado_compromiso AS categoria, COUNT(*) AS total
+         FROM (
+             SELECT
+                 g.compromiso_pago,
+                 CASE
+                     WHEN d.saldo_pendiente <= 0 THEN 'cumplido'
+                     WHEN g.compromiso_pago < CURDATE() THEN 'incumplido'
+                     ELSE 'pendiente'
+                 END AS estado_compromiso
+             FROM bitacora_gestion g
+             INNER JOIN cartera_documentos d ON d.id = g.id_documento
+         ) t"
         . $gestionWhereSql .
-        ' GROUP BY g.estado_compromiso'
+        ' GROUP BY estado_compromiso'
     );
     $stmt->execute($gestionParams);
     $rows = $stmt->fetchAll();
 } else {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(d.periodo, "sin_periodo") AS categoria, SUM(d.saldo_actual) AS total
-         FROM documentos d
-         INNER JOIN clientes c ON c.id = d.cliente_id'
-        . $docWhereSql .
-        ' GROUP BY d.periodo
-           ORDER BY d.periodo DESC'
+        "SELECT COALESCE(DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m'), 'sin_periodo') AS categoria, SUM(d.saldo_pendiente) AS total
+         FROM cartera_documentos d
+         INNER JOIN clientes c ON c.id = d.cliente_id
+        " . $docWhereSql . "
+         GROUP BY DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m')
+         ORDER BY DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') DESC"
     );
     $stmt->execute($docParams);
     $rows = $stmt->fetchAll();

@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS bitacora_gestion (
     observacion TEXT NOT NULL,
     compromiso_pago DATE NULL,
     valor_compromiso DECIMAL(18,2) NULL,
+    estado_compromiso ENUM('pendiente', 'cumplido', 'incumplido') NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_bitacora_documento (id_documento),
     INDEX idx_bitacora_created_at (created_at),
