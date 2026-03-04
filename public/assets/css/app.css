@@ -1509,6 +1509,10 @@ textarea {
   gap: 14px;
 }
 
+.gm-kpi-grid-wide {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .gm-kpi-card {
   border-radius: 14px;
   padding: 16px;
@@ -1551,8 +1555,12 @@ textarea {
 
 .gm-main-charts {
   display: grid;
-  grid-template-columns: 1.15fr 1.85fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.gm-main-charts-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .gm-chart-card {
@@ -1638,16 +1646,50 @@ textarea {
 }
 
 
+.gm-ranking-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.gm-ranking-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  display: grid;
+  gap: 4px;
+}
+
+.gm-ranking-list span {
+  color: #475569;
+  font-size: 13px;
+}
+
+.gm-ranking-list strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.gm-ranking-list small {
+  color: #334155;
+  font-size: 12px;
+}
+
 @media (max-width: 1200px) {
   .gd-kpi-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .gm-kpi-grid {
+  .gm-kpi-grid,
+  .gm-kpi-grid-wide {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .gm-main-charts,
+  .gm-main-charts-3,
   .gm-analysis-grid {
     grid-template-columns: 1fr;
   }
@@ -1663,6 +1705,7 @@ textarea {
 
   .gd-kpi-grid,
   .gm-kpi-grid,
+  .gm-kpi-grid-wide,
   .gm-mini-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1670,6 +1713,7 @@ textarea {
 
 @media (max-width: 640px) {
   .gm-kpi-grid,
+  .gm-kpi-grid-wide,
   .gm-mini-kpis {
     grid-template-columns: 1fr;
   }
