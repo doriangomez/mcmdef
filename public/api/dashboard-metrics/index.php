@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -61,7 +62,11 @@ $filters = [
 ];
 
 $where = ["d.estado_documento = 'activo'"];
-$params = [];
+$scope = portfolio_client_scope_sql('c');
+if ($scope['sql'] !== '') {
+    $where[] = ltrim($scope['sql'], ' AND');
+}
+$params = $scope['params'];
 if ($filters['periodo'] !== '') { $where[] = "$monthExpr = ?"; $params[] = $filters['periodo']; }
 if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
 if ($filters['canal'] !== '') { $where[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['canal']; }

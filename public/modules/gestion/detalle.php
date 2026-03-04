@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
@@ -46,15 +47,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if ($clienteId <= 0 && $documentoId > 0) {
-    $clienteLookup = $pdo->prepare('SELECT cliente_id FROM cartera_documentos WHERE id = ? LIMIT 1');
-    $clienteLookup->execute([$documentoId]);
-    $clienteId = (int)$clienteLookup->fetchColumn();
-}
+$docScope = portfolio_client_scope_sql('c');
+$docStmt = $pdo->prepare(
+    'SELECT d.*, c.nombre AS cliente_nombre, c.nit, c.telefono, c.contacto, c.canal, c.regional
+     FROM cartera_documentos d
+     INNER JOIN clientes c ON c.id = d.cliente_id
+     WHERE d.id = ? AND d.estado_documento = "activo"' . $docScope['sql'] . '
+     LIMIT 1'
+);
+$docStmt->execute(array_merge([$documentoId], $docScope['params']));
+$documento = $docStmt->fetch();
 
-$cliente = null;
-$resumen = ['saldo_total' => 0, 'documentos' => 0, 'promedio_mora' => 0];
-$documentos = [];
+$docsCliente = [];
 $gestiones = [];
 
 if ($clienteId > 0) {

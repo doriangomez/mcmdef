@@ -4,11 +4,13 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
 $currentUserId = (int)($_SESSION['user']['id'] ?? 0);
-$responsableId = (int)($_GET['responsable_id'] ?? $currentUserId);
+$isAdmin = portfolio_is_admin();
+$responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
 $responsables = gestion_get_responsables($pdo);
 
 $stmt = $pdo->prepare(
@@ -31,11 +33,13 @@ $stmt = $pdo->prepare(
      ) ult ON ult.last_id = g.id
      INNER JOIN usuarios u ON u.id = g.usuario_id
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     WHERE (? <= 0 OR g.usuario_id = ?)
+     INNER JOIN clientes c ON c.id = d.cliente_id
+     WHERE g.compromiso_pago IS NOT NULL' . gestion_scope_condition($responsableId, 'd')['sql'] . '
      ORDER BY g.compromiso_pago ASC, g.id DESC
      LIMIT 400'
 );
-$stmt->execute([$responsableId, $responsableId]);
+$scope = gestion_scope_condition($responsableId, 'd');
+$stmt->execute($scope['params']);
 $rows = $stmt->fetchAll() ?: [];
 
 ob_start(); ?>

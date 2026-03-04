@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 $id = (int)($_GET['id_documento'] ?? 0);
 $docStmt = $pdo->prepare(
@@ -14,19 +15,23 @@ $docStmt = $pdo->prepare(
             d.id_carga AS id_carga_origen
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.id = ? AND d.estado_documento = "activo"'
+     WHERE d.id = ? AND d.estado_documento = "activo"' . portfolio_client_scope_sql('c')['sql']
 );
-$docStmt->execute([$id]);
+$docScope = portfolio_client_scope_sql('c');
+$docStmt->execute(array_merge([$id], $docScope['params']));
 $document = $docStmt->fetch();
 
 $gestionesStmt = $pdo->prepare(
     'SELECT g.id, g.tipo_gestion, g.observacion, g.compromiso_pago, g.valor_compromiso, g.created_at, u.nombre AS usuario
      FROM bitacora_gestion g
      INNER JOIN usuarios u ON u.id = g.usuario_id
-     WHERE g.id_documento = ?
+     INNER JOIN cartera_documentos d ON d.id = g.id_documento
+     INNER JOIN clientes c ON c.id = d.cliente_id
+     WHERE g.id_documento = ?' . portfolio_client_scope_sql('c')['sql'] . '
      ORDER BY g.id DESC'
 );
-$gestionesStmt->execute([$id]);
+$scopeGest = portfolio_client_scope_sql('c');
+$gestionesStmt->execute(array_merge([$id], $scopeGest['params']));
 $gestiones = $gestionesStmt->fetchAll();
 
 $canManage = in_array(current_user()['rol'], ['admin', 'analista'], true);

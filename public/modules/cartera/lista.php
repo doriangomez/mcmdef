@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExportService.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 function cartera_mora_sql(string $range): ?string
 {
@@ -61,6 +62,7 @@ $filters = [
     'estado' => trim($_GET['estado'] ?? 'activo'),
     'vista' => trim($_GET['vista'] ?? 'documento'),
     'export_mode' => trim($_GET['export_mode'] ?? ''),
+    'responsable_id' => (int)($_GET['responsable_id'] ?? 0),
 ];
 
 if (!in_array($filters['vista'], ['documento', 'cliente'], true)) {
@@ -75,21 +77,30 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'clientes') {
         exit;
     }
 
+    $scope = portfolio_client_scope_sql('c');
     $stmt = $pdo->prepare(
         'SELECT c.id, c.nombre, c.nit
          FROM clientes c
-         WHERE c.nombre LIKE ? OR c.nit LIKE ?
+         WHERE (c.nombre LIKE ? OR c.nit LIKE ?)' . $scope['sql'] . '
          ORDER BY c.nombre ASC
          LIMIT 12'
     );
     $term = '%' . $q . '%';
-    $stmt->execute([$term, $term]);
+    $stmt->execute(array_merge([$term, $term], $scope['params']));
     echo json_encode(['items' => $stmt->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 $where = [];
 $params = [];
+$scope = portfolio_client_scope_sql('c');
+if ($scope['sql'] !== '') {
+    $where[] = ltrim($scope['sql'], ' AND');
+    $params = array_merge($params, $scope['params']);
+} elseif ($filters['responsable_id'] > 0) {
+    $where[] = 'c.responsable_usuario_id = ?';
+    $params[] = $filters['responsable_id'];
+}
 if ($filters['cliente_id'] > 0) {
     $where[] = 'd.cliente_id = ?';
     $params[] = $filters['cliente_id'];
@@ -128,10 +139,17 @@ if (!empty($where)) {
     $sqlBase .= ' WHERE ' . implode(' AND ', $where);
 }
 
-$estadoWhere = $filters['estado'] === '' ? '' : ' WHERE estado_documento = ' . $pdo->quote($filters['estado']);
-$tipoOptions = $pdo->query("SELECT DISTINCT tipo FROM cartera_documentos $estadoWhere ORDER BY tipo")->fetchAll(PDO::FETCH_COLUMN);
-$canalOptions = $pdo->query("SELECT DISTINCT canal FROM cartera_documentos $estadoWhere ORDER BY canal")->fetchAll(PDO::FETCH_COLUMN);
-$regionalOptions = $pdo->query("SELECT DISTINCT regional FROM cartera_documentos $estadoWhere ORDER BY regional")->fetchAll(PDO::FETCH_COLUMN);
+$estadoWhere = $filters['estado'] === '' ? '' : ' AND d.estado_documento = ' . $pdo->quote($filters['estado']);
+$baseScopeSql = ' FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE 1=1' . $scope['sql'] . $estadoWhere;
+$tipoStmt = $pdo->prepare('SELECT DISTINCT d.tipo ' . $baseScopeSql . ' ORDER BY d.tipo');
+$tipoStmt->execute($scope['params']);
+$tipoOptions = $tipoStmt->fetchAll(PDO::FETCH_COLUMN);
+$canalStmt = $pdo->prepare('SELECT DISTINCT d.canal ' . $baseScopeSql . ' ORDER BY d.canal');
+$canalStmt->execute($scope['params']);
+$canalOptions = $canalStmt->fetchAll(PDO::FETCH_COLUMN);
+$regionalStmt = $pdo->prepare('SELECT DISTINCT d.regional ' . $baseScopeSql . ' ORDER BY d.regional');
+$regionalStmt->execute($scope['params']);
+$regionalOptions = $regionalStmt->fetchAll(PDO::FETCH_COLUMN);
 
 $kpiStmt = $pdo->prepare(
     'SELECT
@@ -310,6 +328,8 @@ $buildSortUrl = static function (string $column) use ($queryWithoutPage, $sort, 
     return app_url('cartera/lista.php?' . http_build_query($params));
 };
 
+
+$responsablesFiltro = $pdo->query("SELECT id, nombre FROM usuarios WHERE estado = 'activo' AND rol IN ('admin', 'analista') ORDER BY nombre")->fetchAll();
 ob_start(); ?>
 <style>
   .cartera-filter-card { padding: 16px; border:1px solid #dbe4f1; border-radius:16px; background:linear-gradient(180deg,#f8fbff 0%,#fff 100%); margin-bottom:14px; }

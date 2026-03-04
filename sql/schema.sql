@@ -48,12 +48,15 @@ CREATE TABLE IF NOT EXISTS clientes (
     canal VARCHAR(80) NULL,
     regional VARCHAR(80) NULL,
     empleado_ventas VARCHAR(120) NULL,
+    responsable_usuario_id BIGINT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_cliente_cuenta (cuenta),
     KEY idx_cliente_regional (regional),
     KEY idx_cliente_canal (canal),
-    KEY idx_cliente_nombre (nombre)
+    KEY idx_cliente_nombre (nombre),
+    KEY idx_cliente_responsable (responsable_usuario_id),
+    CONSTRAINT fk_cliente_responsable FOREIGN KEY (responsable_usuario_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS cartera_documentos (

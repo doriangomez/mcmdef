@@ -2,56 +2,78 @@
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 $id = (int)($_GET['id_cliente'] ?? ($_GET['id'] ?? 0));
+$scope = portfolio_client_scope_sql('clientes');
 
-$customerStmt = $pdo->prepare('SELECT * FROM clientes WHERE id = ?');
-$customerStmt->execute([$id]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && portfolio_is_admin()) {
+    $nuevoResponsable = (int)($_POST['responsable_usuario_id'] ?? 0);
+    $upd = $pdo->prepare('UPDATE clientes SET responsable_usuario_id = ? WHERE id = ?');
+    $upd->execute([$nuevoResponsable > 0 ? $nuevoResponsable : null, $id]);
+}
+
+$customerStmt = $pdo->prepare('SELECT * FROM clientes WHERE id = ?' . $scope['sql']);
+$customerStmt->execute(array_merge([$id], $scope['params']));
 $customer = $customerStmt->fetch();
 
-$docsStmt = $pdo->prepare(
-    'SELECT d.*,
-            d.tipo AS tipo_documento,
-            d.nro_documento AS numero_documento,
-            d.saldo_pendiente AS saldo_actual,
-            d.dias_vencido AS dias_mora,
-            d.id_carga AS id_carga_origen,
-            DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") AS periodo
-     FROM cartera_documentos d
-     WHERE d.cliente_id = ? AND d.estado_documento = "activo"
-     ORDER BY d.dias_vencido DESC, d.id DESC'
-);
-$docsStmt->execute([$id]);
-$documents = $docsStmt->fetchAll();
+$documents = [];
+if ($customer) {
+    $docsStmt = $pdo->prepare(
+        'SELECT d.*,
+                d.tipo AS tipo_documento,
+                d.nro_documento AS numero_documento,
+                d.saldo_pendiente AS saldo_actual,
+                d.dias_vencido AS dias_mora,
+                d.id_carga AS id_carga_origen,
+                DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") AS periodo
+         FROM cartera_documentos d
+         WHERE d.cliente_id = ? AND d.estado_documento = "activo"
+         ORDER BY d.dias_vencido DESC, d.id DESC'
+    );
+    $docsStmt->execute([$id]);
+    $documents = $docsStmt->fetchAll();
+}
 
-$gestionesStmt = $pdo->prepare(
-    'SELECT g.id, g.id_documento, g.tipo_gestion, g.observacion, g.compromiso_pago, g.valor_compromiso, g.created_at, u.nombre AS usuario
-     FROM bitacora_gestion g
-     INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     INNER JOIN usuarios u ON u.id = g.usuario_id
-     WHERE d.cliente_id = ?
-     ORDER BY g.id DESC'
-);
-$gestionesStmt->execute([$id]);
-$gestiones = $gestionesStmt->fetchAll();
+$gestiones = [];
+if ($customer) {
+    $gestionesStmt = $pdo->prepare(
+        'SELECT g.id, g.id_documento, g.tipo_gestion, g.observacion, g.compromiso_pago, g.valor_compromiso, g.created_at, u.nombre AS usuario
+         FROM bitacora_gestion g
+         INNER JOIN cartera_documentos d ON d.id = g.id_documento
+         INNER JOIN usuarios u ON u.id = g.usuario_id
+         WHERE d.cliente_id = ?
+         ORDER BY g.id DESC'
+    );
+    $gestionesStmt->execute([$id]);
+    $gestiones = $gestionesStmt->fetchAll();
+}
 
 $canManage = in_array(current_user()['rol'], ['admin', 'analista'], true);
 
+
+$responsableOptions = [];
+if (portfolio_is_admin()) {
+    $responsableOptions = $pdo->query("SELECT id, nombre FROM usuarios WHERE estado = 'activo' AND rol IN ('admin', 'analista') ORDER BY nombre")->fetchAll() ?: [];
+}
 $view = (string)($_GET['view'] ?? 'expediente');
 $showBehavior = $view === 'mora';
 
-$moraSeriesStmt = $pdo->prepare(
-    'SELECT DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") AS periodo,
-            AVG(d.dias_vencido) AS promedio_mora,
-            SUM(d.saldo_pendiente) AS saldo_total,
-            SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END) AS saldo_vencido
-     FROM cartera_documentos d
-     WHERE d.cliente_id = ? AND d.estado_documento = "activo"
-     GROUP BY DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m")
-     ORDER BY periodo ASC'
-);
-$moraSeriesStmt->execute([$id]);
-$moraSeries = $moraSeriesStmt->fetchAll() ?: [];
+$moraSeries = [];
+if ($customer) {
+    $moraSeriesStmt = $pdo->prepare(
+        'SELECT DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") AS periodo,
+                AVG(d.dias_vencido) AS promedio_mora,
+                SUM(d.saldo_pendiente) AS saldo_total,
+                SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END) AS saldo_vencido
+         FROM cartera_documentos d
+         WHERE d.cliente_id = ? AND d.estado_documento = "activo"
+         GROUP BY DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m")
+         ORDER BY periodo ASC'
+    );
+    $moraSeriesStmt->execute([$id]);
+    $moraSeries = $moraSeriesStmt->fetchAll() ?: [];
+}
 
 ob_start(); ?>
 <h1><?= $showBehavior ? 'Comportamiento de mora' : 'Expediente de cliente' ?></h1>
@@ -67,6 +89,20 @@ ob_start(); ?>
     Cliente no encontrado.
   <?php endif; ?>
 </div>
+
+<?php if ($customer && portfolio_is_admin()): ?>
+  <form class="card" method="post" style="margin-top:10px;">
+    <div class="row">
+      <select name="responsable_usuario_id">
+        <option value="0">Sin responsable</option>
+        <?php foreach ($responsableOptions as $responsable): ?>
+          <option value="<?= (int)$responsable['id'] ?>" <?= (int)$responsable['id'] === (int)($customer['responsable_usuario_id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars((string)$responsable['nombre']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <button class="btn">Reasignar responsable</button>
+    </div>
+  </form>
+<?php endif; ?>
 
 
 <?php if ($showBehavior && $customer): ?>

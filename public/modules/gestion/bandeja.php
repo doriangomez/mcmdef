@@ -4,11 +4,13 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
 $currentUserId = (int)($_SESSION['user']['id'] ?? 0);
-$responsableId = (int)($_GET['responsable_id'] ?? $currentUserId);
+$isAdmin = portfolio_is_admin();
+$responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
 $orden = $_GET['orden'] ?? 'mora';
 $responsables = gestion_get_responsables($pdo);
 
