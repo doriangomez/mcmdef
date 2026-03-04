@@ -11,6 +11,11 @@ require_role(['admin', 'analista']);
 $currentUserId = (int)($_SESSION['user']['id'] ?? 0);
 $isAdmin = portfolio_is_admin();
 $responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
+$trendDays = (int)($_GET['trend_days'] ?? 30);
+if (!in_array($trendDays, [7, 30, 90], true)) {
+    $trendDays = 30;
+}
+$trendInterval = $trendDays - 1;
 $responsables = gestion_get_responsables($pdo);
 $scope = gestion_scope_condition($responsableId, 'd');
 
@@ -94,7 +99,7 @@ $gestionsTrendStmt = $pdo->prepare(
      FROM bitacora_gestion g
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      WHERE d.estado_documento = "activo"
-       AND g.created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . '
+       AND g.created_at >= DATE_SUB(CURDATE(), INTERVAL ' . (int)$trendInterval . ' DAY)' . $scope['sql'] . '
      GROUP BY DATE(g.created_at)
      ORDER BY DATE(g.created_at) ASC'
 );
@@ -107,7 +112,7 @@ $recoveryTrendStmt = $pdo->prepare(
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      WHERE d.estado_documento = "activo"
        AND COALESCE(g.estado_compromiso, "pendiente") = "cumplido"
-       AND g.created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . '
+       AND g.created_at >= DATE_SUB(CURDATE(), INTERVAL ' . (int)$trendInterval . ' DAY)' . $scope['sql'] . '
      GROUP BY DATE(g.created_at)
      ORDER BY DATE(g.created_at) ASC'
 );
@@ -176,7 +181,7 @@ foreach ($recoveryTrendRows as $row) {
 $trendLabels = [];
 $trendGestionesData = [];
 $trendRecoveryData = [];
-for ($i = 29; $i >= 0; $i--) {
+for ($i = $trendInterval; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime('-' . $i . ' days'));
     $trendLabels[] = date('d M', strtotime($date));
     $trendGestionesData[] = $gestionsByDate[$date] ?? 0;
@@ -220,6 +225,11 @@ ob_start(); ?>
         <option value="<?= (int)$responsable['id'] ?>" <?= (int)$responsable['id'] === $responsableId ? 'selected' : '' ?>><?= htmlspecialchars((string)$responsable['nombre']) ?></option>
       <?php endforeach; ?>
     </select>
+    <select name="trend_days">
+      <option value="7" <?= $trendDays === 7 ? 'selected' : '' ?>>Últimos 7 días</option>
+      <option value="30" <?= $trendDays === 30 ? 'selected' : '' ?>>Últimos 30 días</option>
+      <option value="90" <?= $trendDays === 90 ? 'selected' : '' ?>>Últimos 90 días</option>
+    </select>
     <button class="btn">Filtrar</button>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('gestion/dashboard.php')) ?>">Limpiar</a>
   </div>
@@ -227,60 +237,87 @@ ob_start(); ?>
 
 <section class="gm-section">
   <h2 class="section-title">Indicadores principales del equipo</h2>
-  <div class="gm-kpi-grid gm-kpi-grid-wide">
-    <article class="gm-kpi-card"><p class="kpi-label">Gestiones hoy</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_hoy'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card"><p class="kpi-label">Gestiones semana</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_semana'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card"><p class="kpi-label">Gestiones mes</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_mes'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card"><p class="kpi-label">Promesas registradas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_registradas'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card"><p class="kpi-label">Promesas cumplidas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_cumplidas'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card gm-kpi-card-danger"><p class="kpi-label">Promesas incumplidas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_incumplidas'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Recuperado hoy</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_hoy'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Recuperado semana</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_semana'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Recuperado mes</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_mes'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card"><p class="kpi-label">Clientes con gestión reciente</p><p class="kpi-value"><?= number_format((int)($recent['clientes_con_gestion'] ?? 0), 0, ',', '.') ?></p></article>
-    <article class="gm-kpi-card gm-kpi-card-danger"><p class="kpi-label">Clientes sin gestión reciente (+7 días)</p><p class="kpi-value"><?= number_format((int)($recent['clientes_sin_gestion'] ?? 0), 0, ',', '.') ?></p></article>
+
+  <div class="gm-kpi-category">
+    <h3>Actividad del equipo</h3>
+    <div class="gm-kpi-grid">
+      <article class="gm-kpi-card"><p class="kpi-label">Gestiones hoy</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_hoy'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card"><p class="kpi-label">Gestiones semana</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_semana'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card"><p class="kpi-label">Gestiones mes</p><p class="kpi-value"><?= number_format((int)($activity['gestiones_mes'] ?? 0), 0, ',', '.') ?></p></article>
+    </div>
+  </div>
+
+  <div class="gm-kpi-category">
+    <h3>Negociación</h3>
+    <div class="gm-kpi-grid">
+      <article class="gm-kpi-card"><p class="kpi-label">Promesas registradas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_registradas'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card"><p class="kpi-label">Promesas cumplidas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_cumplidas'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card gm-kpi-card-danger"><p class="kpi-label">Promesas incumplidas</p><p class="kpi-value"><?= number_format((int)($activity['promesas_incumplidas'] ?? 0), 0, ',', '.') ?></p></article>
+    </div>
+  </div>
+
+  <div class="gm-kpi-category">
+    <h3>Recuperación</h3>
+    <div class="gm-kpi-grid">
+      <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Valor recuperado hoy</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_hoy'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Valor recuperado semana</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_semana'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card gm-kpi-card-emphasis"><p class="kpi-label">Valor recuperado mes</p><p class="kpi-value">$<?= number_format((float)($activity['recuperado_mes'] ?? 0), 0, ',', '.') ?></p></article>
+    </div>
+  </div>
+
+  <div class="gm-kpi-category">
+    <h3>Control de cartera</h3>
+    <div class="gm-kpi-grid">
+      <article class="gm-kpi-card"><p class="kpi-label">Clientes con gestión reciente</p><p class="kpi-value"><?= number_format((int)($recent['clientes_con_gestion'] ?? 0), 0, ',', '.') ?></p></article>
+      <article class="gm-kpi-card gm-kpi-card-danger"><p class="kpi-label">Clientes sin gestión reciente (+7 días)</p><p class="kpi-value"><?= number_format((int)($recent['clientes_sin_gestion'] ?? 0), 0, ',', '.') ?></p></article>
+    </div>
   </div>
 </section>
 
 <section class="gm-section">
   <h2 class="section-title">Productividad y efectividad por cobrador</h2>
-  <div class="gm-main-charts gm-main-charts-3">
-    <article class="card gm-chart-card"><div class="card-header"><h3>Gestiones realizadas por cobrador</h3></div><canvas id="gestionesPorCobradorChart" height="220"></canvas></article>
-    <article class="card gm-chart-card"><div class="card-header"><h3>Promesas de pago por cobrador</h3></div><canvas id="promesasPorCobradorChart" height="220"></canvas></article>
-    <article class="card gm-chart-card"><div class="card-header"><h3>Valor recuperado por cobrador</h3></div><canvas id="recuperadoPorCobradorChart" height="220"></canvas></article>
-  </div>
-</section>
-
-<section class="gm-section">
-  <h2 class="section-title">Tendencias operativas</h2>
-  <div class="gm-main-charts">
-    <article class="card gm-chart-card"><div class="card-header"><h3>Gestiones realizadas en el tiempo (30 días)</h3></div><canvas id="gestionesTiempoChart" height="220"></canvas></article>
-    <article class="card gm-chart-card"><div class="card-header"><h3>Recuperación de cartera en el tiempo (30 días)</h3></div><canvas id="recuperacionTiempoChart" height="220"></canvas></article>
+  <div class="gm-main-charts gm-main-charts-3 gm-productivity-charts">
+    <article class="card gm-chart-card"><div class="card-header"><h3>Gestiones realizadas por cobrador</h3></div><canvas id="gestionesPorCobradorChart" height="240"></canvas></article>
+    <article class="card gm-chart-card"><div class="card-header"><h3>Promesas de pago por cobrador</h3></div><canvas id="promesasPorCobradorChart" height="240"></canvas></article>
+    <article class="card gm-chart-card"><div class="card-header"><h3>Valor recuperado por cobrador</h3></div><canvas id="recuperadoPorCobradorChart" height="240"></canvas></article>
   </div>
 </section>
 
 <section class="gm-section">
   <h2 class="section-title">Control de compromisos y alertas operativas</h2>
-  <div class="gm-analysis-grid">
-    <article class="card">
+  <div class="gm-analysis-grid gm-analysis-grid-priority">
+    <article class="card gm-alerts-priority-card">
+      <div class="card-header"><h3>Alertas operativas</h3></div>
+      <div class="gm-alert-grid">
+        <div class="gm-alert-card gm-alert-warning"><strong><?= (int)($alerts['clientes_sin_gestion'] ?? 0) ?></strong><span>Clientes sin gestión reciente (+7 días)</span></div>
+        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['promesas_vencidas'] ?? 0) ?></strong><span>Promesas de pago vencidas</span></div>
+        <div class="gm-alert-card gm-alert-warning"><strong><?= (int)($alerts['compromisos_hoy'] ?? 0) ?></strong><span>Compromisos que vencen hoy</span></div>
+        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['mora_critica'] ?? 0) ?></strong><span>Clientes con mora crítica (+90 días)</span></div>
+      </div>
+    </article>
+
+    <article class="card gm-commitment-card-compact">
       <div class="card-header"><h3>Compromisos de pago</h3></div>
       <div class="gm-mini-kpis">
         <div class="gm-mini-kpi"><span>Promesas pendientes</span><strong><?= (int)($commitments['pendientes'] ?? 0) ?></strong></div>
         <div class="gm-mini-kpi"><span>Promesas cumplidas</span><strong><?= (int)($commitments['cumplidas'] ?? 0) ?></strong></div>
         <div class="gm-mini-kpi"><span>Promesas incumplidas</span><strong><?= (int)($commitments['incumplidas'] ?? 0) ?></strong></div>
       </div>
-      <canvas id="estadoCompromisosChart" height="180"></canvas>
-    </article>
-
-    <article class="card">
-      <div class="card-header"><h3>Alertas operativas</h3></div>
-      <div class="gm-alert-grid">
-        <div class="gm-alert-card"><strong><?= (int)($alerts['clientes_sin_gestion'] ?? 0) ?></strong><span>Clientes sin gestión reciente (+7 días)</span></div>
-        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['promesas_vencidas'] ?? 0) ?></strong><span>Promesas de pago vencidas</span></div>
-        <div class="gm-alert-card gm-alert-warning"><strong><?= (int)($alerts['compromisos_hoy'] ?? 0) ?></strong><span>Compromisos que vencen hoy</span></div>
-        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['mora_critica'] ?? 0) ?></strong><span>Clientes con mora crítica (+90 días)</span></div>
+      <div class="gm-compact-donut-wrap">
+        <canvas id="estadoCompromisosChart" height="130"></canvas>
       </div>
     </article>
+  </div>
+</section>
+
+<section class="gm-section">
+  <div class="card-header card-header-inline">
+    <h2 class="section-title">Tendencias operativas</h2>
+    <small>Rango activo: últimos <?= (int)$trendDays ?> días</small>
+  </div>
+  <div class="gm-main-charts">
+    <article class="card gm-chart-card gm-chart-card-compact"><div class="card-header"><h3>Gestiones diarias</h3></div><canvas id="gestionesTiempoChart" height="210"></canvas></article>
+    <article class="card gm-chart-card gm-chart-card-compact"><div class="card-header"><h3>Recuperación diaria</h3></div><canvas id="recuperacionTiempoChart" height="210"></canvas></article>
   </div>
 </section>
 
@@ -288,21 +325,25 @@ ob_start(); ?>
   <h2 class="section-title">Desempeño del equipo</h2>
   <div class="card">
     <div class="table-responsive">
-      <table class="table gm-top-table">
-        <tr>
-          <th>Usuario</th><th>Clientes asignados</th><th>Gestiones realizadas</th><th>Promesas registradas</th><th>Promesas cumplidas</th><th>Promesas incumplidas</th><th>Valor recuperado</th>
-        </tr>
+      <table class="table gm-top-table" id="teamPerformanceTable">
+        <thead>
+          <tr>
+            <th data-type="text">Usuario</th><th data-type="number">Clientes asignados</th><th data-type="number">Gestiones realizadas</th><th data-type="number">Promesas registradas</th><th data-type="number">Promesas cumplidas</th><th data-type="number">Promesas incumplidas</th><th data-type="currency">Valor recuperado</th>
+          </tr>
+        </thead>
+        <tbody>
         <?php foreach ($teamRows as $row): ?>
           <tr>
             <td><?= htmlspecialchars($row['nombre']) ?></td>
-            <td><?= number_format($row['clientes_asignados'], 0, ',', '.') ?></td>
-            <td><?= number_format($row['gestiones'], 0, ',', '.') ?></td>
-            <td><?= number_format($row['promesas'], 0, ',', '.') ?></td>
-            <td><?= number_format($row['promesas_cumplidas'], 0, ',', '.') ?></td>
-            <td><?= number_format($row['promesas_incumplidas'], 0, ',', '.') ?></td>
-            <td>$<?= number_format($row['recuperado'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (int)$row['clientes_asignados'] ?>"><?= number_format($row['clientes_asignados'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (int)$row['gestiones'] ?>"><?= number_format($row['gestiones'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (int)$row['promesas'] ?>"><?= number_format($row['promesas'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (int)$row['promesas_cumplidas'] ?>"><?= number_format($row['promesas_cumplidas'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (int)$row['promesas_incumplidas'] ?>"><?= number_format($row['promesas_incumplidas'], 0, ',', '.') ?></td>
+            <td data-sort="<?= (float)$row['recuperado'] ?>">$<?= number_format($row['recuperado'], 0, ',', '.') ?></td>
           </tr>
         <?php endforeach; ?>
+        </tbody>
       </table>
     </div>
   </div>
@@ -314,9 +355,9 @@ ob_start(); ?>
     <article class="card">
       <div class="card-header"><h3>Top cobradores del periodo</h3></div>
       <ul class="gm-ranking-list">
-        <li><span>Mayor número de gestiones</span><strong><?= htmlspecialchars($topGestiones[0]['nombre'] ?? 'Sin datos') ?></strong></li>
-        <li><span>Mayor número de promesas</span><strong><?= htmlspecialchars($topPromesas[0]['nombre'] ?? 'Sin datos') ?></strong></li>
-        <li><span>Mayor valor recuperado</span><strong><?= htmlspecialchars($topRecuperado[0]['nombre'] ?? 'Sin datos') ?></strong></li>
+        <li><span>Mayor número de gestiones</span><strong><?= htmlspecialchars($topGestiones[0]['nombre'] ?? 'Sin datos') ?></strong><small><?= (int)($topGestiones[0]['gestiones'] ?? 0) ?> gestiones</small></li>
+        <li><span>Mayor número de promesas</span><strong><?= htmlspecialchars($topPromesas[0]['nombre'] ?? 'Sin datos') ?></strong><small><?= (int)($topPromesas[0]['promesas'] ?? 0) ?> promesas</small></li>
+        <li><span>Mayor valor recuperado</span><strong><?= htmlspecialchars($topRecuperado[0]['nombre'] ?? 'Sin datos') ?></strong><small>$<?= number_format((float)($topRecuperado[0]['recuperado'] ?? 0), 0, ',', '.') ?></small></li>
       </ul>
     </article>
     <article class="card">
@@ -431,8 +472,37 @@ ob_start(); ?>
         borderColor: '#fff'
       }]
     },
-    options: { cutout: '55%', plugins: { legend: { position: 'bottom' } } }
+    options: { cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } } }
   });
+
+  var teamTable = document.getElementById('teamPerformanceTable');
+  if (teamTable) {
+    var headers = teamTable.querySelectorAll('thead th');
+    var tbody = teamTable.querySelector('tbody');
+    headers.forEach(function (header, index) {
+      header.classList.add('gm-sortable');
+      header.setAttribute('role', 'button');
+      header.dataset.order = 'desc';
+      header.addEventListener('click', function () {
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+        var order = header.dataset.order === 'asc' ? 'desc' : 'asc';
+        header.dataset.order = order;
+        rows.sort(function (a, b) {
+          var aCell = a.children[index];
+          var bCell = b.children[index];
+          var aValue = aCell.dataset.sort || aCell.textContent.trim();
+          var bValue = bCell.dataset.sort || bCell.textContent.trim();
+          var aNum = parseFloat(aValue);
+          var bNum = parseFloat(bValue);
+          if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+            return order === 'asc' ? aNum - bNum : bNum - aNum;
+          }
+          return order === 'asc' ? aValue.localeCompare(bValue, 'es') : bValue.localeCompare(aValue, 'es');
+        });
+        rows.forEach(function (row) { tbody.appendChild(row); });
+      });
+    });
+  }
 })();
 </script>
 <?php
