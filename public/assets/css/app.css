@@ -1322,3 +1322,15 @@ textarea {
     white-space: nowrap;
   }
 }
+
+.priority-low td:first-child {
+  border-left: 4px solid #22C55E;
+}
+
+.priority-medium td:first-child {
+  border-left: 4px solid #F59E0B;
+}
+
+.priority-high td:first-child {
+  border-left: 4px solid #EF4444;
+}
