@@ -4,12 +4,15 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
 $tipo = trim($_GET['tipo'] ?? '');
 $clienteFiltro = trim($_GET['cliente'] ?? '');
-$responsableId = (int)($_GET['responsable_id'] ?? 0);
+$currentUserId = (int)($_SESSION['user']['id'] ?? 0);
+$isAdmin = portfolio_is_admin();
+$responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
 $responsables = gestion_get_responsables($pdo);
 
 $where = [];
@@ -25,7 +28,7 @@ if ($clienteFiltro !== '') {
     $params[] = '%' . $clienteFiltro . '%';
 }
 if ($responsableId > 0) {
-    $where[] = 'g.usuario_id = ?';
+    $where[] = 'c.responsable_usuario_id = ?';
     $params[] = $responsableId;
 }
 

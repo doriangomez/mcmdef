@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
+require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
@@ -21,8 +22,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($error === '') {
-        $docLookup = $pdo->prepare('SELECT id FROM cartera_documentos WHERE id = ? LIMIT 1');
-        $docLookup->execute([$documentoId]);
+        $docScope = portfolio_document_scope_sql('cartera_documentos');
+        $docLookup = $pdo->prepare('SELECT id FROM cartera_documentos WHERE id = ?' . $docScope['sql'] . ' LIMIT 1');
+        $docLookup->execute(array_merge([$documentoId], $docScope['params']));
         if (!$docLookup->fetchColumn()) {
             $error = 'El documento indicado no existe.';
         }
@@ -63,13 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$docsStmt = $pdo->query(
+$scope = portfolio_document_scope_sql('d');
+$docsStmt = $pdo->prepare(
     'SELECT d.id, d.cliente, d.nro_documento
      FROM cartera_documentos d
-     WHERE d.estado_documento = "activo"
+     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
      ORDER BY d.dias_vencido DESC, d.saldo_pendiente DESC
      LIMIT 500'
 );
+$docsStmt->execute($scope['params']);
 $documentos = $docsStmt->fetchAll() ?: [];
 
 ob_start(); ?>
