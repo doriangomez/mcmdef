@@ -5,10 +5,16 @@ require_once __DIR__ . '/../../../app/views/layout.php';
 
 $id = (int)($_GET['id_documento'] ?? 0);
 $docStmt = $pdo->prepare(
-    'SELECT d.*, c.nombre AS cliente, c.nit
-     FROM documentos d
+    'SELECT d.*, c.nombre AS cliente_nombre, c.nit,
+            d.tipo AS tipo_documento,
+            d.nro_documento AS numero_documento,
+            d.fecha_contabilizacion AS fecha_emision,
+            d.saldo_pendiente AS saldo_actual,
+            d.dias_vencido AS dias_mora,
+            d.id_carga AS id_carga_origen
+     FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.id = ?'
+     WHERE d.id = ? AND d.estado_documento = "activo"'
 );
 $docStmt->execute([$id]);
 $document = $docStmt->fetch();
@@ -28,7 +34,7 @@ ob_start(); ?>
 <h1>Detalle de documento</h1>
 <div class="card">
   <?php if ($document): ?>
-    Cliente: <?= htmlspecialchars($document['cliente']) ?> (<?= htmlspecialchars($document['nit']) ?>)<br>
+    Cliente: <?= htmlspecialchars($document['cliente_nombre']) ?> (<?= htmlspecialchars($document['nit']) ?>)<br>
     Documento: <?= htmlspecialchars($document['tipo_documento']) ?> #<?= htmlspecialchars($document['numero_documento']) ?><br>
     Emisión: <?= htmlspecialchars($document['fecha_emision']) ?> | Vencimiento: <?= htmlspecialchars($document['fecha_vencimiento']) ?><br>
     Saldo: <?= number_format((float)$document['saldo_actual'], 2, ',', '.') ?> |
