@@ -148,19 +148,20 @@ INSERT INTO usuarios (nombre, email, password_hash, rol, estado, created_at, upd
 VALUES ('Administrador', 'admin@mcm.local', '$2y$12$1SP93VJzAK3J1GyHpsCLZOlZhFc2iklaH2HDVv/2Z9IYIWD3eBZya', 'admin', 'activo', NOW(), NOW())
 ON DUPLICATE KEY UPDATE updated_at = NOW();
 
-CREATE TABLE IF NOT EXISTS recaudo_cargas (
+CREATE TABLE IF NOT EXISTS cargas_recaudo (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     archivo VARCHAR(255) NOT NULL,
     hash_sha256 VARCHAR(64) NOT NULL UNIQUE,
-    usuario VARCHAR(120) NOT NULL,
+    usuario_id BIGINT NOT NULL,
     fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    periodo_detectado VARCHAR(7) NOT NULL,
+    periodo VARCHAR(7) NOT NULL,
     total_registros INT NOT NULL DEFAULT 0,
     total_recaudo DECIMAL(18,2) NOT NULL DEFAULT 0,
     estado ENUM('activa', 'anulada') NOT NULL DEFAULT 'activa',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_recaudo_cargas_fecha (fecha_carga),
-    INDEX idx_recaudo_cargas_periodo (periodo_detectado)
+    INDEX idx_recaudo_cargas_periodo (periodo),
+    CONSTRAINT fk_cargas_recaudo_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS recaudo_detalle (
@@ -185,7 +186,7 @@ CREATE TABLE IF NOT EXISTS recaudo_detalle (
     INDEX idx_recaudo_detalle_carga (carga_id),
     INDEX idx_recaudo_detalle_periodo (periodo),
     INDEX idx_recaudo_detalle_documento (documento_aplicado),
-    CONSTRAINT fk_recaudo_detalle_carga FOREIGN KEY (carga_id) REFERENCES recaudo_cargas(id),
+    CONSTRAINT fk_recaudo_detalle_carga FOREIGN KEY (carga_id) REFERENCES cargas_recaudo(id),
     CONSTRAINT fk_recaudo_detalle_documento FOREIGN KEY (cartera_documento_id) REFERENCES cartera_documentos(id)
 );
 
@@ -198,7 +199,7 @@ CREATE TABLE IF NOT EXISTS recaudo_validacion_errores (
     motivo VARCHAR(255) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_recaudo_errores_carga (carga_id),
-    CONSTRAINT fk_recaudo_error_carga FOREIGN KEY (carga_id) REFERENCES recaudo_cargas(id)
+    CONSTRAINT fk_recaudo_error_carga FOREIGN KEY (carga_id) REFERENCES cargas_recaudo(id)
 );
 
 CREATE TABLE IF NOT EXISTS recaudo_agregados (
@@ -212,7 +213,7 @@ CREATE TABLE IF NOT EXISTS recaudo_agregados (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_recaudo_agregado (carga_id, tipo_agregado, clave),
     INDEX idx_recaudo_agregado_periodo (periodo),
-    CONSTRAINT fk_recaudo_agregado_carga FOREIGN KEY (carga_id) REFERENCES recaudo_cargas(id)
+    CONSTRAINT fk_recaudo_agregado_carga FOREIGN KEY (carga_id) REFERENCES cargas_recaudo(id)
 );
 
 CREATE TABLE IF NOT EXISTS presupuesto_recaudo (
