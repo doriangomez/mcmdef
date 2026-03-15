@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 if ($periodoDetectado !== null) {
                     periodo_control_registrar_recaudo($pdo, (string)$periodoDetectado);
                 }
-                audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
+                audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
                 $pdo->commit();
                 $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
             }

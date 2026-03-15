@@ -96,8 +96,8 @@ ob_start(); ?>
     <th>Archivo</th>
     <th>Hash SHA-256</th>
     <th>Periodo</th>
-    <th>Total registros</th>
-    <th>Total recaudo</th>
+    <th>Total documentos</th>
+    <th>Total saldo</th>
     <th>Versión</th>
     <th>Estado</th>
     <th>Activo</th>
