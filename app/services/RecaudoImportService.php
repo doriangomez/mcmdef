@@ -135,7 +135,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 
     $periodoCartera = cartera_periodo_activo($pdo);
     if ($periodoCartera !== null && $periodoCartera !== $periodoDetectado) {
-        $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
+        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
     }
 
     $documentUids = [];
@@ -257,7 +257,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado']] ?? '')),
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
-            'saldo_documento' => $workingBalance[$nroDocumento],
+            'saldo_documento' => $workingBalance[$documentoUid],
             'uen' => trim((string)($doc['uen'] ?? '')),
             'canal' => trim((string)($doc['canal'] ?? '')),
             'bucket' => cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)),
@@ -332,9 +332,9 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
 
 function recaudo_build_aggregates(PDO $pdo, int $cargaId): void
 {
-    $periodoStmt = $pdo->prepare('SELECT periodo_detectado FROM recaudo_cargas WHERE id = ?');
+    $periodoStmt = $pdo->prepare('SELECT periodo FROM cargas_recaudo WHERE id = ?');
     $periodoStmt->execute([$cargaId]);
-    $periodo = (string)(($periodoStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo_detectado'] ?? '');
+    $periodo = (string)(($periodoStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
 
     $total = (float)(($pdo->query('SELECT COALESCE(SUM(importe_aplicado),0) total FROM recaudo_detalle WHERE carga_id = ' . (int)$cargaId)->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0])['total'] ?? 0);
 
