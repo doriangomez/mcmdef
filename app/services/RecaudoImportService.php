@@ -220,6 +220,11 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $summary['validas']++;
         $summary['total_aplicado'] += $importe;
 
+        $estadoConciliacion = 'pago_sin_factura';
+        if ($doc !== null) {
+            $estadoConciliacion = ($importe <= $saldoActual) ? 'conciliado' : 'parcial';
+        }
+
         $validRows[] = [
             'fila' => $fila,
             'periodo' => $periodoRegistro,
@@ -230,7 +235,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'fecha_aplicacion' => $fechaAplicacion ?? $fechaRecibo,
             'cliente' => $cliente,
             'vendedor' => trim((string)($row[$map['vendedor']] ?? '')),
-            'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado']] ?? '')),
+            'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado'] ?? -1] ?? '')),
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
             'saldo_documento' => (float)($doc['saldo_pendiente'] ?? 0),
@@ -243,7 +248,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'tipo_coincide' => $tipoMatch ? 1 : 0,
         ];
 
-        if (!$clienteMatch) {
+        if ($doc !== null && !$clienteMatch) {
             $warnings[] = build_validation_error($fila, 'cliente', $cliente, 'Cliente en recaudo no coincide con cliente en cartera (validación recomendada).');
         }
         if (!$tipoMatch) {
