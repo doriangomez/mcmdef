@@ -268,7 +268,7 @@ $stmtUen = $pdo->prepare($uenMoraSql);
 $stmtUen->execute($params);
 $uenMoraRows = $stmtUen->fetchAll(PDO::FETCH_ASSOC);
 
-$negSql = "SELECT COALESCE(NULLIF(TRIM(d.tipo),''),'OTROS') tipo,
+$negSql = "SELECT COALESCE(NULLIF(TRIM(d.tipo_documento_financiero),''),'factura') tipo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
