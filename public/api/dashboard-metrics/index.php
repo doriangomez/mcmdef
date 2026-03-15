@@ -280,11 +280,11 @@ $negStmt->execute($params);
 $negativeBreakdown = $negStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $recaudoSql = "SELECT
-    COALESCE(SUM(ra.importe_aplicado),0) recaudo_periodo,
-    DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), '%Y-%m') periodo
-    FROM recaudo_aplicacion ra
-    INNER JOIN recaudos r ON r.id = ra.recaudo_id
-    WHERE DATE(COALESCE(ra.fecha_aplicacion, r.fecha_recibo)) BETWEEN ? AND ?
+    COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo,
+    d.periodo periodo
+    FROM recaudo_detalle d
+    INNER JOIN (SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id
+    WHERE DATE(COALESCE(d.fecha_aplicacion, d.fecha_recibo)) BETWEEN ? AND ?
     GROUP BY periodo
     ORDER BY periodo DESC";
 $recaudoRows = [];
@@ -300,7 +300,7 @@ $budgetMonth = $filters['fecha_hasta'] !== '' ? substr($filters['fecha_hasta'], 
 $budgetStmt = $pdo->prepare('SELECT COALESCE(SUM(valor_presupuesto),0) AS presupuesto FROM presupuesto_recaudo WHERE periodo = ?');
 $budgetStmt->execute([$budgetMonth]);
 $budget = (float)(($budgetStmt->fetch(PDO::FETCH_ASSOC) ?: ['presupuesto' => 0])['presupuesto'] ?? 0);
-$recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(ra.importe_aplicado),0) AS real FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id WHERE DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo),'%Y-%m') = ?");
+$recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS real FROM recaudo_detalle d INNER JOIN (SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
 $recaudoMonthStmt->execute([$budgetMonth]);
 $recaudoRealMes = (float)(($recaudoMonthStmt->fetch(PDO::FETCH_ASSOC) ?: ['real' => 0])['real'] ?? 0);
 

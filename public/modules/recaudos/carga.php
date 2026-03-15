@@ -10,10 +10,11 @@ require_role(['admin', 'analista']);
 
 $msg = '';
 $errors = [];
+$warnings = [];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
+$periodoDetectado = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_POST['upload_type'] === 'recaudo') {
-    $periodoCarga = trim((string)($_POST['periodo_carga'] ?? date('Y-m')));
     $file = $_FILES['archivo_recaudo'] ?? null;
     if (!$file || (int)$file['error'] !== UPLOAD_ERR_OK) {
         $errors[] = build_validation_error(0, 'archivo_recaudo', '', 'Debe adjuntar un archivo de recaudo válido.');
@@ -27,37 +28,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
     if (empty($errors)) {
         try {
             $rows = parse_input_file((string)$file['tmp_name'], $ext);
-            $validation = recaudo_validate_and_prepare($pdo, $rows, $periodoCarga);
+            $validation = recaudo_validate_and_prepare($pdo, $rows);
             $errors = $validation['errors'] ?? [];
+            $warnings = $validation['warnings'] ?? [];
             $summary = $validation['summary'] ?? $summary;
             $validRows = $validation['valid_rows'] ?? [];
+            $periodoDetectado = $validation['periodo_detectado'] ?? null;
 
-            $criticalErrors = array_filter($errors, static function (array $err): bool {
-                return stripos((string)($err['motivo'] ?? ''), 'recomendada') === false;
-            });
-
-            if (!empty($criticalErrors)) {
+            if (!empty($errors)) {
                 $msg = 'Carga de recaudo rechazada por validaciones obligatorias.';
             } elseif (empty($validRows)) {
                 $msg = 'No hay registros válidos para aplicar.';
             } else {
                 $pdo->beginTransaction();
-                $hash = hash('sha256', hash_file('sha256', (string)$file['tmp_name']) . '|' . microtime(true) . '|' . random_int(1, PHP_INT_MAX));
-                $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (fecha_carga, usuario_id, nombre_archivo, periodo_carga, total_registros, total_aplicado, hash_archivo, estado, created_at) VALUES (NOW(), ?, ?, ?, ?, ?, ?, "activa", NOW())');
+                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: hash('sha256', microtime(true) . '|' . random_int(1, PHP_INT_MAX));
+                $cargaStmt = $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
                 $cargaStmt->execute([
-                    (int)$_SESSION['user']['id'],
                     (string)$file['name'],
-                    $periodoCarga,
+                    $hash,
+                    (string)($_SESSION['user']['nombre'] ?? 'sistema'),
+                    (string)$periodoDetectado,
                     (int)$summary['validas'],
                     (float)$summary['total_aplicado'],
-                    $hash,
                 ]);
                 $cargaId = (int)$pdo->lastInsertId();
 
+                if (!empty($warnings)) {
+                    $errStmt = $pdo->prepare('INSERT INTO recaudo_validacion_errores (carga_id, fila, campo, valor, motivo, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
+                    foreach ($warnings as $warning) {
+                        $errStmt->execute([
+                            $cargaId,
+                            (int)($warning['fila'] ?? 0),
+                            (string)($warning['campo'] ?? ''),
+                            (string)($warning['valor'] ?? ''),
+                            (string)($warning['motivo'] ?? ''),
+                        ]);
+                    }
+                }
+
                 recaudo_apply_rows($pdo, $cargaId, $validRows);
-                audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
+                recaudo_build_aggregates($pdo, $cargaId);
+                audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
                 $pdo->commit();
-                $msg = 'Recaudo cargado y conciliado correctamente. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
+                $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
             }
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -105,22 +118,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
     }
 }
 
-$kpi = $pdo->query('SELECT COALESCE(SUM(ra.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(saldo_pendiente) FROM cartera_documentos),0) cartera_total FROM recaudo_aplicacion ra')->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
+$latestLoadSql = 'SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo';
+
+$kpi = $pdo->query('SELECT COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(saldo_pendiente) FROM cartera_documentos),0) cartera_total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id')->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
 $recaudoPeriodo = (float)$kpi['recaudo_periodo'];
 $carteraTotal = (float)$kpi['cartera_total'];
 $recuperacionPct = $carteraTotal > 0 ? ($recaudoPeriodo / $carteraTotal) * 100 : 0;
 
-$byVendedor = $pdo->query('SELECT COALESCE(r.vendedor, "Sin vendedor") categoria, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$byUen = $pdo->query('SELECT COALESCE(NULLIF(ra.uen, ""), "Sin UEN") categoria, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$byBucket = $pdo->query('SELECT COALESCE(NULLIF(ra.bucket, ""), "Sin bucket") categoria, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra GROUP BY categoria ORDER BY total DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$trend = $pdo->query('SELECT DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), "%Y-%m") periodo, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY periodo ORDER BY periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$paretoClientes = $pdo->query('SELECT COALESCE(r.cliente, "Sin cliente") cliente, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), "%Y-%m") AS periodo, r.vendedor AS vendedor, SUM(ra.importe_aplicado) AS recaudo_real FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY periodo, r.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byVendedor = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.vendedor), ""), "Sin vendedor") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byUen = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.uen), ""), "Sin UEN") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byBucket = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.bucket), ""), "Sin bucket") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$trend = $pdo->query('SELECT d.periodo, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo ORDER BY d.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$paretoClientes = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.cliente), ""), "Sin cliente") cliente, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT d.periodo AS periodo, d.vendedor AS vendedor, SUM(d.importe_aplicado) AS recaudo_real FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo, d.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$historial = $pdo->query('SELECT c.id, c.archivo, c.periodo_detectado, c.total_registros, c.total_recaudo, c.usuario, c.fecha_carga, c.estado FROM recaudo_cargas c ORDER BY c.id DESC LIMIT 20')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
+$detalleRegistros = [];
+$detalleErrores = [];
+if ($detalleCargaId > 0) {
+    $stmt = $pdo->prepare('SELECT id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, cliente, vendedor, importe_aplicado, saldo_documento, periodo FROM recaudo_detalle WHERE carga_id = ? ORDER BY id ASC LIMIT 300');
+    $stmt->execute([$detalleCargaId]);
+    $detalleRegistros = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $stmt = $pdo->prepare('SELECT fila, campo, valor, motivo FROM recaudo_validacion_errores WHERE carga_id = ? ORDER BY id ASC LIMIT 300');
+    $stmt->execute([$detalleCargaId]);
+    $detalleErrores = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
 
 ob_start();
 ?>
 <h2>Carga y conciliación de recaudo</h2>
 <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+<?php if ($periodoDetectado): ?><div class="alert alert-ok">Periodo detectado automáticamente: <strong><?= htmlspecialchars((string)$periodoDetectado) ?></strong></div><?php endif; ?>
+<?php if ($warnings): ?><div class="alert alert-info"><ul><?php foreach ($warnings as $warning): ?><li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div class="alert alert-error"><ul><?php foreach ($errors as $error): ?><li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
 <section class="gd-kpi-grid">
@@ -135,7 +166,7 @@ ob_start();
     <h3>Cargar archivo de recaudo</h3>
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="upload_type" value="recaudo">
-      <label>Periodo de carga <input type="month" name="periodo_carga" value="<?= htmlspecialchars(date('Y-m')) ?>" required></label>
+      <p>El periodo se detecta automáticamente a partir de <code>fecha_aplicacion</code> o <code>fecha_recibo</code>.</p>
       <label>Archivo recaudo (CSV/XLSX/XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button class="btn" type="submit">Cargar y conciliar</button>
     </form>
@@ -149,6 +180,56 @@ ob_start();
     </form>
   </article>
 </section>
+
+<section class="card">
+  <h3>Historial de cargas de recaudo</h3>
+  <table class="table">
+    <tr><th>ID</th><th>Archivo</th><th>Periodo</th><th>Registros</th><th>Valor</th><th>Usuario</th><th>Fecha</th><th>Estado</th><th>Detalle</th></tr>
+    <?php foreach ($historial as $h): ?>
+      <tr>
+        <td><?= (int)$h['id'] ?></td>
+        <td><?= htmlspecialchars((string)$h['archivo']) ?></td>
+        <td><?= htmlspecialchars((string)$h['periodo_detectado']) ?></td>
+        <td><?= (int)$h['total_registros'] ?></td>
+        <td>$<?= number_format((float)$h['total_recaudo'], 2, ',', '.') ?></td>
+        <td><?= htmlspecialchars((string)$h['usuario']) ?></td>
+        <td><?= htmlspecialchars((string)$h['fecha_carga']) ?></td>
+        <td><?= htmlspecialchars((string)$h['estado']) ?></td>
+        <td><a href="<?= htmlspecialchars(app_url('recaudos/carga.php?detalle_carga_id=' . (int)$h['id'])) ?>">Ver</a></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
+</section>
+
+<?php if ($detalleCargaId > 0): ?>
+<section class="card">
+  <h3>Detalle carga #<?= $detalleCargaId ?></h3>
+  <?php if ($detalleErrores): ?>
+    <h4>Errores de validación</h4>
+    <ul>
+      <?php foreach ($detalleErrores as $err): ?>
+        <li>Fila <?= (int)$err['fila'] ?> - <?= htmlspecialchars((string)$err['campo']) ?>: <?= htmlspecialchars((string)$err['motivo']) ?></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
+  <table class="table">
+    <tr><th>Recibo</th><th>Fecha recibo</th><th>Fecha aplicación</th><th>Documento</th><th>Cliente</th><th>Vendedor</th><th>Importe</th><th>Saldo doc.</th><th>Periodo</th></tr>
+    <?php foreach ($detalleRegistros as $d): ?>
+      <tr>
+        <td><?= htmlspecialchars((string)$d['nro_recibo']) ?></td>
+        <td><?= htmlspecialchars((string)$d['fecha_recibo']) ?></td>
+        <td><?= htmlspecialchars((string)$d['fecha_aplicacion']) ?></td>
+        <td><?= htmlspecialchars((string)$d['documento_aplicado']) ?></td>
+        <td><?= htmlspecialchars((string)$d['cliente']) ?></td>
+        <td><?= htmlspecialchars((string)$d['vendedor']) ?></td>
+        <td>$<?= number_format((float)$d['importe_aplicado'], 2, ',', '.') ?></td>
+        <td>$<?= number_format((float)$d['saldo_documento'], 2, ',', '.') ?></td>
+        <td><?= htmlspecialchars((string)$d['periodo']) ?></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
+</section>
+<?php endif; ?>
 
 <section class="gd-grid-2">
   <article class="card"><h3>Recaudo por vendedor</h3><canvas id="vendedorChart" height="160"></canvas></article>
