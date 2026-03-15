@@ -15,8 +15,8 @@ $currentUserId = (int)($_SESSION['user']['id'] ?? 0);
 $isAdmin = portfolio_is_admin();
 $responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
 $responsables = gestion_get_responsables($pdo);
-$uens = uen_apply_scope(uen_requested_values('uens'), uen_user_allowed_values($pdo));
-$uensOptions = $pdo->query("SELECT DISTINCT uens FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$uens = uen_apply_scope(uen_requested_values('uen'), uen_user_allowed_values($pdo));
+$uensOptions = $pdo->query("SELECT DISTINCT uens AS uen FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 $where = [];
 $params = [];
@@ -66,7 +66,7 @@ ob_start(); ?>
         <option value="<?= (int)$responsable['id'] ?>" <?= (int)$responsable['id'] === $responsableId ? 'selected' : '' ?>><?= htmlspecialchars((string)$responsable['nombre']) ?></option>
       <?php endforeach; ?>
     </select>
-    <select name="uens[]" multiple size="3" required>
+    <select name="uen[]" multiple size="3" required>
       <?php foreach ($uensOptions as $u): ?>
         <option value="<?= htmlspecialchars((string)$u) ?>" <?= in_array((string)$u, $uens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$u) ?></option>
       <?php endforeach; ?>

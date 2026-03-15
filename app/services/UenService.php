@@ -30,9 +30,12 @@ function uen_parse_list_string(string $raw): array
     return array_keys($values);
 }
 
-function uen_requested_values(string $key = 'uens'): array
+function uen_requested_values(string $key = 'uen'): array
 {
-    $raw = $_GET[$key] ?? [];
+    $raw = $_GET[$key] ?? null;
+    if ($raw === null && $key === 'uen') {
+        $raw = $_GET['uens'] ?? [];
+    }
     $values = [];
     if (is_array($raw)) {
         $values = $raw;
@@ -69,7 +72,7 @@ function uen_user_allowed_values(PDO $pdo, ?array $user = null): array
         return $configuredValues;
     }
 
-    $stmt = $pdo->prepare('SELECT DISTINCT d.uens FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE c.responsable_usuario_id = ? AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY d.uens');
+    $stmt = $pdo->prepare('SELECT DISTINCT d.uens AS uen FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE c.responsable_usuario_id = ? AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY d.uens');
     $stmt->execute([$userId]);
     return array_values(array_filter(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [])));
 }

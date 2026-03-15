@@ -28,7 +28,7 @@ $where = ['d.estado_documento = "activo"'];
 $params = [];
 
 $scope = portfolio_document_scope_sql('d', $user);
-$selectedUens = uen_apply_scope(uen_requested_values('uens'), uen_user_allowed_values($pdo, $user));
+$selectedUens = uen_apply_scope(uen_requested_values('uen'), uen_user_allowed_values($pdo, $user));
 if ($scope['sql'] !== '') {
     $where[] = ltrim($scope['sql'], ' AND');
     $params = array_merge($params, $scope['params']);

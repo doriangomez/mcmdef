@@ -17,7 +17,7 @@ $tipo = trim((string)($_GET['tipo'] ?? 'cartera_regional'));
 $desde = trim((string)($_GET['desde'] ?? ''));
 $hasta = trim((string)($_GET['hasta'] ?? ''));
 $format = trim((string)($_GET['format'] ?? 'json'));
-$selectedUens = uen_requested_values('uens');
+$selectedUens = uen_requested_values('uen');
 $allowedUens = uen_user_allowed_values($pdo);
 $selectedUens = uen_apply_scope($selectedUens, $allowedUens);
 
@@ -63,7 +63,7 @@ if ($tipo === 'cartera_regional') {
                 d.canal AS canal,
                 d.regional AS regional,
                 c.empleado_ventas AS asesor,
-                d.uens AS uens
+                d.uens AS uen
             FROM cartera_documentos d
             INNER JOIN clientes c ON c.id=d.cliente_id
             WHERE ' . $wsql . '
@@ -101,7 +101,7 @@ if ($format === 'csv') {
                 $row['canal'] ?? '',
                 $row['regional'] ?? '',
                 $row['asesor'] ?? '',
-                $row['uens'] ?? '',
+                $row['uen'] ?? '',
             ]);
             continue;
         }

@@ -21,7 +21,7 @@ if ($scope['sql'] !== '') {
 }
 
 $allowedUens = uen_user_allowed_values($pdo);
-$selectedUens = uen_apply_scope(uen_requested_values('uens'), $allowedUens);
+$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
 $uenScope = uen_sql_condition('d.uens', $selectedUens);
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
@@ -60,7 +60,7 @@ if ($estado !== '') {
     $params[] = $estado;
 }
 
-$sql = 'SELECT d.cuenta, d.cliente, c.nit, d.uens, d.canal, d.regional, c.empleado_ventas, d.nro_documento, d.tipo, d.fecha_contabilizacion, d.fecha_vencimiento, d.valor_documento, d.saldo_pendiente, d.moneda, d.dias_vencido, d.bucket_actual, d.bucket_1_30, d.bucket_31_60, d.bucket_61_90, d.bucket_91_180, d.bucket_181_360, d.bucket_361_plus FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id';
+$sql = 'SELECT d.cuenta, d.cliente, c.nit, d.uens AS uen, d.canal, d.regional, c.empleado_ventas, d.nro_documento, d.tipo, d.fecha_contabilizacion, d.fecha_vencimiento, d.valor_documento, d.saldo_pendiente, d.moneda, d.dias_vencido, d.bucket_actual, d.bucket_1_30, d.bucket_31_60, d.bucket_61_90, d.bucket_91_180, d.bucket_181_360, d.bucket_361_plus FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id';
 if (!empty($where)) {
     $sql .= ' WHERE ' . implode(' AND ', $where);
 }
@@ -78,7 +78,7 @@ foreach ($rows as $row) {
         'Cuenta' => $row['cuenta'] ?? '',
         'Cliente' => $row['cliente'] ?? '',
         'NIT' => $row['nit'] ?? '',
-        'UEN' => $row['uens'] ?? '',
+        'UEN' => $row['uen'] ?? '',
         'Canal' => $row['canal'] ?? '',
         'Regional' => $row['regional'] ?? '',
         'Empleado de Ventas' => $row['empleado_ventas'] ?? '',
