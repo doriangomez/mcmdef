@@ -90,6 +90,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 $versionStmt->execute([(string)$periodoDetectado]);
                 $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
 
+                $cargasPreviasStmt = $pdo->prepare('SELECT id FROM cargas_recaudo WHERE periodo = ?');
+                $cargasPreviasStmt->execute([(string)$periodoDetectado]);
+                $cargasPrevias = $cargasPreviasStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+                $pdo->prepare('DELETE FROM recaudo_detalle WHERE periodo = ?')->execute([(string)$periodoDetectado]);
+                if (!empty($cargasPrevias)) {
+                    $placeholders = implode(',', array_fill(0, count($cargasPrevias), '?'));
+                    $pdo->prepare('DELETE FROM recaudo_validacion_errores WHERE carga_id IN (' . $placeholders . ')')->execute($cargasPrevias);
+                    $pdo->prepare('DELETE FROM recaudo_agregados WHERE carga_id IN (' . $placeholders . ')')->execute($cargasPrevias);
+                }
                 $pdo->prepare('UPDATE cargas_recaudo SET activo = 0 WHERE periodo = ?')->execute([(string)$periodoDetectado]);
 
                 $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (archivo, hash_sha256, periodo, fecha_carga, usuario_id, total_registros, total_recaudo, version, activo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, 1, "activa", NOW())');
@@ -247,11 +257,8 @@ ob_start();
     <h3>Cargar archivo de recaudo</h3>
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="upload_type" value="recaudo">
-      <p>El periodo se detecta automáticamente a partir de <code>fecha_aplicacion</code> o <code>fecha_recibo</code>.</p>
-      <label><input type="checkbox" name="permitir_historico_recaudo" value="1"> Permitir modo histórico (periodos anteriores)</label>
-      <label><input type="checkbox" name="reemplazar_periodo_recaudo" value="1"> Reemplazar periodo (nueva versión activa)</label>
-      <label>Archivo recaudo (CSV/XLSX/XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
-      <button class="btn" type="submit">Cargar y conciliar</button>
+      <label>Archivo recaudo (CSV / XLSX / XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
+      <button class="btn" type="submit">Cargar</button>
     </form>
   </article>
   <article class="card">
