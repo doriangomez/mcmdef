@@ -33,6 +33,15 @@ function render_layout(string $title, string $content): void
             'match' => ['/cargas', '/modules/cargas'],
             'roles' => ['admin', 'analista'],
         ],
+
+        [
+            'section' => 'Operación',
+            'label' => 'Recaudos',
+            'icon' => 'fa-solid fa-money-bill-transfer',
+            'url' => 'recaudos/carga.php',
+            'match' => ['/recaudos', '/modules/recaudos'],
+            'roles' => ['admin', 'analista'],
+        ],
         [
             'section' => 'Operación',
             'label' => 'Cartera',

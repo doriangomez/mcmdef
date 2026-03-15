@@ -143,3 +143,62 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT INTO usuarios (nombre, email, password_hash, rol, estado, created_at, updated_at)
 VALUES ('Administrador', 'admin@mcm.local', '$2y$12$1SP93VJzAK3J1GyHpsCLZOlZhFc2iklaH2HDVv/2Z9IYIWD3eBZya', 'admin', 'activo', NOW(), NOW())
 ON DUPLICATE KEY UPDATE updated_at = NOW();
+
+CREATE TABLE IF NOT EXISTS cargas_recaudo (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    usuario_id BIGINT NOT NULL,
+    nombre_archivo VARCHAR(255) NOT NULL,
+    periodo_carga VARCHAR(7) NOT NULL,
+    total_registros INT NOT NULL DEFAULT 0,
+    total_aplicado DECIMAL(18,2) NOT NULL DEFAULT 0,
+    hash_archivo VARCHAR(64) NOT NULL UNIQUE,
+    estado ENUM('activa', 'anulada') NOT NULL DEFAULT 'activa',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_cargas_recaudo_fecha (fecha_carga),
+    INDEX idx_cargas_recaudo_periodo (periodo_carga),
+    CONSTRAINT fk_carga_recaudo_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS recaudos (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    carga_recaudo_id BIGINT NOT NULL,
+    periodo_carga VARCHAR(7) NOT NULL,
+    nro_recibo VARCHAR(80) NOT NULL,
+    fecha_recibo DATE NULL,
+    cliente VARCHAR(180) NULL,
+    vendedor VARCHAR(120) NULL,
+    regional VARCHAR(80) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_recaudos_periodo (periodo_carga),
+    INDEX idx_recaudos_recibo (nro_recibo),
+    CONSTRAINT fk_recaudo_carga FOREIGN KEY (carga_recaudo_id) REFERENCES cargas_recaudo(id)
+);
+
+CREATE TABLE IF NOT EXISTS recaudo_aplicacion (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    documento VARCHAR(80) NOT NULL,
+    cartera_documento_id BIGINT NOT NULL,
+    recaudo_id BIGINT NOT NULL,
+    fecha_aplicacion DATE NULL,
+    importe_aplicado DECIMAL(18,2) NOT NULL,
+    uen VARCHAR(120) NULL,
+    canal VARCHAR(80) NULL,
+    bucket VARCHAR(30) NULL,
+    cliente_conciliado TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_recaudo_aplicacion_documento (documento),
+    INDEX idx_recaudo_aplicacion_fecha (fecha_aplicacion),
+    CONSTRAINT fk_recaudo_aplicacion_recaudo FOREIGN KEY (recaudo_id) REFERENCES recaudos(id),
+    CONSTRAINT fk_recaudo_aplicacion_documento FOREIGN KEY (cartera_documento_id) REFERENCES cartera_documentos(id)
+);
+
+CREATE TABLE IF NOT EXISTS presupuesto_recaudo (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    periodo VARCHAR(7) NOT NULL,
+    vendedor VARCHAR(120) NOT NULL,
+    valor_presupuesto DECIMAL(18,2) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_presupuesto_recaudo (periodo, vendedor)
+);
