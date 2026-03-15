@@ -224,3 +224,9 @@ CREATE TABLE IF NOT EXISTS presupuesto_recaudo (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_presupuesto_recaudo (periodo, vendedor)
 );
+
+CREATE OR REPLACE VIEW vw_cartera_documentos AS
+SELECT
+    d.*,
+    d.uens AS uen
+FROM cartera_documentos d;
