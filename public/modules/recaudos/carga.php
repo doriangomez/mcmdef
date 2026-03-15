@@ -128,13 +128,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 }
 
                 recaudo_apply_rows($pdo, $cargaId, $validRows);
+                recaudo_run_reconciliation($pdo, $cargaId);
                 recaudo_build_aggregates($pdo, $cargaId);
                 if ($periodoDetectado !== null) {
                     periodo_control_registrar_recaudo($pdo, (string)$periodoDetectado);
                 }
                 audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
                 $pdo->commit();
-                $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
+                $msg = 'Recaudo cargado correctamente y conciliación automática ejecutada. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
             }
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -226,6 +227,50 @@ $historial = $pdo->query('SELECT c.id, c.archivo, c.hash_sha256, c.periodo, c.to
 $detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
 $detalleRegistros = [];
 $detalleErrores = [];
+
+$periodoCarteraFiltro = trim((string)($_GET['periodo_cartera'] ?? ''));
+$periodoRecaudoFiltro = trim((string)($_GET['periodo_recaudo'] ?? ''));
+$uenFiltro = trim((string)($_GET['uen'] ?? ''));
+$canalFiltro = trim((string)($_GET['canal'] ?? ''));
+$vendedorFiltro = trim((string)($_GET['vendedor'] ?? ''));
+$estadoConciliacionFiltro = trim((string)($_GET['estado_conciliacion'] ?? ''));
+
+$whereConc = [];
+$paramsConc = [];
+if ($periodoCarteraFiltro !== '') { $whereConc[] = 'c.periodo_cartera = ?'; $paramsConc[] = $periodoCarteraFiltro; }
+if ($periodoRecaudoFiltro !== '') { $whereConc[] = 'c.periodo_recaudo = ?'; $paramsConc[] = $periodoRecaudoFiltro; }
+if ($uenFiltro !== '') { $whereConc[] = 'COALESCE(cd.uens, "") = ?'; $paramsConc[] = $uenFiltro; }
+if ($canalFiltro !== '') { $whereConc[] = 'COALESCE(cd.canal, "") = ?'; $paramsConc[] = $canalFiltro; }
+if ($vendedorFiltro !== '') { $whereConc[] = 'COALESCE(rd.vendedor, "") = ?'; $paramsConc[] = $vendedorFiltro; }
+if ($estadoConciliacionFiltro !== '') { $whereConc[] = 'c.estado_conciliacion = ?'; $paramsConc[] = $estadoConciliacionFiltro; }
+$whereConcSql = $whereConc ? (' WHERE ' . implode(' AND ', $whereConc)) : '';
+
+$conciliacionRows = [];
+$kpiConc = ['cartera_total' => 0, 'cartera_conciliada_total' => 0, 'cartera_conciliada_parcial' => 0, 'cartera_sin_pago' => 0, 'pagos_sin_factura' => 0, 'recaudo_aplicado' => 0];
+
+try {
+    recaudo_ensure_reconciliation_schema($pdo);
+
+    $concStmt = $pdo->prepare('SELECT c.numero_documento, COALESCE(NULLIF(c.cliente_cartera, ""), c.cliente_recaudo, "") AS cliente, c.valor_factura, c.valor_pagado, c.saldo_resultante, c.estado_conciliacion, c.detalle_validacion FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql . ' ORDER BY c.id DESC LIMIT 300');
+    $concStmt->execute($paramsConc);
+    $conciliacionRows = $concStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $kpiConcStmt = $pdo->prepare('SELECT COALESCE(SUM(c.valor_factura),0) AS cartera_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_total" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_parcial" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_parcial, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "sin_pago" THEN c.valor_factura ELSE 0 END),0) AS cartera_sin_pago, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "pago_sin_factura" THEN c.valor_pagado ELSE 0 END),0) AS pagos_sin_factura, COALESCE(SUM(c.valor_pagado),0) AS recaudo_aplicado FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql);
+    $kpiConcStmt->execute($paramsConc);
+    $kpiConc = $kpiConcStmt->fetch(PDO::FETCH_ASSOC) ?: $kpiConc;
+} catch (Throwable $e) {
+    $warnings[] = build_validation_error(0, 'conciliacion', '', 'No fue posible consultar la tabla de conciliación automáticamente: ' . $e->getMessage());
+}
+$recaudoNoConciliado = max(0, (float)$recaudoPeriodo - (float)$kpiConc['recaudo_aplicado']);
+$porcentajeConciliacion = (float)$kpiConc['cartera_total'] > 0 ? (((float)$kpiConc['cartera_conciliada_total'] + (float)$kpiConc['cartera_conciliada_parcial']) / (float)$kpiConc['cartera_total']) * 100 : 0;
+$diasPeriodo = (int)($_GET['dias_periodo'] ?? 30);
+$carteraPromedio = ((float)$carteraTotal + (float)$kpiConc['cartera_sin_pago']) / 2;
+$rotacionCartera = (float)$recaudoPeriodo > 0 ? ($carteraPromedio / (float)$recaudoPeriodo) * $diasPeriodo : 0;
+
+$uenOpciones = $pdo->query('SELECT DISTINCT COALESCE(NULLIF(TRIM(uens), ""), "") AS valor FROM cartera_documentos ORDER BY valor')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$canalOpciones = $pdo->query('SELECT DISTINCT COALESCE(NULLIF(TRIM(canal), ""), "") AS valor FROM cartera_documentos ORDER BY valor')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$vendedorOpciones = $pdo->query('SELECT DISTINCT COALESCE(NULLIF(TRIM(vendedor), ""), "") AS valor FROM recaudo_detalle ORDER BY valor')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
 if ($detalleCargaId > 0) {
     $stmt = $pdo->prepare('SELECT d.id, d.nro_recibo, d.fecha_recibo, d.fecha_aplicacion, d.documento_aplicado, d.cliente, d.vendedor, d.importe_aplicado, d.saldo_documento, d.periodo FROM recaudo_detalle d INNER JOIN cargas_recaudo c ON c.id = d.carga_id WHERE d.carga_id = ? AND c.estado = "activa" AND c.activo = 1 ORDER BY d.id ASC LIMIT 300');
     $stmt->execute([$detalleCargaId]);
@@ -250,6 +295,18 @@ ob_start();
   <article class="gd-kpi-card"><span>% recuperación de cartera</span><strong><?= number_format($recuperacionPct, 2, ',', '.') ?>%</strong></article>
   <article class="gd-kpi-card"><span>Registros válidos última carga</span><strong><?= (int)$summary['validas'] ?></strong></article>
   <article class="gd-kpi-card"><span>Registros con error última carga</span><strong><?= (int)$summary['con_error'] ?></strong></article>
+</section>
+
+<section class="gd-kpi-grid" style="margin-top:12px;">
+  <article class="gd-kpi-card"><span>Cartera total</span><strong>$<?= number_format((float)$kpiConc['cartera_total'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Conciliada total</span><strong>$<?= number_format((float)$kpiConc['cartera_conciliada_total'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Conciliada parcial</span><strong>$<?= number_format((float)$kpiConc['cartera_conciliada_parcial'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Cartera sin pago</span><strong>$<?= number_format((float)$kpiConc['cartera_sin_pago'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Pagos sin factura</span><strong>$<?= number_format((float)$kpiConc['pagos_sin_factura'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Recaudo aplicado</span><strong>$<?= number_format((float)$kpiConc['recaudo_aplicado'], 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Recaudo no conciliado</span><strong>$<?= number_format((float)$recaudoNoConciliado, 2, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>% conciliación</span><strong><?= number_format((float)$porcentajeConciliacion, 2, ',', '.') ?>%</strong></article>
+  <article class="gd-kpi-card"><span>Rotación cartera (días)</span><strong><?= number_format((float)$rotacionCartera, 2, ',', '.') ?></strong></article>
 </section>
 
 <section class="gd-grid-2">
@@ -302,6 +359,40 @@ ob_start();
         <td><?= $presupuesto ? '✓' : '✗' ?></td>
         <td><?= htmlspecialchars($estadoPeriodo) ?></td>
         <td><?= htmlspecialchars($semaforo) ?></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
+</section>
+
+<section class="card">
+  <h3>Vista operativa de conciliación</h3>
+  <form method="get" class="row" style="margin-bottom:12px;">
+    <input type="hidden" name="periodo" value="<?= htmlspecialchars((string)$periodoActivoSeleccionado) ?>">
+    <input type="text" name="periodo_cartera" placeholder="Periodo cartera (YYYY-MM)" value="<?= htmlspecialchars($periodoCarteraFiltro) ?>">
+    <input type="text" name="periodo_recaudo" placeholder="Periodo recaudo (YYYY-MM)" value="<?= htmlspecialchars($periodoRecaudoFiltro) ?>">
+    <select name="uen"><option value="">UEN (todas)</option><?php foreach ($uenOpciones as $opt): ?><option value="<?= htmlspecialchars((string)$opt) ?>" <?= $uenFiltro === (string)$opt ? 'selected' : '' ?>><?= htmlspecialchars((string)($opt === '' ? 'Sin UEN' : $opt)) ?></option><?php endforeach; ?></select>
+    <select name="canal"><option value="">Canal (todos)</option><?php foreach ($canalOpciones as $opt): ?><option value="<?= htmlspecialchars((string)$opt) ?>" <?= $canalFiltro === (string)$opt ? 'selected' : '' ?>><?= htmlspecialchars((string)($opt === '' ? 'Sin canal' : $opt)) ?></option><?php endforeach; ?></select>
+    <select name="vendedor"><option value="">Vendedor (todos)</option><?php foreach ($vendedorOpciones as $opt): ?><option value="<?= htmlspecialchars((string)$opt) ?>" <?= $vendedorFiltro === (string)$opt ? 'selected' : '' ?>><?= htmlspecialchars((string)($opt === '' ? 'Sin vendedor' : $opt)) ?></option><?php endforeach; ?></select>
+    <select name="estado_conciliacion">
+      <option value="">Estado (todos)</option>
+      <?php foreach (['conciliado_total','conciliado_parcial','sin_pago','pago_sin_factura','pago_excedido','periodo_diferente','tipo_no_coincide'] as $estadoOpt): ?>
+        <option value="<?= $estadoOpt ?>" <?= $estadoConciliacionFiltro === $estadoOpt ? 'selected' : '' ?>><?= $estadoOpt ?></option>
+      <?php endforeach; ?>
+    </select>
+    <input type="number" min="1" max="366" name="dias_periodo" placeholder="Días periodo" value="<?= (int)$diasPeriodo ?>">
+    <button class="btn" type="submit">Filtrar</button>
+  </form>
+  <table class="table">
+    <tr><th>Documento</th><th>Cliente</th><th>Valor factura</th><th>Total pagado</th><th>Saldo</th><th>Estado</th><th>Observación</th></tr>
+    <?php foreach ($conciliacionRows as $r): ?>
+      <tr>
+        <td><?= htmlspecialchars((string)$r['numero_documento']) ?></td>
+        <td><?= htmlspecialchars((string)$r['cliente']) ?></td>
+        <td>$<?= number_format((float)$r['valor_factura'], 2, ',', '.') ?></td>
+        <td>$<?= number_format((float)$r['valor_pagado'], 2, ',', '.') ?></td>
+        <td>$<?= number_format((float)$r['saldo_resultante'], 2, ',', '.') ?></td>
+        <td><?= htmlspecialchars((string)$r['estado_conciliacion']) ?></td>
+        <td><?= htmlspecialchars((string)($r['detalle_validacion'] ?? '')) ?></td>
       </tr>
     <?php endforeach; ?>
   </table>
