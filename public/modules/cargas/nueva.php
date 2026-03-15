@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExcelImportService.php';
 require_once __DIR__ . '/../../../app/libraries/SimpleXLSX.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
+require_once __DIR__ . '/../../../app/services/PeriodoControlService.php';
 
 require_role(['admin', 'analista']);
 $msg = '';
@@ -21,6 +22,7 @@ $totalInsertados = 0;
 $totalActualizados = 0;
 $totalCerrados = 0;
 $totalSaldoInsertado = 0.0;
+$periodoDetectadoCartera = null;
 
 if (isset($_SESSION['flash_carga_ok'])) {
     $msg = (string)$_SESSION['flash_carga_ok'];
@@ -130,6 +132,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                         $errors = array_merge($errors, $duplicateErrors);
                         $hayErrores = true;
                     }
+
+                    $periodos = [];
+                    foreach ($validation['records'] as $record) {
+                        $periodo = substr((string)($record['fecha_contabilizacion'] ?? ''), 0, 7);
+                        if (periodo_normalizar($periodo) !== '') {
+                            $periodos[$periodo] = true;
+                        }
+                    }
+                    if (!empty($periodos)) {
+                        ksort($periodos);
+                        $periodoDetectadoCartera = array_key_last($periodos);
+                        $chronologyError = periodo_control_validar_cronologia_cartera($pdo, $periodoDetectadoCartera);
+                        if ($chronologyError !== null) {
+                            $errors[] = build_validation_error(0, 'periodo', $periodoDetectadoCartera, $chronologyError);
+                            $hayErrores = true;
+                        }
+                    }
                 } catch (Throwable $exception) {
                     $errors[] = build_validation_error(0, 'base_datos', '', 'No fue posible validar duplicados: ' . $exception->getMessage());
                     $hayErrores = true;
@@ -192,6 +211,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $totalSaldoInsertado = (float)($validation['totals']['saldo'] ?? 0.0);
 
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
+
+                    if ($periodoDetectadoCartera !== null) {
+                        periodo_control_registrar_cartera($pdo, $periodoDetectadoCartera, true);
+                    }
+
                     $pdo->commit();
                     $estadoCarga = 'exitosa';
                     $_SESSION['flash_carga_ok'] = 'Carga exitosa. Nuevos: ' . $totalInsertados . ', actualizados: ' . $totalActualizados . ', cerrados: ' . $totalCerrados . '. Valor total del corte: $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';

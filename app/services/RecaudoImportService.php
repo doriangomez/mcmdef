@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/ExcelImportService.php';
+require_once __DIR__ . '/PeriodoControlService.php';
 
 function recaudo_expected_required_headers(): array
 {
@@ -92,10 +93,18 @@ function recaudo_detect_period(array $rows, array $map): ?string
 
 function cartera_periodo_activo(PDO $pdo): ?string
 {
-    $stmt = $pdo->query("SELECT DATE_FORMAT(MAX(d.fecha_contabilizacion), '%Y-%m') AS periodo\n        FROM cartera_documentos d\n        INNER JOIN cargas_cartera c ON c.id = d.id_carga\n        WHERE c.estado = 'activa'");
+    $periodo = periodo_control_obtener_activo($pdo);
+    if ($periodo !== null) {
+        return $periodo;
+    }
+
+    $stmt = $pdo->query("SELECT DATE_FORMAT(MAX(d.fecha_contabilizacion), '%Y-%m') AS periodo
+        FROM cartera_documentos d
+        INNER JOIN cargas_cartera c ON c.id = d.id_carga
+        WHERE c.estado = 'activa'");
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $periodo = trim((string)($row['periodo'] ?? ''));
-    return $periodo !== '' ? $periodo : null;
+    $periodoLegacy = trim((string)($row['periodo'] ?? ''));
+    return $periodoLegacy !== '' ? $periodoLegacy : null;
 }
 
 function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
@@ -138,7 +147,13 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
     }
 
-    if (empty($documentNumbers)) {
+    $carteraValidationError = periodo_control_validar_recaudo($pdo, $periodoDetectado);
+    if ($carteraValidationError !== null) {
+        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, $carteraValidationError);
+        return ['errors' => $errors, 'warnings' => $warnings];
+    }
+
+    if (empty($documentUids)) {
         return ['errors' => [build_validation_error(0, 'nro_documento_aplicado', '', 'No se encontraron documentos para conciliar.')], 'warnings' => $warnings];
     }
 

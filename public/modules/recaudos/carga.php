@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/RecaudoImportService.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
+require_once __DIR__ . '/../../../app/services/PeriodoControlService.php';
 
 require_role(['admin', 'analista']);
 
@@ -68,6 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
 
                 recaudo_apply_rows($pdo, $cargaId, $validRows);
                 recaudo_build_aggregates($pdo, $cargaId);
+                if ($periodoDetectado !== null) {
+                    periodo_control_registrar_recaudo($pdo, (string)$periodoDetectado);
+                }
                 audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
                 $pdo->commit();
                 $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
@@ -101,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             }
 
             $stmt = $pdo->prepare('INSERT INTO presupuesto_recaudo (periodo, vendedor, valor_presupuesto, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE valor_presupuesto = VALUES(valor_presupuesto), updated_at = NOW()');
+            $periodosPresupuesto = [];
             for ($i = 1, $len = count($rows); $i < $len; $i++) {
                 $r = $rows[$i] ?? [];
                 $periodo = trim((string)($r[$map['periodo']] ?? ''));
@@ -110,6 +115,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                     continue;
                 }
                 $stmt->execute([$periodo, $vendedor, $valor]);
+                $periodoNormalizado = periodo_normalizar($periodo);
+                if ($periodoNormalizado !== '') {
+                    $periodosPresupuesto[$periodoNormalizado] = true;
+                }
+            }
+
+            foreach (array_keys($periodosPresupuesto) as $periodoPresupuesto) {
+                periodo_control_registrar_presupuesto($pdo, $periodoPresupuesto);
             }
             $msg = 'Presupuesto de recaudo cargado correctamente.';
         } catch (Throwable $e) {
@@ -118,19 +131,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
     }
 }
 
-$latestLoadSql = 'SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo';
+$periodoActivoSeleccionado = trim((string)($_GET['periodo'] ?? ''));
+if ($periodoActivoSeleccionado === '') {
+    $periodoActivoSeleccionado = periodo_control_obtener_activo($pdo) ?? 'todos';
+}
 
-$kpi = $pdo->query('SELECT COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(saldo_pendiente) FROM cartera_documentos),0) cartera_total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id')->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
+$latestLoadSql = 'SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo';
+$wherePeriodo = '';
+if ($periodoActivoSeleccionado !== 'todos' && periodo_normalizar($periodoActivoSeleccionado) !== '') {
+    $wherePeriodo = ' WHERE d.periodo = ' . $pdo->quote($periodoActivoSeleccionado);
+}
+
+$kpi = $pdo->query('SELECT COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(saldo_pendiente) FROM cartera_documentos),0) cartera_total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo)->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
 $recaudoPeriodo = (float)$kpi['recaudo_periodo'];
 $carteraTotal = (float)$kpi['cartera_total'];
 $recuperacionPct = $carteraTotal > 0 ? ($recaudoPeriodo / $carteraTotal) * 100 : 0;
 
-$byVendedor = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.vendedor), ""), "Sin vendedor") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$byUen = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.uen), ""), "Sin UEN") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$byBucket = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.bucket), ""), "Sin bucket") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY categoria ORDER BY total DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$trend = $pdo->query('SELECT d.periodo, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo ORDER BY d.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$paretoClientes = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.cliente), ""), "Sin cliente") cliente, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT d.periodo AS periodo, d.vendedor AS vendedor, SUM(d.importe_aplicado) AS recaudo_real FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo, d.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byVendedor = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.vendedor), ""), "Sin vendedor") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo . ' GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byUen = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.uen), ""), "Sin UEN") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo . ' GROUP BY categoria ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$byBucket = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.bucket), ""), "Sin bucket") categoria, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo . ' GROUP BY categoria ORDER BY total DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$trend = $pdo->query('SELECT d.periodo, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo . ' GROUP BY d.periodo ORDER BY d.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$paretoClientes = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.cliente), ""), "Sin cliente") cliente, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo . ' GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$wherePresupuesto = '';
+if ($periodoActivoSeleccionado !== 'todos' && periodo_normalizar($periodoActivoSeleccionado) !== '') {
+    $wherePresupuesto = ' WHERE p.periodo = ' . $pdo->quote($periodoActivoSeleccionado);
+}
+
+$vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT d.periodo AS periodo, d.vendedor AS vendedor, SUM(d.importe_aplicado) AS recaudo_real FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo, d.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor' . $wherePresupuesto . ' GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$periodosControl = $pdo->query('SELECT periodo, cartera_cargada, recaudo_cargado, presupuesto_cargado, estado, periodo_activo FROM control_periodos_cartera ORDER BY periodo DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $historial = $pdo->query('SELECT c.id, c.archivo, c.periodo_detectado, c.total_registros, c.total_recaudo, c.usuario, c.fecha_carga, c.estado FROM recaudo_cargas c ORDER BY c.id DESC LIMIT 20')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
@@ -179,6 +209,42 @@ ob_start();
       <button class="btn" type="submit">Cargar presupuesto</button>
     </form>
   </article>
+</section>
+
+<section class="card">
+  <h3>Control maestro de periodos</h3>
+  <form method="get" style="margin-bottom:12px;">
+    <label>Periodo para dashboard
+      <select name="periodo">
+        <option value="todos" <?= $periodoActivoSeleccionado === 'todos' ? 'selected' : '' ?>>Todos</option>
+        <?php foreach ($periodosControl as $control): ?>
+          <?php $optPeriodo = (string)$control['periodo']; ?>
+          <option value="<?= htmlspecialchars($optPeriodo) ?>" <?= $periodoActivoSeleccionado === $optPeriodo ? 'selected' : '' ?>><?= htmlspecialchars($optPeriodo) ?><?= ((int)$control['periodo_activo'] === 1 ? ' (activo)' : '') ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <button class="btn" type="submit">Aplicar filtro</button>
+  </form>
+  <table class="table">
+    <tr><th>Periodo</th><th>Cartera</th><th>Recaudo</th><th>Presupuesto</th><th>Estado</th><th>Semáforo</th></tr>
+    <?php foreach ($periodosControl as $control): ?>
+      <?php
+        $cartera = (int)$control['cartera_cargada'] === 1;
+        $recaudo = (int)$control['recaudo_cargado'] === 1;
+        $presupuesto = (int)$control['presupuesto_cargado'] === 1;
+        $estadoPeriodo = ($cartera && $recaudo && $presupuesto) ? 'completo' : (($recaudo && !$cartera) ? 'inconsistente' : (($cartera && !$recaudo && !$presupuesto) ? 'parcial' : 'incompleto'));
+        $semaforo = $estadoPeriodo === 'completo' ? '🟢 verde' : ($estadoPeriodo === 'inconsistente' ? '🔴 rojo' : '🟡 amarillo');
+      ?>
+      <tr>
+        <td><?= htmlspecialchars((string)$control['periodo']) ?><?= ((int)$control['periodo_activo'] === 1 ? ' ⭐' : '') ?></td>
+        <td><?= $cartera ? '✓' : '✗' ?></td>
+        <td><?= $recaudo ? '✓' : '✗' ?></td>
+        <td><?= $presupuesto ? '✓' : '✗' ?></td>
+        <td><?= htmlspecialchars($estadoPeriodo) ?></td>
+        <td><?= htmlspecialchars($semaforo) ?></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
 </section>
 
 <section class="card">
