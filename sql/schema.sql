@@ -215,14 +215,36 @@ CREATE TABLE IF NOT EXISTS recaudo_detalle (
     uen VARCHAR(120) NULL,
     canal VARCHAR(80) NULL,
     bucket VARCHAR(30) NULL,
-    cartera_documento_id BIGINT NOT NULL,
+    cartera_documento_id BIGINT NULL,
     cliente_conciliado TINYINT(1) NOT NULL DEFAULT 1,
+    estado_conciliacion ENUM('conciliado', 'parcial', 'sin_pago', 'pago_sin_factura') NOT NULL DEFAULT 'conciliado',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_recaudo_detalle_carga (carga_id),
     INDEX idx_recaudo_detalle_periodo (periodo),
     INDEX idx_recaudo_detalle_documento (documento_aplicado),
     CONSTRAINT fk_recaudo_detalle_carga FOREIGN KEY (carga_id) REFERENCES cargas_recaudo(id),
     CONSTRAINT fk_recaudo_detalle_documento FOREIGN KEY (cartera_documento_id) REFERENCES cartera_documentos(id)
+);
+
+ALTER TABLE recaudo_detalle
+    MODIFY COLUMN cartera_documento_id BIGINT NULL,
+    ADD COLUMN IF NOT EXISTS estado_conciliacion ENUM('conciliado', 'parcial', 'sin_pago', 'pago_sin_factura') NOT NULL DEFAULT 'conciliado' AFTER cliente_conciliado;
+
+CREATE TABLE IF NOT EXISTS recaudo_conciliacion (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    carga_id BIGINT NOT NULL,
+    cartera_documento_id BIGINT NULL,
+    documento_aplicado VARCHAR(80) NOT NULL,
+    estado_conciliacion ENUM('conciliado', 'parcial', 'sin_pago', 'pago_sin_factura') NOT NULL,
+    saldo_inicial DECIMAL(18,2) NOT NULL DEFAULT 0,
+    total_pagado DECIMAL(18,2) NOT NULL DEFAULT 0,
+    saldo_final DECIMAL(18,2) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_recaudo_conciliacion_doc (carga_id, documento_aplicado),
+    INDEX idx_recaudo_conciliacion_estado (estado_conciliacion),
+    CONSTRAINT fk_recaudo_conciliacion_carga FOREIGN KEY (carga_id) REFERENCES cargas_recaudo(id),
+    CONSTRAINT fk_recaudo_conciliacion_documento FOREIGN KEY (cartera_documento_id) REFERENCES cartera_documentos(id)
 );
 
 CREATE TABLE IF NOT EXISTS recaudo_validacion_errores (

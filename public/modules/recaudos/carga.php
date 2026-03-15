@@ -90,17 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 $versionStmt->execute([(string)$periodoDetectado]);
                 $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
 
-                $cargasPreviasStmt = $pdo->prepare('SELECT id FROM cargas_recaudo WHERE periodo = ?');
-                $cargasPreviasStmt->execute([(string)$periodoDetectado]);
-                $cargasPrevias = $cargasPreviasStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-
-                $pdo->prepare('DELETE FROM recaudo_detalle WHERE periodo = ?')->execute([(string)$periodoDetectado]);
-                if (!empty($cargasPrevias)) {
-                    $placeholders = implode(',', array_fill(0, count($cargasPrevias), '?'));
-                    $pdo->prepare('DELETE FROM recaudo_validacion_errores WHERE carga_id IN (' . $placeholders . ')')->execute($cargasPrevias);
-                    $pdo->prepare('DELETE FROM recaudo_agregados WHERE carga_id IN (' . $placeholders . ')')->execute($cargasPrevias);
-                }
-                $pdo->prepare('UPDATE cargas_recaudo SET activo = 0 WHERE periodo = ?')->execute([(string)$periodoDetectado]);
+                // Se conservan cargas históricas para permitir trazabilidad y conciliación posterior.
 
                 $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (archivo, hash_sha256, periodo, fecha_carga, usuario_id, total_registros, total_recaudo, version, activo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, 1, "activa", NOW())');
                 $cargaStmt->execute([
@@ -129,6 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
 
                 recaudo_apply_rows($pdo, $cargaId, $validRows);
                 recaudo_build_aggregates($pdo, $cargaId);
+                recaudo_auto_conciliar($pdo, $cargaId);
                 if ($periodoDetectado !== null) {
                     periodo_control_registrar_recaudo($pdo, (string)$periodoDetectado);
                 }
