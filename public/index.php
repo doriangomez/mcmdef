@@ -13,8 +13,9 @@ ob_start();
   <div class="hero-controls">
     <form id="dashboardFilters" class="dashboard-filters" autocomplete="off">
       <label class="filter-field"><span>Vista</span><select name="vista" id="filterVista"><option value="ejecutivo">Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select></label>
-      <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde"></label>
-      <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta"></label>
+      <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" required></select></label>
+      <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde" readonly></label>
+      <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta" readonly></label>
       <label class="filter-field"><span>UEN (obligatorio)</span><select name="uen[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
@@ -51,6 +52,7 @@ ob_start();
 <script>
 (function () {
   var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
+  var uensEndpointUrl = <?= json_encode(app_url('api/uens/')) ?>;
   var form = document.getElementById('dashboardFilters');
   var clearButton = document.getElementById('dashboardClear');
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
@@ -185,6 +187,50 @@ ob_start();
     }));
   }
 
+
+  function hydratePeriod(options, selected) {
+    var el = document.getElementById('filterPeriodo');
+    if (!el) return;
+    var prev = selected || el.value;
+    el.innerHTML = '';
+    (options || []).forEach(function (value) {
+      var option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      if (value === prev) option.selected = true;
+      el.appendChild(option);
+    });
+  }
+
+  function loadUensByPeriod(periodo, selected) {
+    var el = document.getElementById('filterUens');
+    if (!periodo) {
+      hydrateSelect('filterUens', [], []);
+      return Promise.resolve([]);
+    }
+
+    return fetch(uensEndpointUrl + '?periodo=' + encodeURIComponent(periodo), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (payload) {
+        var uens = (payload && payload.uens) || [];
+        var selectedUens = Array.isArray(selected) && selected.length ? selected : uens;
+        hydrateSelect('filterUens', uens, selectedUens);
+        if (uens.length === 0) {
+          el.innerHTML = '';
+          var option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No existen UEN registradas para este periodo';
+          option.disabled = true;
+          option.selected = true;
+          el.appendChild(option);
+          el.required = false;
+        } else {
+          el.required = true;
+        }
+        return uens;
+      });
+  }
+
   function requestData() {
     var query = new URLSearchParams(new FormData(form)).toString();
     fetch(endpointUrl + (query ? '?' + query : ''), { headers: { 'Accept': 'application/json' } })
@@ -194,7 +240,9 @@ ob_start();
         hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
         hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
         hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
-        hydrateSelect('filterUens', payload.filter_options.uen || [], payload.meta.selected_filters.uen || []);
+        hydratePeriod(payload.filter_options.periodo || [], payload.meta.selected_filters.periodo || '');
+        document.getElementById('filterPeriodo').value = payload.meta.selected_filters.periodo || '';
+        loadUensByPeriod(payload.meta.selected_filters.periodo || '', payload.meta.selected_filters.uen || []);
         document.getElementById('filterFechaDesde').value = payload.meta.selected_filters.fecha_desde || payload.filter_options.fecha_desde || '';
         document.getElementById('filterFechaHasta').value = payload.meta.selected_filters.fecha_hasta || payload.filter_options.fecha_hasta || '';
         document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
@@ -218,7 +266,13 @@ ob_start();
   }
 
   form.addEventListener('submit', function (e) { e.preventDefault(); requestData(); });
-  form.addEventListener('change', requestData);
+  form.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'filterPeriodo') {
+      loadUensByPeriod(e.target.value).then(function () { requestData(); });
+      return;
+    }
+    requestData();
+  });
   selectAllUensBtn.addEventListener('click', function () {
     var el = document.getElementById('filterUens');
     Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
@@ -226,8 +280,10 @@ ob_start();
   });
   clearButton.addEventListener('click', function () {
     form.reset();
-    Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
-    requestData();
+    loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
+      Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
+      requestData();
+    });
   });
   requestData();
 })();

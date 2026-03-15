@@ -33,7 +33,18 @@ function valid_date_ymd(string $value): bool
     return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $value;
 }
 
+function valid_period_ym(string $value): bool
+{
+    if ($value === '') {
+        return false;
+    }
+
+    $d = DateTimeImmutable::createFromFormat('Y-m', $value);
+    return $d instanceof DateTimeImmutable && $d->format('Y-m') === $value;
+}
+
 $rawFilters = [
+    'periodo' => qf('periodo'),
     'fecha_desde' => qf('fecha_desde'),
     'fecha_hasta' => qf('fecha_hasta'),
     'comparar_anterior' => qf('comparar_anterior') === '1',
@@ -54,6 +65,20 @@ $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), '')
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
 $monthExpr = "DATE_FORMAT(COALESCE(d.fecha_contabilizacion, d.created_at), '%Y-%m')";
 
+$periodOptions = $pdo->query("SELECT DISTINCT d.periodo FROM cartera_documentos d WHERE d.periodo IS NOT NULL AND TRIM(d.periodo) <> '' ORDER BY d.periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$defaultPeriod = $periodOptions[0] ?? '';
+$selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
+
+$periodStart = '';
+$periodEnd = '';
+if ($selectedPeriod !== '') {
+    $periodDate = DateTimeImmutable::createFromFormat('Y-m-d', $selectedPeriod . '-01');
+    if ($periodDate instanceof DateTimeImmutable) {
+        $periodStart = $periodDate->format('Y-m-01');
+        $periodEnd = $periodDate->modify('last day of this month')->format('Y-m-d');
+    }
+}
+
 $dateBounds = $pdo->query("SELECT MIN($fechaExpr) AS min_fecha, MAX($fechaExpr) AS max_fecha FROM cartera_documentos d")->fetch(PDO::FETCH_ASSOC) ?: ['min_fecha' => null, 'max_fecha' => null];
 $defaultFrom = (string)($dateBounds['min_fecha'] ?? '');
 $defaultTo = (string)($dateBounds['max_fecha'] ?? '');
@@ -62,10 +87,17 @@ $regionalOptions = $pdo->query("SELECT DISTINCT $regionalExpr v FROM cartera_doc
 $canalOptions = $pdo->query("SELECT DISTINCT $canalExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $empleadoOptions = $pdo->query("SELECT DISTINCT $empleadoExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $clienteOptions = $pdo->query("SELECT DISTINCT $clienteExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$uenOptions = $pdo->query("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens")->fetchAll(PDO::FETCH_COLUMN);
+$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE d.periodo = ? AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
+$uenOptionsStmt->execute([$selectedPeriod]);
+$uenOptions = $uenOptionsStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 if (!empty($allowedUens)) {
     $uenOptions = array_values(array_intersect($uenOptions, $allowedUens));
+}
+
+$selectedUens = array_values(array_intersect($selectedUens, $uenOptions));
+if (empty($selectedUens) && !empty($uenOptions)) {
+    $selectedUens = $uenOptions;
 }
 
 $regionalSet = [];
@@ -77,13 +109,14 @@ foreach ($empleadoOptions as $value) { $empleadoSet[normalize((string)$value)] =
 $clienteSet = [];
 foreach ($clienteOptions as $value) { $clienteSet[normalize((string)$value)] = true; }
 
-$fechaDesde = valid_date_ymd($rawFilters['fecha_desde']) ? $rawFilters['fecha_desde'] : $defaultFrom;
-$fechaHasta = valid_date_ymd($rawFilters['fecha_hasta']) ? $rawFilters['fecha_hasta'] : $defaultTo;
+$fechaDesde = $periodStart !== '' ? $periodStart : (valid_date_ymd($rawFilters['fecha_desde']) ? $rawFilters['fecha_desde'] : $defaultFrom);
+$fechaHasta = $periodEnd !== '' ? $periodEnd : (valid_date_ymd($rawFilters['fecha_hasta']) ? $rawFilters['fecha_hasta'] : $defaultTo);
 if ($fechaDesde !== '' && $fechaHasta !== '' && $fechaDesde > $fechaHasta) {
     [$fechaDesde, $fechaHasta] = [$fechaHasta, $fechaDesde];
 }
 
 $filters = [
+    'periodo' => $selectedPeriod,
     'fecha_desde' => $fechaDesde,
     'fecha_hasta' => $fechaHasta,
     'comparar_anterior' => $rawFilters['comparar_anterior'],
@@ -99,6 +132,7 @@ $scope = portfolio_client_scope_sql('c');
 $where = ["d.estado_documento = 'activo'"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
+if ($filters['periodo'] !== '') { $where[] = 'd.periodo = ?'; $params[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $where[] = "$fechaExpr >= ?"; $params[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $where[] = "$fechaExpr <= ?"; $params[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
@@ -205,6 +239,9 @@ foreach ($agingDefs as $def) {
 $trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
+if ($filters['periodo'] !== '') { $trendWhere[] = 'd.periodo = ?'; $trendParams[] = $filters['periodo']; }
+if ($filters['fecha_desde'] !== '') { $trendWhere[] = "$fechaExpr >= ?"; $trendParams[] = $filters['fecha_desde']; }
+if ($filters['fecha_hasta'] !== '') { $trendWhere[] = "$fechaExpr <= ?"; $trendParams[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $trendWhere[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['regional']; }
 if ($filters['canal'] !== '') { $trendWhere[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['canal']; }
 if ($filters['empleado_ventas'] !== '') { $trendWhere[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['empleado_ventas']; }
@@ -320,8 +357,8 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
       COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
       FROM cartera_documentos d
       INNER JOIN clientes c ON c.id = d.cliente_id
-      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . " AND $fechaExpr BETWEEN ? AND ?";
-    $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
+      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? ' AND d.periodo = ?' : '') . " AND $fechaExpr BETWEEN ? AND ?";
+    $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
     $cmpStmt->execute($cmpParams);
     $cmp = $cmpStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -364,6 +401,7 @@ echo json_encode([
         'selected_filters' => $filters,
     ],
     'filter_options' => [
+        'periodo' => $periodOptions,
         'fecha_desde' => $defaultFrom,
         'fecha_hasta' => $defaultTo,
         'regional' => $regionalOptions,
@@ -392,5 +430,7 @@ echo json_encode([
         ],
     ],
     'empty' => $totalDocs === 0,
-    'empty_message' => 'No hay datos para los filtros seleccionados. Ajusta los filtros para continuar.',
+    'empty_message' => $selectedPeriod !== '' && empty($uenOptions)
+        ? 'No existen UEN registradas para este periodo'
+        : 'No hay datos para los filtros seleccionados. Ajusta los filtros para continuar.',
 ]);
