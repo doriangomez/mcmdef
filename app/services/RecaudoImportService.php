@@ -317,9 +317,9 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
 
 function recaudo_build_aggregates(PDO $pdo, int $cargaId): void
 {
-    $periodoStmt = $pdo->prepare('SELECT periodo_detectado FROM recaudo_cargas WHERE id = ?');
+    $periodoStmt = $pdo->prepare('SELECT periodo FROM cargas_recaudo WHERE id = ?');
     $periodoStmt->execute([$cargaId]);
-    $periodo = (string)(($periodoStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo_detectado'] ?? '');
+    $periodo = (string)(($periodoStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
 
     $total = (float)(($pdo->query('SELECT COALESCE(SUM(importe_aplicado),0) total FROM recaudo_detalle WHERE carga_id = ' . (int)$cargaId)->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0])['total'] ?? 0);
 

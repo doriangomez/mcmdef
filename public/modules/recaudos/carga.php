@@ -9,17 +9,42 @@ require_once __DIR__ . '/../../../app/services/AuditService.php';
 require_role(['admin', 'analista']);
 
 $msg = '';
+$errorMsg = '';
 $errors = [];
 $warnings = [];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
 $periodoDetectado = null;
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'eliminar_carga_recaudo') {
+    $cargaId = (int)($_POST['carga_id'] ?? 0);
+    if ($cargaId <= 0) {
+        $errorMsg = 'La carga indicada no es válida.';
+    } else {
+        try {
+            $pdo->beginTransaction();
+            $cargaStmt = $pdo->prepare('SELECT id, archivo, total_registros, total_recaudo FROM cargas_recaudo WHERE id = ?');
+            $cargaStmt->execute([$cargaId]);
+            $carga = $cargaStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-function column_exists(PDO $pdo, string $table, string $column): bool
-{
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
-    $stmt->execute([$table, $column]);
-    return (int)$stmt->fetchColumn() > 0;
+            if (!$carga) {
+                throw new RuntimeException('La carga de recaudo no existe.');
+            }
+
+            $pdo->prepare('DELETE FROM recaudo_detalle WHERE carga_id = ?')->execute([$cargaId]);
+            $pdo->prepare('DELETE FROM recaudo_validacion_errores WHERE carga_id = ?')->execute([$cargaId]);
+            $pdo->prepare('DELETE FROM recaudo_agregados WHERE carga_id = ?')->execute([$cargaId]);
+            $pdo->prepare('DELETE FROM cargas_recaudo WHERE id = ?')->execute([$cargaId]);
+
+            audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_eliminada', 'activa', 'eliminada', (int)$_SESSION['user']['id']);
+            $pdo->commit();
+            $msg = 'Se eliminó la carga de recaudo #' . $cargaId . ' y su detalle asociado.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errorMsg = 'No fue posible eliminar la carga de recaudo: ' . $e->getMessage();
+        }
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_POST['upload_type'] === 'recaudo') {
@@ -48,93 +73,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             } elseif (empty($validRows)) {
                 $msg = 'No hay registros válidos para aplicar.';
             } else {
-                $permitirHistorico = isset($_POST['permitir_historico_recaudo']) && $_POST['permitir_historico_recaudo'] === '1';
-                $reemplazarPeriodo = isset($_POST['reemplazar_periodo_recaudo']) && $_POST['reemplazar_periodo_recaudo'] === '1';
-                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: '';
-                $versionPeriodo = 1;
-                $tieneVersionado = column_exists($pdo, 'recaudo_cargas', 'version') && column_exists($pdo, 'recaudo_cargas', 'activo');
+                $pdo->beginTransaction();
+                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: hash('sha256', microtime(true) . '|' . random_int(1, PHP_INT_MAX));
+                $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (archivo, hash_sha256, periodo, fecha_carga, usuario_id, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
+                $cargaStmt->execute([
+                    (string)$file['name'],
+                    $hash,
+                    (string)$periodoDetectado,
+                    (int)($_SESSION['user']['id'] ?? 0),
+                    (int)$summary['validas'],
+                    (float)$summary['total_aplicado'],
+                ]);
+                $cargaId = (int)$pdo->lastInsertId();
 
-                if ($hash === '') {
-                    $errors[] = build_validation_error(0, 'archivo_recaudo', (string)($file['name'] ?? ''), 'No fue posible calcular hash SHA-256 del archivo cargado.');
-                }
-
-                if (empty($errors)) {
-                    $hashStmt = $pdo->prepare('SELECT id FROM recaudo_cargas WHERE hash_sha256 = ? LIMIT 1');
-                    $hashStmt->execute([$hash]);
-                    if ($hashStmt->fetchColumn()) {
-                        $errors[] = build_validation_error(0, 'archivo_recaudo', (string)($file['name'] ?? ''), 'Archivo duplicado detectado por hash SHA-256.');
+                if (!empty($warnings)) {
+                    $errStmt = $pdo->prepare('INSERT INTO recaudo_validacion_errores (carga_id, fila, campo, valor, motivo, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
+                    foreach ($warnings as $warning) {
+                        $errStmt->execute([
+                            $cargaId,
+                            (int)($warning['fila'] ?? 0),
+                            (string)($warning['campo'] ?? ''),
+                            (string)($warning['valor'] ?? ''),
+                            (string)($warning['motivo'] ?? ''),
+                        ]);
                     }
                 }
 
-                if (empty($errors) && $periodoDetectado !== null) {
-                    $lastStmt = $pdo->query('SELECT MAX(periodo_detectado) FROM recaudo_cargas');
-                    $ultimoPeriodo = (string)($lastStmt->fetchColumn() ?: '');
-                    if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo && !$permitirHistorico) {
-                        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: Está intentando cargar un recaudo de un periodo anterior. Active "Permitir modo histórico" para continuar.');
-                    }
-
-                    $sameStmt = $pdo->prepare('SELECT COUNT(*) FROM recaudo_cargas WHERE periodo_detectado = ?');
-                    $sameStmt->execute([$periodoDetectado]);
-                    $sameCount = (int)$sameStmt->fetchColumn();
-                    if ($sameCount > 0 && !$reemplazarPeriodo) {
-                        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Ya existe una carga de recaudo para este periodo. Active "Reemplazar periodo" para crear nueva versión activa.');
-                    }
-
-                    if ($tieneVersionado) {
-                        $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version),0) FROM recaudo_cargas WHERE periodo_detectado = ?');
-                        $versionStmt->execute([$periodoDetectado]);
-                        $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
-                    }
-                }
-
-                if (!empty($errors)) {
-                    $msg = 'Carga de recaudo rechazada por validaciones obligatorias.';
-                } else {
-                    $pdo->beginTransaction();
-                    $cargaStmt = $tieneVersionado
-                        ? $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, version, activo, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, 1, ?, ?, "activa", NOW())')
-                        : $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
-
-                    $params = [
-                        (string)$file['name'],
-                        $hash,
-                        (string)($_SESSION['user']['nombre'] ?? 'sistema'),
-                        (string)$periodoDetectado,
-                    ];
-                    if ($tieneVersionado) {
-                        $params[] = $versionPeriodo;
-                    }
-                    $params[] = (int)$summary['validas'];
-                    $params[] = (float)$summary['total_aplicado'];
-                    $cargaStmt->execute($params);
-                    $cargaId = (int)$pdo->lastInsertId();
-
-                    if ($tieneVersionado && $periodoDetectado !== null) {
-                        $deactivateStmt = $pdo->prepare('UPDATE recaudo_cargas SET activo = 0 WHERE periodo_detectado = ? AND id <> ?');
-                        $deactivateStmt->execute([$periodoDetectado, $cargaId]);
-                    }
-
-                    if (!empty($warnings)) {
-                        $errStmt = $pdo->prepare('INSERT INTO recaudo_validacion_errores (carga_id, fila, campo, valor, motivo, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
-                        foreach ($warnings as $warning) {
-                            $errStmt->execute([
-                                $cargaId,
-                                (int)($warning['fila'] ?? 0),
-                                (string)($warning['campo'] ?? ''),
-                                (string)($warning['valor'] ?? ''),
-                                (string)($warning['motivo'] ?? ''),
-                            ]);
-                        }
-                    }
-
-                    recaudo_apply_rows($pdo, $cargaId, $validRows);
-                    recaudo_build_aggregates($pdo, $cargaId);
-                    $periodoStmt = $pdo->prepare('INSERT INTO periodos_cartera (periodo, recaudo_cargado, updated_at) VALUES (?, 1, NOW()) ON DUPLICATE KEY UPDATE recaudo_cargado = 1, updated_at = NOW()');
-                    $periodoStmt->execute([(string)$periodoDetectado]);
-                    audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
-                    $pdo->commit();
-                    $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
-                }
+                recaudo_apply_rows($pdo, $cargaId, $validRows);
+                recaudo_build_aggregates($pdo, $cargaId);
+                audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
+                $pdo->commit();
+                $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
             }
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -196,7 +165,7 @@ $trend = $pdo->query('SELECT d.periodo, COALESCE(SUM(d.importe_aplicado),0) tota
 $paretoClientes = $pdo->query('SELECT COALESCE(NULLIF(TRIM(d.cliente), ""), "Sin cliente") cliente, COALESCE(SUM(d.importe_aplicado),0) total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT d.periodo AS periodo, d.vendedor AS vendedor, SUM(d.importe_aplicado) AS recaudo_real FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id GROUP BY d.periodo, d.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-$historial = $pdo->query('SELECT c.id, c.archivo, c.periodo_detectado, c.total_registros, c.total_recaudo, c.usuario, c.fecha_carga, c.estado FROM recaudo_cargas c ORDER BY c.id DESC LIMIT 20')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$historial = $pdo->query('SELECT c.id, c.archivo, c.hash_sha256, c.periodo, c.total_registros, c.total_recaudo, c.fecha_carga, c.estado, u.nombre AS usuario FROM cargas_recaudo c LEFT JOIN usuarios u ON u.id = c.usuario_id ORDER BY c.id DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
 $detalleRegistros = [];
 $detalleErrores = [];
@@ -214,6 +183,7 @@ ob_start();
 ?>
 <h2>Carga y conciliación de recaudo</h2>
 <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+<?php if ($errorMsg): ?><div class="alert alert-error"><?= htmlspecialchars($errorMsg) ?></div><?php endif; ?>
 <?php if ($periodoDetectado): ?><div class="alert alert-ok">Periodo detectado automáticamente: <strong><?= htmlspecialchars((string)$periodoDetectado) ?></strong></div><?php endif; ?>
 <?php if ($warnings): ?><div class="alert alert-info"><ul><?php foreach ($warnings as $warning): ?><li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div class="alert alert-error"><ul><?php foreach ($errors as $error): ?><li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
@@ -250,18 +220,28 @@ ob_start();
 <section class="card">
   <h3>Historial de cargas de recaudo</h3>
   <table class="table">
-    <tr><th>ID</th><th>Archivo</th><th>Periodo</th><th>Registros</th><th>Valor</th><th>Usuario</th><th>Fecha</th><th>Estado</th><th>Detalle</th></tr>
+    <tr><th>ID</th><th>Archivo</th><th>Hash SHA-256</th><th>Periodo</th><th>Registros</th><th>Valor</th><th>Usuario</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr>
     <?php foreach ($historial as $h): ?>
       <tr>
         <td><?= (int)$h['id'] ?></td>
         <td><?= htmlspecialchars((string)$h['archivo']) ?></td>
-        <td><?= htmlspecialchars((string)$h['periodo_detectado']) ?></td>
+        <td><code><?= htmlspecialchars((string)$h['hash_sha256']) ?></code></td>
+        <td><?= htmlspecialchars((string)$h['periodo']) ?></td>
         <td><?= (int)$h['total_registros'] ?></td>
         <td>$<?= number_format((float)$h['total_recaudo'], 2, ',', '.') ?></td>
         <td><?= htmlspecialchars((string)$h['usuario']) ?></td>
         <td><?= htmlspecialchars((string)$h['fecha_carga']) ?></td>
         <td><?= htmlspecialchars((string)$h['estado']) ?></td>
-        <td><a href="<?= htmlspecialchars(app_url('recaudos/carga.php?detalle_carga_id=' . (int)$h['id'])) ?>">Ver</a></td>
+        <td>
+          <a href="<?= htmlspecialchars(app_url('recaudos/carga.php?detalle_carga_id=' . (int)$h['id'])) ?>">Ver</a>
+          <?php if (current_user()['rol'] === 'admin'): ?>
+            <form method="post" class="inline-form" onsubmit="return confirm('Está a punto de eliminar una carga de recaudo.\n\nArchivo: <?= htmlspecialchars((string)$h['archivo'], ENT_QUOTES) ?>\nRegistros: <?= (int)$h['total_registros'] ?>\nValor: $<?= number_format((float)$h['total_recaudo'], 2, ',', '.') ?>\n\n¿Desea continuar?');">
+              <input type="hidden" name="action" value="eliminar_carga_recaudo">
+              <input type="hidden" name="carga_id" value="<?= (int)$h['id'] ?>">
+              <button class="btn btn-danger btn-sm" type="submit">Eliminar carga</button>
+            </form>
+          <?php endif; ?>
+        </td>
       </tr>
     <?php endforeach; ?>
   </table>
