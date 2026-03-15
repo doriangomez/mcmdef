@@ -11,11 +11,11 @@ require_role(['admin', 'analista']);
 $scope = portfolio_client_scope_sql('c');
 
 $allowedUens = uen_user_allowed_values($pdo);
-$selectedUens = uen_apply_scope(uen_requested_values('uens'), $allowedUens);
+$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
 $uenFilter = uen_sql_condition('d.uens', $selectedUens);
 $uenSql = $uenFilter['sql'];
 $uenParams = $uenFilter['params'];
-$uensOptions = $pdo->query("SELECT DISTINCT uens FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$uensOptions = $pdo->query("SELECT DISTINCT uens AS uen FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 if (!empty($allowedUens)) {
     $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
 }
@@ -138,7 +138,7 @@ ob_start();
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
     <form method="get" style="display:flex; gap:8px; align-items:flex-end;">
       <label>UEN (obligatorio)
-        <select name="uens[]" multiple size="3" required>
+        <select name="uen[]" multiple size="3" required>
           <?php foreach ($uensOptions as $uenOption): ?>
             <option value="<?= htmlspecialchars((string)$uenOption) ?>" <?= in_array((string)$uenOption, $selectedUens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$uenOption) ?></option>
           <?php endforeach; ?>

@@ -59,7 +59,7 @@ $filters = [
     'tipo' => trim($_GET['tipo'] ?? ''),
     'canal' => trim($_GET['canal'] ?? ''),
     'regional' => trim($_GET['regional'] ?? ''),
-    'uens' => uen_requested_values('uens'),
+    'uen' => uen_requested_values('uen'),
     'mora_rango' => trim($_GET['mora_rango'] ?? ''),
     'estado' => trim($_GET['estado'] ?? 'activo'),
     'vista' => trim($_GET['vista'] ?? 'documento'),
@@ -128,8 +128,8 @@ if ($filters['regional'] !== '') {
     $params[] = $filters['regional'];
 }
 $allowedUens = uen_user_allowed_values($pdo);
-$filters['uens'] = uen_apply_scope($filters['uens'], $allowedUens);
-$uenScope = uen_sql_condition('d.uens', $filters['uens']);
+$filters['uen'] = uen_apply_scope($filters['uen'], $allowedUens);
+$uenScope = uen_sql_condition('d.uens', $filters['uen']);
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
     $params = array_merge($params, $uenScope['params']);
@@ -159,7 +159,7 @@ $canalOptions = $canalStmt->fetchAll(PDO::FETCH_COLUMN);
 $regionalStmt = $pdo->prepare('SELECT DISTINCT d.regional ' . $baseScopeSql . ' ORDER BY d.regional');
 $regionalStmt->execute($scope['params']);
 $regionalOptions = $regionalStmt->fetchAll(PDO::FETCH_COLUMN);
-$uensStmt = $pdo->prepare('SELECT DISTINCT d.uens ' . $baseScopeSql . ' AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY d.uens');
+$uensStmt = $pdo->prepare('SELECT DISTINCT d.uens AS uen ' . $baseScopeSql . ' AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY d.uens');
 $uensStmt->execute($scope['params']);
 $uensOptions = array_values(array_filter(array_map('strval', $uensStmt->fetchAll(PDO::FETCH_COLUMN) ?: [])));
 if (!empty($allowedUens)) {
@@ -301,7 +301,7 @@ if ($filters['vista'] === 'cliente') {
     }
 } else {
     $dataStmt = $pdo->prepare(
-        'SELECT d.id, d.cliente_id, c.nit, d.cliente AS nombre, d.tipo, d.nro_documento, d.uens, d.saldo_pendiente, d.dias_vencido, d.estado_documento, d.fecha_vencimiento'
+        'SELECT d.id, d.cliente_id, c.nit, d.cliente AS nombre, d.tipo, d.nro_documento, d.uens AS uen, d.saldo_pendiente, d.dias_vencido, d.estado_documento, d.fecha_vencimiento'
         . $sqlBase
         . ' ORDER BY ' . $orderBy
         . ' LIMIT ' . $size . ' OFFSET ' . $offset
@@ -322,7 +322,7 @@ if (isset($_GET['export']) && in_array(current_user()['rol'], ['admin', 'analist
         export_csv('cartera_resumen_clientes.csv', $exportStmt->fetchAll());
     } else {
         $exportStmt = $pdo->prepare(
-            'SELECT c.nit, d.cliente, d.tipo, d.nro_documento, d.fecha_vencimiento, d.saldo_pendiente, d.dias_vencido, d.bucket_actual AS `Actual`, d.bucket_1_30 AS `1-30 días`, d.bucket_31_60 AS `31-60 días`, d.bucket_61_90 AS `61-90 días`, d.bucket_91_180 AS `91-180 días`, d.bucket_181_360 AS `181-360 días`, d.bucket_361_plus AS `361+`, d.estado_documento, d.canal, d.regional, d.uens'
+            'SELECT c.nit, d.cliente, d.tipo, d.nro_documento, d.fecha_vencimiento, d.saldo_pendiente, d.dias_vencido, d.bucket_actual AS `Actual`, d.bucket_1_30 AS `1-30 días`, d.bucket_31_60 AS `31-60 días`, d.bucket_61_90 AS `61-90 días`, d.bucket_91_180 AS `91-180 días`, d.bucket_181_360 AS `181-360 días`, d.bucket_361_plus AS `361+`, d.estado_documento, d.canal, d.regional, d.uens AS uen'
             . $sqlBase
             . ' ORDER BY d.id DESC'
         );
@@ -401,7 +401,7 @@ ob_start(); ?>
     <div><label>Tipo</label><select name="tipo"><option value="">Todos</option><?php foreach ($tipoOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['tipo'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div><label>Canal</label><select name="canal"><option value="">Todos</option><?php foreach ($canalOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['canal'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div><label>Regional</label><select name="regional"><option value="">Todas</option><?php foreach ($regionalOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['regional'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
-    <div><label>UEN (obligatorio)</label><select name="uens[]" multiple size="4" required><?php foreach ($uensOptions as $option): ?><option value="<?= htmlspecialchars($option) ?>" <?= in_array($option, $filters['uens'], true) ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
+    <div><label>UEN (obligatorio)</label><select name="uen[]" multiple size="4" required><?php foreach ($uensOptions as $option): ?><option value="<?= htmlspecialchars($option) ?>" <?= in_array($option, $filters['uen'], true) ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div>
       <label>Días mora</label>
       <select name="mora_rango">
@@ -472,7 +472,7 @@ ob_start(); ?>
 <tr><th><a href="<?= htmlspecialchars($buildSortUrl('id')) ?>">ID</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('nit')) ?>">NIT</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('cliente')) ?>">Cliente</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('tipo')) ?>">Tipo</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('numero')) ?>">Número</a></th><th>UEN</th><th><a href="<?= htmlspecialchars($buildSortUrl('saldo')) ?>">Saldo</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('mora')) ?>">Días mora</a></th><th><a href="<?= htmlspecialchars($buildSortUrl('estado')) ?>">Estado</a></th><th>Acciones</th></tr>
 <?php foreach ($rows as $r): ?>
 <tr>
-  <td><?= (int)$r['id'] ?></td><td><?= htmlspecialchars($r['nit']) ?></td><td><?= htmlspecialchars($r['nombre']) ?></td><td><?= htmlspecialchars($r['tipo']) ?></td><td><?= htmlspecialchars($r['nro_documento']) ?></td><td><?= htmlspecialchars((string)($r['uens'] ?? '')) ?></td><td>$ <?= number_format((float)$r['saldo_pendiente'],2,',','.') ?></td><td><?= cartera_mora_badge((int)$r['dias_vencido']) ?></td><td><?= htmlspecialchars($r['estado_documento']) ?></td>
+  <td><?= (int)$r['id'] ?></td><td><?= htmlspecialchars($r['nit']) ?></td><td><?= htmlspecialchars($r['nombre']) ?></td><td><?= htmlspecialchars($r['tipo']) ?></td><td><?= htmlspecialchars($r['nro_documento']) ?></td><td><?= htmlspecialchars((string)($r['uen'] ?? '')) ?></td><td>$ <?= number_format((float)$r['saldo_pendiente'],2,',','.') ?></td><td><?= cartera_mora_badge((int)$r['dias_vencido']) ?></td><td><?= htmlspecialchars($r['estado_documento']) ?></td>
   <td><div class="action-links"><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/documento.php?id_documento=' . (int)$r['id'])) ?>"><i class="fa-solid fa-magnifying-glass"></i> Ver detalle</a><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)$r['cliente_id'] . '&view=mora')) ?>"><i class="fa-solid fa-chart-line"></i> Ver comportamiento de mora</a></div></td>
 </tr>
 <?php endforeach; ?>

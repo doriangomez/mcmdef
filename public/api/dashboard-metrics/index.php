@@ -45,7 +45,7 @@ $rawFilters = [
 ];
 
 $allowedUens = uen_user_allowed_values($pdo);
-$selectedUens = uen_apply_scope(uen_requested_values('uens'), $allowedUens);
+$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
 
 $regionalExpr = "COALESCE(NULLIF(TRIM(d.regional), ''), NULLIF(TRIM(c.regional), ''), 'Sin dato')";
 $canalExpr = "COALESCE(NULLIF(TRIM(d.canal), ''), NULLIF(TRIM(c.canal), ''), 'Sin dato')";
@@ -62,7 +62,7 @@ $regionalOptions = $pdo->query("SELECT DISTINCT $regionalExpr v FROM cartera_doc
 $canalOptions = $pdo->query("SELECT DISTINCT $canalExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $empleadoOptions = $pdo->query("SELECT DISTINCT $empleadoExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $clienteOptions = $pdo->query("SELECT DISTINCT $clienteExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$uenOptions = $pdo->query("SELECT DISTINCT d.uens v FROM cartera_documentos d WHERE d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
+$uenOptions = $pdo->query("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens")->fetchAll(PDO::FETCH_COLUMN);
 
 if (!empty($allowedUens)) {
     $uenOptions = array_values(array_intersect($uenOptions, $allowedUens));
@@ -91,7 +91,7 @@ $filters = [
     'canal' => isset($canalSet[normalize($rawFilters['canal'])]) ? $rawFilters['canal'] : '',
     'empleado_ventas' => isset($empleadoSet[normalize($rawFilters['empleado_ventas'])]) ? $rawFilters['empleado_ventas'] : '',
     'cliente' => isset($clienteSet[normalize($rawFilters['cliente'])]) ? $rawFilters['cliente'] : '',
-    'uens' => $selectedUens,
+    'uen' => $selectedUens,
     'vista' => $rawFilters['vista'],
 ];
 
@@ -105,7 +105,7 @@ if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWE
 if ($filters['canal'] !== '') { $where[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['canal']; }
 if ($filters['empleado_ventas'] !== '') { $where[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $params[] = $filters['empleado_ventas']; }
 if ($filters['cliente'] !== '') { $where[] = "LOWER(TRIM($clienteExpr)) = LOWER(TRIM(?))"; $params[] = $filters['cliente']; }
-$uenScope = uen_sql_condition('d.uens', $filters['uens']);
+$uenScope = uen_sql_condition('d.uens', $filters['uen']);
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
     $params = array_merge($params, $uenScope['params']);
@@ -370,7 +370,7 @@ echo json_encode([
         'canal' => $canalOptions,
         'empleado_ventas' => $empleadoOptions,
         'cliente' => $clienteOptions,
-        'uens' => $uenOptions,
+        'uen' => $uenOptions,
     ],
     'kpis' => $kpis,
     'comparison' => $comparison,

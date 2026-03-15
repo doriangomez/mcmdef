@@ -15,7 +15,7 @@ ob_start();
       <label class="filter-field"><span>Vista</span><select name="vista" id="filterVista"><option value="ejecutivo">Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select></label>
       <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde"></label>
       <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta"></label>
-      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uens[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
+      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uen[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
       <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
@@ -194,7 +194,7 @@ ob_start();
         hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
         hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
         hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
-        hydrateSelect('filterUens', payload.filter_options.uens || [], payload.meta.selected_filters.uens || []);
+        hydrateSelect('filterUens', payload.filter_options.uen || [], payload.meta.selected_filters.uen || []);
         document.getElementById('filterFechaDesde').value = payload.meta.selected_filters.fecha_desde || payload.filter_options.fecha_desde || '';
         document.getElementById('filterFechaHasta').value = payload.meta.selected_filters.fecha_hasta || payload.filter_options.fecha_hasta || '';
         document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
