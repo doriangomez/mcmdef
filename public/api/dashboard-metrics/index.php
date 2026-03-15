@@ -65,7 +65,7 @@ $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), '')
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
 $monthExpr = "DATE_FORMAT(COALESCE(d.fecha_contabilizacion, d.created_at), '%Y-%m')";
 
-$periodOptions = $pdo->query("SELECT DISTINCT c.periodo_detectado AS periodo FROM cargas_cartera c WHERE c.estado = 'activa' AND c.activo = 1 AND c.periodo_detectado IS NOT NULL AND TRIM(c.periodo_detectado) <> '' ORDER BY c.periodo_detectado DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$periodOptions = $pdo->query("SELECT DISTINCT d.periodo FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 AND d.periodo IS NOT NULL AND TRIM(d.periodo) <> '' ORDER BY d.periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
 $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
 
@@ -79,15 +79,43 @@ if ($selectedPeriod !== '') {
     }
 }
 
-$dateBounds = $pdo->query("SELECT MIN($fechaExpr) AS min_fecha, MAX($fechaExpr) AS max_fecha FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE cc.estado = 'activa' AND cc.activo = 1")->fetch(PDO::FETCH_ASSOC) ?: ['min_fecha' => null, 'max_fecha' => null];
+$dateBoundsSql = "SELECT MIN($fechaExpr) AS min_fecha, MAX($fechaExpr) AS max_fecha
+    FROM cartera_documentos d
+    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
+    WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1";
+$dateBoundsParams = [];
+if ($selectedPeriod !== '') {
+    $dateBoundsSql .= ' AND d.periodo = ?';
+    $dateBoundsParams[] = $selectedPeriod;
+}
+$dateBoundsStmt = $pdo->prepare($dateBoundsSql);
+$dateBoundsStmt->execute($dateBoundsParams);
+$dateBounds = $dateBoundsStmt->fetch(PDO::FETCH_ASSOC) ?: ['min_fecha' => null, 'max_fecha' => null];
 $defaultFrom = (string)($dateBounds['min_fecha'] ?? '');
 $defaultTo = (string)($dateBounds['max_fecha'] ?? '');
 
-$regionalOptions = $pdo->query("SELECT DISTINCT $regionalExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$canalOptions = $pdo->query("SELECT DISTINCT $canalExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$empleadoOptions = $pdo->query("SELECT DISTINCT $empleadoExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$clienteOptions = $pdo->query("SELECT DISTINCT $clienteExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
-$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE cc.periodo_detectado = ? AND cc.estado = 'activa' AND cc.activo = 1 AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
+$optionBase = " FROM cartera_documentos d
+    INNER JOIN clientes c ON c.id = d.cliente_id
+    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
+    WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1";
+$optionParams = [];
+if ($selectedPeriod !== '') {
+    $optionBase .= ' AND d.periodo = ?';
+    $optionParams[] = $selectedPeriod;
+}
+$regionalStmt = $pdo->prepare("SELECT DISTINCT $regionalExpr v" . $optionBase . ' ORDER BY v');
+$regionalStmt->execute($optionParams);
+$regionalOptions = $regionalStmt->fetchAll(PDO::FETCH_COLUMN);
+$canalStmt = $pdo->prepare("SELECT DISTINCT $canalExpr v" . $optionBase . ' ORDER BY v');
+$canalStmt->execute($optionParams);
+$canalOptions = $canalStmt->fetchAll(PDO::FETCH_COLUMN);
+$empleadoStmt = $pdo->prepare("SELECT DISTINCT $empleadoExpr v" . $optionBase . ' ORDER BY v');
+$empleadoStmt->execute($optionParams);
+$empleadoOptions = $empleadoStmt->fetchAll(PDO::FETCH_COLUMN);
+$clienteStmt = $pdo->prepare("SELECT DISTINCT $clienteExpr v" . $optionBase . ' ORDER BY v');
+$clienteStmt->execute($optionParams);
+$clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_COLUMN);
+$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.periodo = ? AND d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
 $uenOptionsStmt->execute([$selectedPeriod]);
 $uenOptions = $uenOptionsStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
@@ -132,7 +160,7 @@ $scope = portfolio_client_scope_sql('c');
 $where = ["d.estado_documento = 'activo'", "cc.estado = 'activa'", "cc.activo = 1"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $where[] = 'cc.periodo_detectado = ?'; $params[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $where[] = 'd.periodo = ?'; $params[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $where[] = "$fechaExpr >= ?"; $params[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $where[] = "$fechaExpr <= ?"; $params[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
@@ -242,7 +270,7 @@ foreach ($agingDefs as $def) {
 $trendWhere = ["d.estado_documento = 'activo'", "cc.estado = 'activa'", "cc.activo = 1"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $trendWhere[] = 'cc.periodo_detectado = ?'; $trendParams[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $trendWhere[] = 'd.periodo = ?'; $trendParams[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $trendWhere[] = "$fechaExpr >= ?"; $trendParams[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $trendWhere[] = "$fechaExpr <= ?"; $trendParams[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $trendWhere[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['regional']; }
@@ -329,19 +357,19 @@ $recaudoSql = "SELECT
     d.periodo periodo
     FROM recaudo_detalle d
     INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id
-    WHERE DATE(COALESCE(d.fecha_aplicacion, d.fecha_recibo)) BETWEEN ? AND ?
+    WHERE d.periodo = ?
     GROUP BY periodo
     ORDER BY periodo DESC";
 $recaudoRows = [];
-if ($filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
+if ($filters['periodo'] !== '') {
     $recaudoStmt = $pdo->prepare($recaudoSql);
-    $recaudoStmt->execute([$filters['fecha_desde'], $filters['fecha_hasta']]);
+    $recaudoStmt->execute([$filters['periodo']]);
     $recaudoRows = $recaudoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 $recaudoTotal = array_reduce($recaudoRows, static fn(float $acc, array $row): float => $acc + (float)$row['recaudo_periodo'], 0.0);
 $recuperacionPct = $carteraTotal > 0 ? ($recaudoTotal / $carteraTotal) * 100 : 0;
 
-$budgetMonth = $filters['fecha_hasta'] !== '' ? substr($filters['fecha_hasta'], 0, 7) : date('Y-m');
+$budgetMonth = $filters['periodo'] !== '' ? $filters['periodo'] : date('Y-m');
 $budgetStmt = $pdo->prepare('SELECT COALESCE(SUM(valor_presupuesto),0) AS presupuesto FROM presupuesto_recaudo WHERE periodo = ?');
 $budgetStmt->execute([$budgetMonth]);
 $budget = (float)(($budgetStmt->fetch(PDO::FETCH_ASSOC) ?: ['presupuesto' => 0])['presupuesto'] ?? 0);
@@ -366,7 +394,7 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
       FROM cartera_documentos d
       INNER JOIN clientes c ON c.id = d.cliente_id
       INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
-      WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? ' AND cc.periodo_detectado = ?' : '') . " AND $fechaExpr BETWEEN ? AND ?";
+      WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? ' AND d.periodo = ?' : '') . " AND $fechaExpr BETWEEN ? AND ?";
     $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
     $cmpStmt->execute($cmpParams);
