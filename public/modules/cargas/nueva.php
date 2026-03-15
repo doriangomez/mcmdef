@@ -97,13 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
     }
 
     if (empty($errors)) {
-        $hash = hash_file('sha256', $file['tmp_name']);
-        $exists = $pdo->prepare('SELECT id FROM cargas_cartera WHERE hash_archivo = ? LIMIT 1');
-        $exists->execute([$hash]);
-        if ($exists->fetch()) {
-            $errors[] = build_validation_error(0, 'hash_archivo', $file['name'] ?? '', 'Archivo ya cargado previamente');
-            $hayErrores = true;
-        } else {
+        $hash = hash('sha256', hash_file('sha256', $file['tmp_name']) . '|' . microtime(true) . '|' . random_int(1, PHP_INT_MAX));
             try {
                 $rows = parse_input_file($file['tmp_name'], $extension);
             } catch (Throwable $exception) {
@@ -205,7 +199,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $estadoCarga = 'rechazada';
                 $msg = 'Carga rechazada. No se insertó ningún registro.';
             }
-        }
     }
 }
 
