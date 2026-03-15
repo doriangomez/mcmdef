@@ -40,12 +40,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borra
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anular_carga') {
+    $cargaId = (int)($_POST['carga_id'] ?? 0);
+    if ($cargaId > 0) {
+        $stmt = $pdo->prepare("UPDATE cargas_cartera SET estado = 'anulada', activo = 0 WHERE id = ? AND estado = 'activa'");
+        $stmt->execute([$cargaId]);
+        audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_anulada', 'activa', 'anulada', (int)current_user()['id']);
+        $msg = 'Carga anulada correctamente.';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'eliminar_carga') {
+    $cargaId = (int)($_POST['carga_id'] ?? 0);
+    if ($cargaId > 0 && current_user()['rol'] === 'admin') {
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('DELETE FROM cartera_documentos WHERE id_carga = ?')->execute([$cargaId]);
+            $pdo->prepare('DELETE FROM carga_errores WHERE carga_id = ?')->execute([$cargaId]);
+            $pdo->prepare('DELETE FROM cargas_cartera WHERE id = ?')->execute([$cargaId]);
+            audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_eliminada_temporal', 'activa', 'eliminada', (int)current_user()['id']);
+            $pdo->commit();
+            $msg = 'Carga eliminada en modo temporal.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errorMsg = 'No se pudo eliminar la carga: ' . $e->getMessage();
+        }
+    }
+}
+
 $cargas = $pdo->query(
     'SELECT c.*, u.nombre AS usuario
      FROM cargas_cartera c
      LEFT JOIN usuarios u ON u.id = c.usuario_id
      ORDER BY c.id DESC'
-)->fetchAll();
+)->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 ob_start(); ?>
 <h1>Historial de cargas</h1>
@@ -65,24 +95,45 @@ ob_start(); ?>
     <th>ID</th>
     <th>Archivo</th>
     <th>Hash SHA-256</th>
+    <th>Periodo</th>
+    <th>Total registros</th>
+    <th>Total recaudo</th>
+    <th>Versión</th>
     <th>Estado</th>
-    <th>Total documentos</th>
-    <th>Total saldo</th>
+    <th>Activo</th>
     <th>Usuario</th>
     <th>Fecha</th>
-    <th>Detalle</th>
+    <th>Acciones</th>
   </tr>
   <?php foreach ($cargas as $c): ?>
     <tr>
       <td><?= (int)$c['id'] ?></td>
       <td><?= htmlspecialchars($c['nombre_archivo']) ?></td>
       <td><code><?= htmlspecialchars($c['hash_archivo']) ?></code></td>
-      <td><?= $c['estado'] === 'activa' ? ui_badge('Activa', 'success') : ui_badge('Anulada', 'warning') ?></td>
+      <td><?= htmlspecialchars((string)($c['periodo_detectado'] ?? 'N/A')) ?></td>
       <td><?= (int)$c['total_documentos'] ?></td>
       <td><?= number_format((float)$c['total_saldo'], 2, ',', '.') ?></td>
+      <td>v<?= (int)($c['version'] ?? 1) ?></td>
+      <td><?= (($c['estado'] ?? '') === 'activa') ? ui_badge('Activa', 'success') : ui_badge('Anulada', 'warning') ?></td>
+      <td><?= (int)($c['activo'] ?? 0) === 1 ? ui_badge('Sí', 'success') : ui_badge('No', 'warning') ?></td>
       <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
       <td><?= htmlspecialchars($c['fecha_carga']) ?></td>
-      <td><a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$c['id'])) ?>">Ver</a></td>
+      <td>
+        <a href="<?= htmlspecialchars(app_url('cargas/detalle.php?id=' . (int)$c['id'])) ?>">Ver detalle</a>
+        <form method="post" class="inline-form" onsubmit="return confirm('¿Anular carga?');">
+          <input type="hidden" name="action" value="anular_carga">
+          <input type="hidden" name="carga_id" value="<?= (int)$c['id'] ?>">
+          <button class="btn btn-secondary btn-sm" type="submit">Anular carga</button>
+        </form>
+        <?php if (current_user()['rol'] === 'admin'): ?>
+          <form method="post" class="inline-form" onsubmit="return confirm('¿Eliminar carga en modo temporal?');">
+            <input type="hidden" name="action" value="eliminar_carga">
+            <input type="hidden" name="carga_id" value="<?= (int)$c['id'] ?>">
+            <button class="btn btn-danger btn-sm" type="submit">Eliminar carga</button>
+          </form>
+        <?php endif; ?>
+        <a href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>" class="btn btn-sm">Reprocesar</a>
+      </td>
     </tr>
   <?php endforeach; ?>
 </table>

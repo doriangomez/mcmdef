@@ -108,20 +108,23 @@ CREATE TABLE IF NOT EXISTS cartera_documentos (
     INDEX idx_cartera_carga (id_carga),
     INDEX idx_cartera_cuenta (cuenta),
     INDEX idx_cartera_nro_documento (nro_documento),
-    INDEX idx_cartera_documento_uid (documento_uid),
-    INDEX idx_cartera_saldo_pendiente (saldo_pendiente),
-    INDEX idx_cartera_fecha_vencimiento (fecha_vencimiento),
-    INDEX idx_cartera_dias_vencido (dias_vencido),
-    INDEX idx_cliente (cliente),
-    INDEX idx_documento (nro_documento),
     INDEX idx_documento_uid (documento_uid),
     INDEX idx_vencimiento (fecha_vencimiento),
     INDEX idx_mora (dias_vencido),
+    INDEX idx_cartera_saldo_pendiente (saldo_pendiente),
+    INDEX idx_cliente (cliente),
     INDEX idx_canal (canal),
     INDEX idx_regional (regional),
     CONSTRAINT fk_doc_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
     CONSTRAINT fk_doc_carga_origen FOREIGN KEY (id_carga) REFERENCES cargas_cartera(id)
 );
+
+
+ALTER TABLE cartera_documentos
+    DROP INDEX IF EXISTS idx_cartera_documento_uid,
+    DROP INDEX IF EXISTS idx_cartera_fecha_vencimiento,
+    DROP INDEX IF EXISTS idx_cartera_dias_vencido,
+    DROP INDEX IF EXISTS idx_documento;
 
 CREATE TABLE IF NOT EXISTS bitacora_gestion (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -180,12 +183,14 @@ CREATE TABLE IF NOT EXISTS cargas_recaudo (
     CONSTRAINT fk_cargas_recaudo_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
-ALTER TABLE recaudo_cargas
-    ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1 AFTER periodo_detectado,
+ALTER TABLE cargas_recaudo
+    ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1 AFTER periodo,
     ADD COLUMN IF NOT EXISTS activo TINYINT(1) NOT NULL DEFAULT 1 AFTER version;
 
-ALTER TABLE recaudo_cargas
-    ADD INDEX IF NOT EXISTS idx_recaudo_cargas_activo (activo);
+ALTER TABLE cargas_recaudo
+    ADD INDEX IF NOT EXISTS idx_recaudo_cargas_activo (activo),
+    ADD INDEX IF NOT EXISTS idx_recaudo_cargas_estado_activo (estado, activo);
+
 
 CREATE TABLE IF NOT EXISTS periodos_cartera (
     periodo VARCHAR(7) PRIMARY KEY,
@@ -273,5 +278,5 @@ CREATE TABLE IF NOT EXISTS control_periodos_cartera (
 CREATE OR REPLACE VIEW vw_cartera_documentos AS
 SELECT
     d.*,
-    d.uens AS uen
+    TRIM(COALESCE(d.uens, "")) AS uen
 FROM cartera_documentos d;

@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     } else {
         try {
             $pdo->beginTransaction();
-            $cargaStmt = $pdo->prepare('SELECT id, archivo, total_registros, total_recaudo FROM cargas_recaudo WHERE id = ?');
+            $cargaStmt = $pdo->prepare('SELECT id, archivo, periodo, version, activo, estado, total_registros, total_recaudo FROM cargas_recaudo WHERE id = ?');
             $cargaStmt->execute([$cargaId]);
             $carga = $cargaStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
@@ -75,8 +75,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 $msg = 'No hay registros válidos para aplicar.';
             } else {
                 $pdo->beginTransaction();
-                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: hash('sha256', microtime(true) . '|' . random_int(1, PHP_INT_MAX));
-                $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (archivo, hash_sha256, periodo, fecha_carga, usuario_id, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
+                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: '';
+                if ($hash === '') {
+                    throw new RuntimeException('No fue posible calcular hash SHA-256 del archivo de recaudo.');
+                }
+
+                $dupStmt = $pdo->prepare('SELECT id FROM cargas_recaudo WHERE hash_sha256 = ? LIMIT 1');
+                $dupStmt->execute([$hash]);
+                if ($dupStmt->fetchColumn()) {
+                    throw new RuntimeException('Archivo duplicado detectado por hash SHA-256.');
+                }
+
+                $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version), 0) FROM cargas_recaudo WHERE periodo = ?');
+                $versionStmt->execute([(string)$periodoDetectado]);
+                $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
+
+                $pdo->prepare('UPDATE cargas_recaudo SET activo = 0 WHERE periodo = ?')->execute([(string)$periodoDetectado]);
+
+                $cargaStmt = $pdo->prepare('INSERT INTO cargas_recaudo (archivo, hash_sha256, periodo, fecha_carga, usuario_id, total_registros, total_recaudo, version, activo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, 1, "activa", NOW())');
                 $cargaStmt->execute([
                     (string)$file['name'],
                     $hash,
@@ -84,6 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                     (int)($_SESSION['user']['id'] ?? 0),
                     (int)$summary['validas'],
                     (float)$summary['total_aplicado'],
+                    $versionPeriodo,
                 ]);
                 $cargaId = (int)$pdo->lastInsertId();
 
@@ -169,13 +186,13 @@ if ($periodoActivoSeleccionado === '') {
     $periodoActivoSeleccionado = periodo_control_obtener_activo($pdo) ?? 'todos';
 }
 
-$latestLoadSql = 'SELECT periodo, MAX(carga_id) AS carga_id FROM recaudo_detalle GROUP BY periodo';
+$latestLoadSql = 'SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = "activa" AND c.activo = 1 GROUP BY c.periodo';
 $wherePeriodo = '';
 if ($periodoActivoSeleccionado !== 'todos' && periodo_normalizar($periodoActivoSeleccionado) !== '') {
     $wherePeriodo = ' WHERE d.periodo = ' . $pdo->quote($periodoActivoSeleccionado);
 }
 
-$kpi = $pdo->query('SELECT COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(saldo_pendiente) FROM cartera_documentos),0) cartera_total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo)->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
+$kpi = $pdo->query('SELECT COALESCE(SUM(d.importe_aplicado),0) recaudo_periodo, COALESCE((SELECT SUM(d2.saldo_pendiente) FROM cartera_documentos d2 INNER JOIN cargas_cartera c2 ON c2.id = d2.id_carga WHERE c2.activo = 1 AND c2.estado = "activa" AND d2.estado_documento = "activo"),0) cartera_total FROM recaudo_detalle d INNER JOIN (' . $latestLoadSql . ') x ON x.periodo = d.periodo AND x.carga_id = d.carga_id ' . $wherePeriodo)->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_periodo' => 0, 'cartera_total' => 0];
 $recaudoPeriodo = (float)$kpi['recaudo_periodo'];
 $carteraTotal = (float)$kpi['cartera_total'];
 $recuperacionPct = $carteraTotal > 0 ? ($recaudoPeriodo / $carteraTotal) * 100 : 0;
@@ -195,12 +212,12 @@ $vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_
 
 $periodosControl = $pdo->query('SELECT periodo, cartera_cargada, recaudo_cargado, presupuesto_cargado, estado, periodo_activo FROM control_periodos_cartera ORDER BY periodo DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-$historial = $pdo->query('SELECT c.id, c.archivo, c.hash_sha256, c.periodo, c.total_registros, c.total_recaudo, c.fecha_carga, c.estado, u.nombre AS usuario FROM cargas_recaudo c LEFT JOIN usuarios u ON u.id = c.usuario_id ORDER BY c.id DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$historial = $pdo->query('SELECT c.id, c.archivo, c.hash_sha256, c.periodo, c.total_registros, c.total_recaudo, c.version, c.activo, c.fecha_carga, c.estado, u.nombre AS usuario FROM cargas_recaudo c LEFT JOIN usuarios u ON u.id = c.usuario_id ORDER BY c.id DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
 $detalleRegistros = [];
 $detalleErrores = [];
 if ($detalleCargaId > 0) {
-    $stmt = $pdo->prepare('SELECT id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, cliente, vendedor, importe_aplicado, saldo_documento, periodo FROM recaudo_detalle WHERE carga_id = ? ORDER BY id ASC LIMIT 300');
+    $stmt = $pdo->prepare('SELECT d.id, d.nro_recibo, d.fecha_recibo, d.fecha_aplicacion, d.documento_aplicado, d.cliente, d.vendedor, d.importe_aplicado, d.saldo_documento, d.periodo FROM recaudo_detalle d INNER JOIN cargas_recaudo c ON c.id = d.carga_id WHERE d.carga_id = ? AND c.estado = "activa" AND c.activo = 1 ORDER BY d.id ASC LIMIT 300');
     $stmt->execute([$detalleCargaId]);
     $detalleRegistros = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
@@ -286,18 +303,20 @@ ob_start();
 <section class="card">
   <h3>Historial de cargas de recaudo</h3>
   <table class="table">
-    <tr><th>ID</th><th>Archivo</th><th>Hash SHA-256</th><th>Periodo</th><th>Registros</th><th>Valor</th><th>Usuario</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr>
+    <tr><th>ID</th><th>Archivo</th><th>Hash SHA-256</th><th>Periodo</th><th>Versión</th><th>Activo</th><th>Registros</th><th>Valor</th><th>Usuario</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr>
     <?php foreach ($historial as $h): ?>
       <tr>
         <td><?= (int)$h['id'] ?></td>
         <td><?= htmlspecialchars((string)$h['archivo']) ?></td>
         <td><code><?= htmlspecialchars((string)$h['hash_sha256']) ?></code></td>
         <td><?= htmlspecialchars((string)$h['periodo']) ?></td>
+        <td>v<?= (int)($h['version'] ?? 1) ?></td>
+        <td><?= (int)($h['activo'] ?? 0) === 1 ? 'Sí' : 'No' ?></td>
         <td><?= (int)$h['total_registros'] ?></td>
         <td>$<?= number_format((float)$h['total_recaudo'], 2, ',', '.') ?></td>
         <td><?= htmlspecialchars((string)$h['usuario']) ?></td>
         <td><?= htmlspecialchars((string)$h['fecha_carga']) ?></td>
-        <td><?= htmlspecialchars((string)$h['estado']) ?></td>
+        <td><?= ((int)($h['activo'] ?? 0) === 1 && (string)$h['estado'] === 'activa') ? ui_badge('Activa', 'success') : ui_badge((string)$h['estado'], 'warning') ?></td>
         <td>
           <a href="<?= htmlspecialchars(app_url('recaudos/carga.php?detalle_carga_id=' . (int)$h['id'])) ?>">Ver</a>
           <?php if (current_user()['rol'] === 'admin'): ?>
