@@ -256,6 +256,20 @@ CREATE TABLE IF NOT EXISTS presupuesto_recaudo (
     UNIQUE KEY uk_presupuesto_recaudo (periodo, vendedor)
 );
 
+CREATE TABLE IF NOT EXISTS control_periodos_cartera (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    periodo VARCHAR(7) NOT NULL,
+    cartera_cargada TINYINT(1) NOT NULL DEFAULT 0,
+    recaudo_cargado TINYINT(1) NOT NULL DEFAULT 0,
+    presupuesto_cargado TINYINT(1) NOT NULL DEFAULT 0,
+    periodo_activo TINYINT(1) NOT NULL DEFAULT 0,
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion DATETIME NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'abierto',
+    UNIQUE KEY uk_control_periodo (periodo),
+    KEY idx_control_periodo_activo (periodo_activo)
+);
+
 CREATE OR REPLACE VIEW vw_cartera_documentos AS
 SELECT
     d.*,
