@@ -8,36 +8,43 @@ ob_start();
   <div class="hero-main">
     <p class="hero-kicker">MCM | Inteligencia financiera</p>
     <h2 class="hero-title">Centro Ejecutivo de Inteligencia de Cartera</h2>
-    <p class="hero-copy">Visión integral de exposición, mora y concentración basada en el Excel SAP cargado.</p>
+    <p class="hero-copy">Vista separada para análisis ejecutivo y operación de cobranza.</p>
   </div>
   <div class="hero-controls">
     <form id="dashboardFilters" class="dashboard-filters" autocomplete="off">
-      <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" data-placeholder="Todos los periodos"><option value="">Todos los periodos</option></select></label>
+      <label class="filter-field"><span>Vista</span><select name="vista" id="filterVista"><option value="ejecutivo">Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select></label>
+      <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde"></label>
+      <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta"></label>
+      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uens[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
-      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uens[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
       <label class="filter-field"><span>Cliente</span><select name="cliente" id="filterCliente" data-placeholder="Todos los clientes"><option value="">Todos los clientes</option></select></label>
+      <label class="filter-field" style="display:flex;align-items:center;gap:8px;padding-top:20px;"><input type="checkbox" name="comparar_anterior" value="1" id="filterComparar"> Comparar con periodo anterior</label>
       <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="selectAllUens">Seleccionar todas las UEN</button>
         <button type="submit" class="btn">Aplicar</button>
         <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
         <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
+        <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a dashboard operativo (detalle)</a>
       </div>
     </form>
     <div class="hero-meta"><span class="dashboard-updated-at" id="dashboardUpdatedAt">Sin actualizar</span></div>
+    <div id="comparisonBox" class="kpi-premium-subtext"></div>
   </div>
 </section>
 
 <section class="kpi-premium-grid" id="kpiGrid"></section>
 
 <section class="dashboard-panels-grid">
-  <article class="card chart-card"><div class="card-header"><h3>Distribución por Aging</h3></div><div id="agingChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Distribución por Edad de Cartera (valor y %)</h3></div><div id="agingChart" class="chart-area chart-area-sm"></div></article>
   <article class="card chart-card"><div class="card-header"><h3>Tendencia de Exposición por Periodo</h3></div><div id="trendChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card"><div class="card-header"><h3>Promedio Días Vencido por Regional</h3></div><div id="avgDaysRegionalChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card"><div class="card-header"><h3>Promedio Días Vencido por Canal</h3></div><div id="avgDaysCanalChart" class="chart-area chart-area-sm"></div></article>
-  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Promedio Días Vencido por Empleado de Ventas</h3></div><div id="avgDaysEmpleadoChart" class="chart-area chart-area-medium"></div></article>
-  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Pareto Concentración Clientes (Top 10)</h3></div><div id="paretoChart" class="chart-area chart-area-medium"></div></article>
-  <article class="card chart-card chart-card-main"><div class="card-header"><h3>Score General de Cartera</h3></div><div id="scoreChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Cartera vencida por UEN</h3></div><div id="moraUenChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Cartera vencida por canal</h3></div><div id="vencidaCanalChart" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Cartera vencida por vendedor</h3></div><div id="vencidaEmpleadoChart" class="chart-area chart-area-medium"></div></article>
+  <article class="card chart-card chart-card-wide"><div class="card-header"><h3>Pareto de clientes (Top 10)</h3></div><div id="paretoChart" class="chart-area chart-area-medium"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Dependencia del cliente mayor</h3></div><div id="dependenciaClienteMayor" class="chart-area chart-area-sm"></div></article>
+  <article class="card chart-card"><div class="card-header"><h3>Score general de salud de cartera</h3></div><div id="scoreChart" class="chart-area chart-area-sm"></div></article>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
@@ -48,12 +55,13 @@ ob_start();
   var clearButton = document.getElementById('dashboardClear');
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
   var kpiGrid = document.getElementById('kpiGrid');
+  var comparisonBox = document.getElementById('comparisonBox');
+  var selectAllUensBtn = document.getElementById('selectAllUens');
   var charts = {};
 
   var currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var decimal = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-  function formatPeriod(period) { return period || ''; }
   function f(v, unit) {
     var n = Number(v || 0);
     if (unit === 'currency') return currency.format(n);
@@ -82,14 +90,13 @@ ob_start();
     if (el.multiple) {
       el.innerHTML = (values || []).map(function (v) { return '<option value="' + v + '">' + v + '</option>'; }).join('');
       var selectedValues = Array.isArray(selected) ? selected : [];
-      Array.prototype.forEach.call(el.options, function (opt) {
-        opt.selected = selectedValues.indexOf(opt.value) !== -1;
-      });
+      if (!selectedValues.length && values && values.length) selectedValues = values.slice();
+      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = selectedValues.indexOf(opt.value) !== -1; });
       return;
     }
     var ph = el.getAttribute('data-placeholder');
     var html = ['<option value="">' + ph + '</option>'];
-    (values || []).forEach(function (v) { html.push('<option value="' + v + '">' + (selectId === 'filterPeriodo' ? formatPeriod(v) : v) + '</option>'); });
+    (values || []).forEach(function (v) { html.push('<option value="' + v + '">' + v + '</option>'); });
     el.innerHTML = html.join('');
     el.value = selected || '';
   }
@@ -107,47 +114,50 @@ ob_start();
   function renderCharts(data) {
     var aging = data.aging || [];
     upsert('aging', 'agingChart', Object.assign(noDataOptions(280), {
-      chart: { type: 'bar', height: 280, stacked: true, toolbar: { show: false } },
-      series: [{ name: 'Saldo', data: aging.map(function (r) { return r.value; }) }],
-      plotOptions: { bar: { horizontal: true } },
+      chart: { type: 'bar', height: 280 },
+      series: [
+        { name: 'Saldo', data: aging.map(function (r) { return r.value; }) },
+        { name: '%', data: aging.map(function (r) { return r.pct; }) }
+      ],
       xaxis: { categories: aging.map(function (r) { return r.bucket; }) },
-      tooltip: { y: { formatter: function (v, ctx) { var r = aging[ctx.dataPointIndex] || {}; return currency.format(v) + ' | ' + decimal.format(r.pct || 0) + '% | Prom. ' + (r.avg_days || 0) + ' días'; } } }
+      yaxis: [{ labels: { formatter: function (v) { return currency.format(v); } } }, { opposite: true, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }],
+      tooltip: { shared: true }
     }));
 
     var trend = data.trend || [];
     upsert('trend', 'trendChart', Object.assign(noDataOptions(280), {
       chart: { type: 'line', height: 280, toolbar: { show: false } },
       series: [{ name: 'Saldo pendiente', data: trend.map(function (r) { return r.saldo; }) }],
-      xaxis: { categories: trend.map(function (r) { return formatPeriod(r.periodo); }) },
-      tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Variación: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
+      xaxis: { categories: trend.map(function (r) { return r.periodo; }) },
+      tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Var.: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
     }));
 
-    var regional = data.avg_days_regional || [];
-    upsert('avgRegional', 'avgDaysRegionalChart', Object.assign(noDataOptions(280), {
+    var moraUen = data.mora_uen || [];
+    upsert('moraUen', 'moraUenChart', Object.assign(noDataOptions(280), {
       chart: { type: 'bar', height: 280 },
-      series: [{ name: 'Promedio días', data: regional.map(function (r) { return r.avg_dias; }) }],
-      xaxis: { categories: regional.map(function (r) { return r.regional; }) },
-      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
+      series: [{ name: 'Cartera vencida', data: moraUen.map(function (r) { return r.cartera_vencida; }) }],
+      xaxis: { categories: moraUen.map(function (r) { return r.uen; }) },
+      tooltip: { y: { formatter: function (v) { return currency.format(v); } } }
     }));
 
-    var canal = data.avg_days_canal || [];
-    upsert('avgCanal', 'avgDaysCanalChart', Object.assign(noDataOptions(280), {
+    var canal = data.vencida_canal || [];
+    upsert('vencidaCanal', 'vencidaCanalChart', Object.assign(noDataOptions(280), {
       chart: { type: 'bar', height: 280 },
-      series: [{ name: 'Promedio días', data: canal.map(function (r) { return r.avg_dias; }) }],
+      series: [{ name: 'Cartera vencida', data: canal.map(function (r) { return r.cartera_vencida; }) }],
       xaxis: { categories: canal.map(function (r) { return r.canal; }) },
-      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
+      tooltip: { y: { formatter: function (v, ctx) { var r = canal[ctx.dataPointIndex] || {}; return currency.format(v) + ' | % mora: ' + decimal.format(r.mora_pct || 0) + '%'; } } }
     }));
 
-    var empleados = data.avg_days_empleado || [];
-    upsert('avgEmpleado', 'avgDaysEmpleadoChart', Object.assign(noDataOptions(320), {
+    var empleados = data.vencida_empleado || [];
+    upsert('vencidaEmpleado', 'vencidaEmpleadoChart', Object.assign(noDataOptions(320), {
       chart: { type: 'bar', height: 320 },
-      series: [{ name: 'Promedio días', data: empleados.map(function (r) { return r.avg_dias; }) }],
+      series: [{ name: 'Cartera vencida', data: empleados.map(function (r) { return r.cartera_vencida; }) }],
       plotOptions: { bar: { horizontal: true } },
       xaxis: { categories: empleados.map(function (r) { return r.empleado; }) },
-      tooltip: { y: { formatter: function (v) { return decimal.format(v) + ' días'; } } }
+      tooltip: { y: { formatter: function (v, ctx) { var r = empleados[ctx.dataPointIndex] || {}; return currency.format(v) + ' | % mora: ' + decimal.format(r.mora_pct || 0) + '%'; } } }
     }));
 
-    var paretoRows = (data.pareto_top5 && data.pareto_top5.rows) || [];
+    var paretoRows = (data.pareto_top10 && data.pareto_top10.rows) || [];
     upsert('pareto', 'paretoChart', Object.assign(noDataOptions(320), {
       chart: { type: 'line', height: 320, stacked: false },
       series: [
@@ -162,11 +172,14 @@ ob_start();
       tooltip: { shared: true }
     }));
 
+    var dep = data.dependencia_mayor || { cliente: 'Sin dato', pct: 0, saldo: 0 };
+    document.getElementById('dependenciaClienteMayor').innerHTML = '<div style="padding:16px"><h4 style="margin:0 0 8px">' + dep.cliente + '</h4><p style="margin:0;font-size:22px;font-weight:700">' + decimal.format(dep.pct || 0) + '%</p><p style="margin:4px 0 0">' + currency.format(dep.saldo || 0) + '</p></div>';
+
     var score = (data.score && data.score.value) || 0;
     upsert('score', 'scoreChart', Object.assign(noDataOptions(300), {
       chart: { type: 'radialBar', height: 300 },
       series: [score],
-      labels: ['Score General'],
+      labels: [(data.score && data.score.label) || 'Score General'],
       plotOptions: { radialBar: { dataLabels: { value: { formatter: function (v) { return decimal.format(v); } } } } },
       tooltip: { enabled: true, y: { formatter: function () { return (data.score && data.score.tooltip) || ''; } } }
     }));
@@ -177,23 +190,45 @@ ob_start();
     fetch(endpointUrl + (query ? '?' + query : ''), { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (payload) {
-        hydrateSelect('filterPeriodo', payload.filter_options.periodo, payload.meta.selected_filters.periodo);
         hydrateSelect('filterRegional', payload.filter_options.regional, payload.meta.selected_filters.regional);
         hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
         hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
         hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
         hydrateSelect('filterUens', payload.filter_options.uens || [], payload.meta.selected_filters.uens || []);
+        document.getElementById('filterFechaDesde').value = payload.meta.selected_filters.fecha_desde || payload.filter_options.fecha_desde || '';
+        document.getElementById('filterFechaHasta').value = payload.meta.selected_filters.fecha_hasta || payload.filter_options.fecha_hasta || '';
+        document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
+        document.getElementById('filterVista').value = payload.meta.selected_filters.vista || 'ejecutivo';
+
         var exportQuery = new URLSearchParams(new FormData(form)).toString();
         document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?> + (exportQuery ? '?' + exportQuery : '');
         renderKpis(payload.kpis || [], payload.empty_message || '');
         renderCharts(payload.charts || {});
         updatedAtEl.textContent = 'Actualizado: ' + (payload.meta.generated_at_human || '--');
+
+        if (payload.comparison) {
+          comparisonBox.innerHTML = 'Comparación periodo anterior (' + payload.comparison.periodo_anterior.desde + ' a ' + payload.comparison.periodo_anterior.hasta + '): ' +
+            'Cartera ' + decimal.format(payload.comparison.variacion_cartera_pct || 0) + '% | ' +
+            'Mora ' + decimal.format(payload.comparison.variacion_mora_pct || 0) + '% | ' +
+            'Exposición crítica ' + decimal.format(payload.comparison.variacion_exposicion_pct || 0) + '%';
+        } else {
+          comparisonBox.textContent = '';
+        }
       });
   }
 
   form.addEventListener('submit', function (e) { e.preventDefault(); requestData(); });
   form.addEventListener('change', requestData);
-  clearButton.addEventListener('click', function () { form.reset(); requestData(); });
+  selectAllUensBtn.addEventListener('click', function () {
+    var el = document.getElementById('filterUens');
+    Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
+    requestData();
+  });
+  clearButton.addEventListener('click', function () {
+    form.reset();
+    Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
+    requestData();
+  });
   requestData();
 })();
 </script>
