@@ -4,11 +4,23 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 require_role(['admin', 'analista']);
 
 $scope = portfolio_client_scope_sql('c');
-$baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
+
+$allowedUens = uen_user_allowed_values($pdo);
+$selectedUens = uen_apply_scope(uen_requested_values('uens'), $allowedUens);
+$uenFilter = uen_sql_condition('d.uens', $selectedUens);
+$uenSql = $uenFilter['sql'];
+$uenParams = $uenFilter['params'];
+$uensOptions = $pdo->query("SELECT DISTINCT uens FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+if (!empty($allowedUens)) {
+    $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
+}
+
+$baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql;
 
 $kpiStmt = $pdo->prepare(
     'SELECT
@@ -17,7 +29,7 @@ $kpiStmt = $pdo->prepare(
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
-$kpiStmt->execute($scope['params']);
+$kpiStmt->execute(array_merge($scope['params'], $uenParams));
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $promesasStmt = $pdo->prepare(
@@ -30,9 +42,9 @@ $promesasStmt = $pdo->prepare(
      FROM bitacora_gestion g
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE 1=1' . $scope['sql']
+     WHERE 1=1' . $scope['sql'] . $uenSql
 );
-$promesasStmt->execute($scope['params']);
+$promesasStmt->execute(array_merge($scope['params'], $uenParams));
 $promesas = $promesasStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $moraStmt = $pdo->prepare(
@@ -44,7 +56,7 @@ $moraStmt = $pdo->prepare(
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
-$moraStmt->execute($scope['params']);
+$moraStmt->execute(array_merge($scope['params'], $uenParams));
 $mora = $moraStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $recoveryStmt = $pdo->prepare(
@@ -53,11 +65,11 @@ $recoveryStmt = $pdo->prepare(
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
      WHERE g.estado_compromiso = "cumplido"
-       AND DATE(g.created_at) >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . '
+       AND DATE(g.created_at) >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . $uenSql . '
      GROUP BY DATE(g.created_at)
      ORDER BY DATE(g.created_at) ASC'
 );
-$recoveryStmt->execute($scope['params']);
+$recoveryStmt->execute(array_merge($scope['params'], $uenParams));
 $recoveryRows = $recoveryStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $recoveryMap = [];
 foreach ($recoveryRows as $row) {
@@ -83,12 +95,12 @@ $rankingStmt = $pdo->prepare(
      INNER JOIN bitacora_gestion g ON g.usuario_id = u.id
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE u.estado = "activo"' . $scope['sql'] . '
+     WHERE u.estado = "activo"' . $scope['sql'] . $uenSql . '
      GROUP BY u.id, u.nombre
      ORDER BY valor_recuperado DESC, gestiones_realizadas DESC
      LIMIT 10'
 );
-$rankingStmt->execute($scope['params']);
+$rankingStmt->execute(array_merge($scope['params'], $uenParams));
 $ranking = $rankingStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $criticosStmt = $pdo->prepare(
@@ -101,12 +113,12 @@ $criticosStmt = $pdo->prepare(
         COUNT(*) AS documentos
      FROM clientes c
      INNER JOIN cartera_documentos d ON d.cliente_id = c.id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
+     WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql . '
      GROUP BY c.id, c.nombre, c.nit
      ORDER BY mora_maxima DESC, saldo_total DESC
      LIMIT 12'
 );
-$criticosStmt->execute($scope['params']);
+$criticosStmt->execute(array_merge($scope['params'], $uenParams));
 $criticos = $criticosStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $chartMora = [
@@ -123,7 +135,20 @@ ob_start();
     <h2>Dashboard de Gestión de Cartera</h2>
     <p class="kpi-subtext">Vista ejecutiva para administradores y gestores. Los gestores solo visualizan su cartera asignada.</p>
   </div>
-  <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <form method="get" style="display:flex; gap:8px; align-items:flex-end;">
+      <label>UEN (obligatorio)
+        <select name="uens[]" multiple size="3" required>
+          <?php foreach ($uensOptions as $uenOption): ?>
+            <option value="<?= htmlspecialchars((string)$uenOption) ?>" <?= in_array((string)$uenOption, $selectedUens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$uenOption) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <button class="btn" type="submit">Aplicar UEN</button>
+    </form>
+    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel CSV)</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
+  </div>
 </section>
 
 <section class="gd-kpi-grid">

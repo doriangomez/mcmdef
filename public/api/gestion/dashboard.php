@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -19,9 +20,15 @@ $responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : (int)($user['i
 $params = [];
 $where = ["d.estado_documento = 'activo'"];
 $scope = portfolio_document_scope_sql('d', $user);
+$selectedUens = uen_apply_scope(uen_requested_values('uens'), uen_user_allowed_values($pdo, $user));
 if ($scope['sql'] !== '') {
     $where[] = ltrim($scope['sql'], ' AND');
     $params = array_merge($params, $scope['params']);
+}
+$uenScope = uen_sql_condition('d.uens', $selectedUens);
+if ($uenScope['sql'] !== '') {
+    $where[] = ltrim($uenScope['sql'], ' AND');
+    $params = array_merge($params, $uenScope['params']);
 }
 if ($responsableId > 0) {
     $where[] = 'c.responsable_usuario_id = ?';
