@@ -25,6 +25,8 @@ function cartera_expected_headers(): array
         'saldo_pendiente',
         'moneda',
         'dias_vencido',
+        // Se aceptan para compatibilidad de plantillas antiguas/nuevas,
+        // pero siempre se ignoran durante el cálculo interno.
         'actual',
         '1_30_dias',
         '31_60_dias',
@@ -283,7 +285,8 @@ function validate_cartera_rows(array $rows): array
     $totalDocumentos = 0;
     $required = cartera_expected_required_headers();
     $duplicateMap = [];
-    $numericFields = ['valor_documento', 'saldo_pendiente', 'actual', '1_30_dias', '31_60_dias', '61_90_dias', '91_180_dias', '181_360_dias', '361_dias'];
+    // Los buckets de vencimiento que vengan desde Excel se ignoran por diseño.
+    $numericFields = ['valor_documento', 'saldo_pendiente'];
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
@@ -336,40 +339,29 @@ function validate_cartera_rows(array $rows): array
             }
         }
 
-        $bucketActualValue = normalize_decimal_value($rowData['actual']);
-        $bucket1_30Value = normalize_decimal_value($rowData['1_30_dias']);
-        $bucket31_60Value = normalize_decimal_value($rowData['31_60_dias']);
-        $bucket61_90Value = normalize_decimal_value($rowData['61_90_dias']);
-        $bucket91_180Value = normalize_decimal_value($rowData['91_180_dias']);
-        $bucket181_360Value = normalize_decimal_value($rowData['181_360_dias']);
-        $bucket361PlusValue = normalize_decimal_value($rowData['361_dias']);
-        $hasBucketColumnsInFile = isset($map['actual']) || isset($map['1_30_dias']) || isset($map['31_60_dias']) || isset($map['61_90_dias']) || isset($map['91_180_dias']) || isset($map['181_360_dias']) || isset($map['361_dias']);
-        $hasAnyBucketValue = $bucketActualValue !== null || $bucket1_30Value !== null || $bucket31_60Value !== null || $bucket61_90Value !== null || $bucket91_180Value !== null || $bucket181_360Value !== null || $bucket361PlusValue !== null;
+        $diasBase = $diasVencido;
+        if ($diasBase === null && $fechaVen !== null) {
+            $diasBase = calculate_dias_mora($fechaVen);
+            $diasVencido = $diasBase;
+        }
 
-        $bucketActual = $bucketActualValue ?? 0.0;
-        $bucket1_30 = $bucket1_30Value ?? 0.0;
-        $bucket31_60 = $bucket31_60Value ?? 0.0;
-        $bucket61_90 = $bucket61_90Value ?? 0.0;
-        $bucket91_180 = $bucket91_180Value ?? 0.0;
-        $bucket181_360 = $bucket181_360Value ?? 0.0;
-        $bucket361Plus = $bucket361PlusValue ?? 0.0;
+        $bucketActual = 0.0;
+        $bucket1_30 = 0.0;
+        $bucket31_60 = 0.0;
+        $bucket61_90 = 0.0;
+        $bucket91_180 = 0.0;
+        $bucket181_360 = 0.0;
+        $bucket361Plus = 0.0;
 
-        if ((!$hasBucketColumnsInFile || !$hasAnyBucketValue) && $saldoPend !== null) {
-            $diasBase = $diasVencido;
-            if ($diasBase === null && $fechaVen !== null) {
-                $diasBase = calculate_dias_mora($fechaVen);
-            }
-
-            if ($diasBase !== null) {
-                $calculatedBuckets = calculate_bucket_values($diasBase, $saldoPend);
-                $bucketActual = $calculatedBuckets['bucket_actual'];
-                $bucket1_30 = $calculatedBuckets['bucket_1_30'];
-                $bucket31_60 = $calculatedBuckets['bucket_31_60'];
-                $bucket61_90 = $calculatedBuckets['bucket_61_90'];
-                $bucket91_180 = $calculatedBuckets['bucket_91_180'];
-                $bucket181_360 = $calculatedBuckets['bucket_181_360'];
-                $bucket361Plus = $calculatedBuckets['bucket_361_plus'];
-            }
+        if ($saldoPend !== null && $diasBase !== null) {
+            $calculatedBuckets = calculate_bucket_values($diasBase, $saldoPend);
+            $bucketActual = $calculatedBuckets['bucket_actual'];
+            $bucket1_30 = $calculatedBuckets['bucket_1_30'];
+            $bucket31_60 = $calculatedBuckets['bucket_31_60'];
+            $bucket61_90 = $calculatedBuckets['bucket_61_90'];
+            $bucket91_180 = $calculatedBuckets['bucket_91_180'];
+            $bucket181_360 = $calculatedBuckets['bucket_181_360'];
+            $bucket361Plus = $calculatedBuckets['bucket_361_plus'];
         }
 
         $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
