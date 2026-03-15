@@ -18,6 +18,8 @@ $estadoCarga = '';
 $hayErrores = false;
 $hayErrorEstructural = false;
 $totalInsertados = 0;
+$totalActualizados = 0;
+$totalCerrados = 0;
 $totalSaldoInsertado = 0.0;
 
 $kpiStmt = $pdo->query(
@@ -185,13 +187,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $cargaId = (int)$pdo->lastInsertId();
 
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
-                    $totalInsertados = (int)$metrics['new_count'];
+                    $totalInsertados = (int)($metrics['new_count'] ?? 0);
+                    $totalActualizados = (int)($metrics['updated_count'] ?? 0);
+                    $totalCerrados = (int)($metrics['closed_count'] ?? 0);
                     $totalSaldoInsertado = (float)($validation['totals']['saldo'] ?? 0.0);
 
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
                     $pdo->commit();
                     $estadoCarga = 'exitosa';
-                    $msg = 'Carga exitosa. Se insertaron ' . $totalInsertados . ' documentos por valor total de $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
+                    $msg = 'Carga exitosa. Nuevos: ' . $totalInsertados . ', actualizados: ' . $totalActualizados . ', cerrados: ' . $totalCerrados . '. Valor total del corte: $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
                 }
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
@@ -263,7 +267,7 @@ ob_start();
       <p class="carga-template"><strong>Plantilla esperada (orden exacto):</strong><br>
         #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
       </p>
-      <p class="carga-rules">Reglas aplicadas: modelo inmutable (solo INSERT), lote obligatorio y procesamiento batch de 1000 registros.</p>
+      <p class="carga-rules">Reglas aplicadas: upsert por llave lógica (cuenta+nro_documento+tipo), cierre de documentos no reportados en el nuevo corte y procesamiento batch de 1000 registros.</p>
       <div class="carga-form-actions">
         <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
         <button class="btn carga-btn-primary" type="submit" id="uploadSubmitBtn"><i class="fa-solid fa-play"></i> Validar y procesar</button>
