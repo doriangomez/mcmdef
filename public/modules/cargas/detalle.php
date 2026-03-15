@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anula
         try {
             $pdo->beginTransaction();
             $result = revert_last_carga($pdo, $id);
-            $upd = $pdo->prepare("UPDATE cargas_cartera SET estado = 'anulada' WHERE id = ? AND estado = 'activa'");
+            $upd = $pdo->prepare("UPDATE cargas_cartera SET estado = 'anulada', activo = 0 WHERE id = ? AND estado = 'activa'");
             $upd->execute([$id]);
             audit_log($pdo, 'cargas_cartera', $id, 'anulacion_lote', 'activa', 'anulada', (int)current_user()['id']);
             audit_log($pdo, 'cartera_documentos', $id, 'cambio_estado_documentos', 'activo', 'inactivo', (int)current_user()['id']);
@@ -91,7 +91,7 @@ ob_start(); ?>
     <p><strong>Hash SHA-256:</strong> <code><?= htmlspecialchars($carga['hash_archivo']) ?></code></p>
     <p><strong>Estado:</strong> <?= htmlspecialchars($carga['estado']) ?> | <strong>Usuario:</strong> <?= htmlspecialchars($carga['usuario'] ?? '-') ?> | <strong>Fecha:</strong> <?= htmlspecialchars($carga['fecha_carga']) ?></p>
     <p><strong>Total documentos:</strong> <?= (int)$carga['total_documentos'] ?> | <strong>Total saldo:</strong> <?= number_format((float)$carga['total_saldo'], 2, ',', '.') ?></p>
-    <?php if (current_user()['rol'] === 'admin' && $carga['estado'] === 'activa'): ?>
+    <?php if (current_user()['rol'] === 'admin' && $carga['estado'] === 'activa' && (int)($carga['activo'] ?? 0) === 1): ?>
       <form method="post" onsubmit="return confirm('¿Confirma anular este lote?')">
         <input type="hidden" name="action" value="anular_lote">
         <button class="btn btn-muted" type="submit">Anular lote</button>

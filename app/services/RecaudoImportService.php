@@ -101,7 +101,7 @@ function cartera_periodo_activo(PDO $pdo): ?string
     $stmt = $pdo->query("SELECT DATE_FORMAT(MAX(d.fecha_contabilizacion), '%Y-%m') AS periodo
         FROM cartera_documentos d
         INNER JOIN cargas_cartera c ON c.id = d.id_carga
-        WHERE c.estado = 'activa'");
+        WHERE c.estado = 'activa' AND c.activo = 1");
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $periodoLegacy = trim((string)($row['periodo'] ?? ''));
     return $periodoLegacy !== '' ? $periodoLegacy : null;
