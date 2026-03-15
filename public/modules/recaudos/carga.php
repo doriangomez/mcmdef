@@ -14,6 +14,14 @@ $warnings = [];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
 $periodoDetectado = null;
 
+
+function column_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+    $stmt->execute([$table, $column]);
+    return (int)$stmt->fetchColumn() > 0;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_POST['upload_type'] === 'recaudo') {
     $file = $_FILES['archivo_recaudo'] ?? null;
     if (!$file || (int)$file['error'] !== UPLOAD_ERR_OK) {
@@ -40,37 +48,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             } elseif (empty($validRows)) {
                 $msg = 'No hay registros válidos para aplicar.';
             } else {
-                $pdo->beginTransaction();
-                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: hash('sha256', microtime(true) . '|' . random_int(1, PHP_INT_MAX));
-                $cargaStmt = $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
-                $cargaStmt->execute([
-                    (string)$file['name'],
-                    $hash,
-                    (string)($_SESSION['user']['nombre'] ?? 'sistema'),
-                    (string)$periodoDetectado,
-                    (int)$summary['validas'],
-                    (float)$summary['total_aplicado'],
-                ]);
-                $cargaId = (int)$pdo->lastInsertId();
+                $permitirHistorico = isset($_POST['permitir_historico_recaudo']) && $_POST['permitir_historico_recaudo'] === '1';
+                $reemplazarPeriodo = isset($_POST['reemplazar_periodo_recaudo']) && $_POST['reemplazar_periodo_recaudo'] === '1';
+                $hash = hash_file('sha256', (string)$file['tmp_name']) ?: '';
+                $versionPeriodo = 1;
+                $tieneVersionado = column_exists($pdo, 'recaudo_cargas', 'version') && column_exists($pdo, 'recaudo_cargas', 'activo');
 
-                if (!empty($warnings)) {
-                    $errStmt = $pdo->prepare('INSERT INTO recaudo_validacion_errores (carga_id, fila, campo, valor, motivo, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
-                    foreach ($warnings as $warning) {
-                        $errStmt->execute([
-                            $cargaId,
-                            (int)($warning['fila'] ?? 0),
-                            (string)($warning['campo'] ?? ''),
-                            (string)($warning['valor'] ?? ''),
-                            (string)($warning['motivo'] ?? ''),
-                        ]);
+                if ($hash === '') {
+                    $errors[] = build_validation_error(0, 'archivo_recaudo', (string)($file['name'] ?? ''), 'No fue posible calcular hash SHA-256 del archivo cargado.');
+                }
+
+                if (empty($errors)) {
+                    $hashStmt = $pdo->prepare('SELECT id FROM recaudo_cargas WHERE hash_sha256 = ? LIMIT 1');
+                    $hashStmt->execute([$hash]);
+                    if ($hashStmt->fetchColumn()) {
+                        $errors[] = build_validation_error(0, 'archivo_recaudo', (string)($file['name'] ?? ''), 'Archivo duplicado detectado por hash SHA-256.');
                     }
                 }
 
-                recaudo_apply_rows($pdo, $cargaId, $validRows);
-                recaudo_build_aggregates($pdo, $cargaId);
-                audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
-                $pdo->commit();
-                $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
+                if (empty($errors) && $periodoDetectado !== null) {
+                    $lastStmt = $pdo->query('SELECT MAX(periodo_detectado) FROM recaudo_cargas');
+                    $ultimoPeriodo = (string)($lastStmt->fetchColumn() ?: '');
+                    if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo && !$permitirHistorico) {
+                        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: Está intentando cargar un recaudo de un periodo anterior. Active "Permitir modo histórico" para continuar.');
+                    }
+
+                    $sameStmt = $pdo->prepare('SELECT COUNT(*) FROM recaudo_cargas WHERE periodo_detectado = ?');
+                    $sameStmt->execute([$periodoDetectado]);
+                    $sameCount = (int)$sameStmt->fetchColumn();
+                    if ($sameCount > 0 && !$reemplazarPeriodo) {
+                        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Ya existe una carga de recaudo para este periodo. Active "Reemplazar periodo" para crear nueva versión activa.');
+                    }
+
+                    if ($tieneVersionado) {
+                        $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version),0) FROM recaudo_cargas WHERE periodo_detectado = ?');
+                        $versionStmt->execute([$periodoDetectado]);
+                        $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
+                    }
+                }
+
+                if (!empty($errors)) {
+                    $msg = 'Carga de recaudo rechazada por validaciones obligatorias.';
+                } else {
+                    $pdo->beginTransaction();
+                    $cargaStmt = $tieneVersionado
+                        ? $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, version, activo, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, 1, ?, ?, "activa", NOW())')
+                        : $pdo->prepare('INSERT INTO recaudo_cargas (archivo, hash_sha256, usuario, fecha_carga, periodo_detectado, total_registros, total_recaudo, estado, created_at) VALUES (?, ?, ?, NOW(), ?, ?, ?, "activa", NOW())');
+
+                    $params = [
+                        (string)$file['name'],
+                        $hash,
+                        (string)($_SESSION['user']['nombre'] ?? 'sistema'),
+                        (string)$periodoDetectado,
+                    ];
+                    if ($tieneVersionado) {
+                        $params[] = $versionPeriodo;
+                    }
+                    $params[] = (int)$summary['validas'];
+                    $params[] = (float)$summary['total_aplicado'];
+                    $cargaStmt->execute($params);
+                    $cargaId = (int)$pdo->lastInsertId();
+
+                    if ($tieneVersionado && $periodoDetectado !== null) {
+                        $deactivateStmt = $pdo->prepare('UPDATE recaudo_cargas SET activo = 0 WHERE periodo_detectado = ? AND id <> ?');
+                        $deactivateStmt->execute([$periodoDetectado, $cargaId]);
+                    }
+
+                    if (!empty($warnings)) {
+                        $errStmt = $pdo->prepare('INSERT INTO recaudo_validacion_errores (carga_id, fila, campo, valor, motivo, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
+                        foreach ($warnings as $warning) {
+                            $errStmt->execute([
+                                $cargaId,
+                                (int)($warning['fila'] ?? 0),
+                                (string)($warning['campo'] ?? ''),
+                                (string)($warning['valor'] ?? ''),
+                                (string)($warning['motivo'] ?? ''),
+                            ]);
+                        }
+                    }
+
+                    recaudo_apply_rows($pdo, $cargaId, $validRows);
+                    recaudo_build_aggregates($pdo, $cargaId);
+                    $periodoStmt = $pdo->prepare('INSERT INTO periodos_cartera (periodo, recaudo_cargado, updated_at) VALUES (?, 1, NOW()) ON DUPLICATE KEY UPDATE recaudo_cargado = 1, updated_at = NOW()');
+                    $periodoStmt->execute([(string)$periodoDetectado]);
+                    audit_log($pdo, 'recaudo_cargas', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)$_SESSION['user']['id']);
+                    $pdo->commit();
+                    $msg = 'Recaudo cargado y conciliado correctamente. Periodo detectado: ' . $periodoDetectado . '. Importe aplicado: $' . number_format((float)$summary['total_aplicado'], 2, ',', '.');
+                }
             }
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -167,6 +231,8 @@ ob_start();
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="upload_type" value="recaudo">
       <p>El periodo se detecta automáticamente a partir de <code>fecha_aplicacion</code> o <code>fecha_recibo</code>.</p>
+      <label><input type="checkbox" name="permitir_historico_recaudo" value="1"> Permitir modo histórico (periodos anteriores)</label>
+      <label><input type="checkbox" name="reemplazar_periodo_recaudo" value="1"> Reemplazar periodo (nueva versión activa)</label>
       <label>Archivo recaudo (CSV/XLSX/XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button class="btn" type="submit">Cargar y conciliar</button>
     </form>
