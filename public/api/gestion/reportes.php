@@ -27,7 +27,7 @@ if ($scope['sql'] !== '') {
 $wsql = implode(' AND ', $where);
 
 $sql = '';
-$csvHeaders = ['categoria', 'total'];
+    $csvHeaders = ['categoria', 'total'];
 if ($tipo === 'cartera_regional') {
     $sql = 'SELECT COALESCE(c.regional,"Sin regional") AS categoria, SUM(d.saldo_pendiente) AS total FROM cartera_documentos d INNER JOIN clientes c ON c.id=d.cliente_id WHERE ' . $wsql . ' GROUP BY c.regional ORDER BY total DESC';
 } elseif ($tipo === 'cartera_canal') {
@@ -59,7 +59,7 @@ if ($tipo === 'cartera_regional') {
             INNER JOIN clientes c ON c.id=d.cliente_id
             WHERE ' . $wsql . '
             ORDER BY d.saldo_pendiente DESC';
-    $csvHeaders = ['Cliente', 'Documento', 'Saldo', 'Dias vencido', 'Actual', '1-30', '31-60', '61-90', '91-180', '181-360', '361+', 'Canal', 'Regional', 'Asesor', 'UENS'];
+    $csvHeaders = ['Cliente', 'Documento', 'Saldo', 'Dias vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días', 'Canal', 'Regional', 'Empleado de ventas', 'UENS'];
 } else {
     $extra = '';
     if ($desde !== '') { $extra .= ' AND DATE(g.created_at) >= ?'; $params[] = $desde; }
