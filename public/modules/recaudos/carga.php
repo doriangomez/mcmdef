@@ -115,7 +115,7 @@ $byUen = $pdo->query('SELECT COALESCE(NULLIF(ra.uen, ""), "Sin UEN") categoria, 
 $byBucket = $pdo->query('SELECT COALESCE(NULLIF(ra.bucket, ""), "Sin bucket") categoria, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra GROUP BY categoria ORDER BY total DESC')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $trend = $pdo->query('SELECT DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), "%Y-%m") periodo, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY periodo ORDER BY periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $paretoClientes = $pdo->query('SELECT COALESCE(r.cliente, "Sin cliente") cliente, COALESCE(SUM(ra.importe_aplicado),0) total FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY cliente ORDER BY total DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$vsPresupuesto = $pdo->query('SELECT p.periodo, COALESCE(SUM(p.valor_presupuesto),0) presupuesto, COALESCE(SUM(t.real),0) real FROM presupuesto_recaudo p LEFT JOIN (SELECT DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), "%Y-%m") periodo, r.vendedor, SUM(ra.importe_aplicado) real FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY periodo, r.vendedor) t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$vsPresupuesto = $pdo->query('SELECT p.periodo AS periodo, COALESCE(SUM(p.valor_presupuesto),0) AS presupuesto, COALESCE(SUM(t.recaudo_real),0) AS recaudo_real FROM presupuesto_recaudo p LEFT JOIN (SELECT DATE_FORMAT(COALESCE(ra.fecha_aplicacion, r.fecha_recibo), "%Y-%m") AS periodo, r.vendedor AS vendedor, SUM(ra.importe_aplicado) AS recaudo_real FROM recaudo_aplicacion ra INNER JOIN recaudos r ON r.id = ra.recaudo_id GROUP BY periodo, r.vendedor) AS t ON t.periodo = p.periodo AND t.vendedor = p.vendedor GROUP BY p.periodo ORDER BY p.periodo')->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 ob_start();
 ?>
@@ -191,7 +191,7 @@ ob_start();
       labels: <?= json_encode(array_column($vsPresupuesto, 'periodo'), JSON_UNESCAPED_UNICODE) ?>,
       datasets: [
         { label: 'Presupuesto', data: <?= json_encode(array_map('floatval', array_column($vsPresupuesto, 'presupuesto')), JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#94a3b8' },
-        { label: 'Real', data: <?= json_encode(array_map('floatval', array_column($vsPresupuesto, 'real')), JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#22c55e' }
+        { label: 'Real', data: <?= json_encode(array_map('floatval', array_column($vsPresupuesto, 'recaudo_real')), JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#22c55e' }
       ]
     }
   });
