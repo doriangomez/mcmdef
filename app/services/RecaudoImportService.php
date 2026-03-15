@@ -126,7 +126,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 
     $periodoCartera = cartera_periodo_activo($pdo);
     if ($periodoCartera !== null && $periodoCartera !== $periodoDetectado) {
-        $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
+        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
     }
 
     $documentUids = [];
@@ -138,7 +138,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
     }
 
-    if (empty($documentNumbers)) {
+    if (empty($documentUids)) {
         return ['errors' => [build_validation_error(0, 'nro_documento_aplicado', '', 'No se encontraron documentos para conciliar.')], 'warnings' => $warnings];
     }
 
@@ -242,7 +242,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado']] ?? '')),
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
-            'saldo_documento' => $workingBalance[$nroDocumento],
+            'saldo_documento' => $workingBalance[$documentoUid],
             'uen' => trim((string)($doc['uen'] ?? '')),
             'canal' => trim((string)($doc['canal'] ?? '')),
             'bucket' => cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)),

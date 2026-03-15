@@ -20,12 +20,28 @@ CREATE TABLE IF NOT EXISTS cargas_cartera (
     total_documentos INT NOT NULL DEFAULT 0,
     total_saldo DECIMAL(18,2) NOT NULL DEFAULT 0,
     hash_archivo VARCHAR(64) NOT NULL UNIQUE,
+    hash_sha256 VARCHAR(64) NULL,
+    periodo_detectado VARCHAR(7) NULL,
+    version INT NOT NULL DEFAULT 1,
+    activo TINYINT(1) NOT NULL DEFAULT 1,
     estado ENUM('activa', 'anulada') NOT NULL DEFAULT 'activa',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_cargas_fecha (fecha_carga),
     INDEX idx_cargas_estado (estado),
+    INDEX idx_cargas_periodo (periodo_detectado),
+    INDEX idx_cargas_activo (activo),
     CONSTRAINT fk_carga_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
+
+ALTER TABLE cargas_cartera
+    ADD COLUMN IF NOT EXISTS hash_sha256 VARCHAR(64) NULL AFTER hash_archivo,
+    ADD COLUMN IF NOT EXISTS periodo_detectado VARCHAR(7) NULL AFTER hash_sha256,
+    ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1 AFTER periodo_detectado,
+    ADD COLUMN IF NOT EXISTS activo TINYINT(1) NOT NULL DEFAULT 1 AFTER version;
+
+ALTER TABLE cargas_cartera
+    ADD INDEX IF NOT EXISTS idx_cargas_periodo (periodo_detectado),
+    ADD INDEX IF NOT EXISTS idx_cargas_activo (activo);
 
 CREATE TABLE IF NOT EXISTS carga_errores (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -161,6 +177,20 @@ CREATE TABLE IF NOT EXISTS recaudo_cargas (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_recaudo_cargas_fecha (fecha_carga),
     INDEX idx_recaudo_cargas_periodo (periodo_detectado)
+);
+
+ALTER TABLE recaudo_cargas
+    ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1 AFTER periodo_detectado,
+    ADD COLUMN IF NOT EXISTS activo TINYINT(1) NOT NULL DEFAULT 1 AFTER version;
+
+ALTER TABLE recaudo_cargas
+    ADD INDEX IF NOT EXISTS idx_recaudo_cargas_activo (activo);
+
+CREATE TABLE IF NOT EXISTS periodos_cartera (
+    periodo VARCHAR(7) PRIMARY KEY,
+    cartera_cargada TINYINT(1) NOT NULL DEFAULT 0,
+    recaudo_cargado TINYINT(1) NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS recaudo_detalle (

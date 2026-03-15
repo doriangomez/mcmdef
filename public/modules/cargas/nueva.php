@@ -22,6 +22,37 @@ $totalActualizados = 0;
 $totalCerrados = 0;
 $totalSaldoInsertado = 0.0;
 
+
+function detect_periodo_from_records(array $records): ?string
+{
+    $counter = [];
+    foreach ($records as $record) {
+        $fecha = (string)($record['fecha_contabilizacion'] ?? '');
+        if (strlen($fecha) < 7) {
+            continue;
+        }
+        $periodo = substr($fecha, 0, 7);
+        if (!isset($counter[$periodo])) {
+            $counter[$periodo] = 0;
+        }
+        $counter[$periodo]++;
+    }
+
+    if (empty($counter)) {
+        return null;
+    }
+
+    arsort($counter);
+    return (string)array_key_first($counter);
+}
+
+function column_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+    $stmt->execute([$table, $column]);
+    return (int)$stmt->fetchColumn() > 0;
+}
+
 if (isset($_SESSION['flash_carga_ok'])) {
     $msg = (string)$_SESSION['flash_carga_ok'];
     unset($_SESSION['flash_carga_ok']);
@@ -102,7 +133,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
     }
 
     if (empty($errors)) {
-        $hash = hash('sha256', hash_file('sha256', $file['tmp_name']) . '|' . microtime(true) . '|' . random_int(1, PHP_INT_MAX));
+        $hash = hash_file('sha256', (string)$file['tmp_name']) ?: '';
+        if ($hash === '') {
+            $errors[] = build_validation_error(0, 'archivo', (string)($file['name'] ?? ''), 'No fue posible calcular hash SHA-256 del archivo cargado.');
+            $hayErrores = true;
+            $hayErrorEstructural = true;
+        }
             try {
                 $rows = parse_input_file($file['tmp_name'], $extension);
             } catch (Throwable $exception) {
@@ -158,6 +194,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 ];
             }
 
+            $periodoDetectado = null;
+            if (!$hayErrorEstructural && isset($validation['records']) && is_array($validation['records'])) {
+                $periodoDetectado = detect_periodo_from_records($validation['records']);
+                if ($periodoDetectado === null) {
+                    $errors[] = build_validation_error(0, 'periodo', '', 'No fue posible detectar el periodo del archivo desde fecha_contabilizacion.');
+                    $hayErrores = true;
+                    $hayErrorEstructural = true;
+                }
+            }
+
+            $permitirHistorico = isset($_POST['permitir_historico']) && $_POST['permitir_historico'] === '1';
+            $reemplazarPeriodo = isset($_POST['reemplazar_periodo']) && $_POST['reemplazar_periodo'] === '1';
+            $ultimoPeriodo = null;
+            $versionPeriodo = 1;
+            $hasHashSha = column_exists($pdo, 'cargas_cartera', 'hash_sha256');
+            $tieneCamposVersionado = $hasHashSha && column_exists($pdo, 'cargas_cartera', 'periodo_detectado') && column_exists($pdo, 'cargas_cartera', 'version') && column_exists($pdo, 'cargas_cartera', 'activo');
+
+            if (!$hayErrorEstructural && !$hayErrores && $periodoDetectado !== null && $tieneCamposVersionado) {
+                $dupStmt = $pdo->prepare('SELECT id FROM cargas_cartera WHERE hash_sha256 = :hash LIMIT 1');
+                $dupStmt->execute(['hash' => $hash]);
+                if ($dupStmt->fetchColumn()) {
+                    $errors[] = build_validation_error(0, 'archivo', (string)($file['name'] ?? ''), 'Archivo duplicado detectado por hash SHA-256.');
+                    $hayErrores = true;
+                }
+
+                $lastStmt = $pdo->query('SELECT MAX(periodo_detectado) FROM cargas_cartera WHERE periodo_detectado IS NOT NULL');
+                $ultimoPeriodo = (string)($lastStmt->fetchColumn() ?: '');
+                if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo && !$permitirHistorico) {
+                    $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: Está intentando cargar una cartera de un periodo anterior. Active "Permitir modo histórico" para continuar.');
+                    $hayErrores = true;
+                }
+
+                $samePeriodStmt = $pdo->prepare('SELECT COUNT(*) FROM cargas_cartera WHERE periodo_detectado = ?');
+                $samePeriodStmt->execute([$periodoDetectado]);
+                $samePeriodCount = (int)$samePeriodStmt->fetchColumn();
+                if ($samePeriodCount > 0 && !$reemplazarPeriodo) {
+                    $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Ya existe una carga para este periodo. Active "Reemplazar periodo" para crear una nueva versión activa.');
+                    $hayErrores = true;
+                }
+
+                $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version), 0) FROM cargas_cartera WHERE periodo_detectado = ?');
+                $versionStmt->execute([$periodoDetectado]);
+                $versionPeriodo = ((int)$versionStmt->fetchColumn()) + 1;
+            }
+
             try {
                 $pdo->beginTransaction();
 
@@ -170,22 +251,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                         ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
                         : 'Carga rechazada. No se insertó ningún registro.';
                 } else {
-                    $insertLoad = $pdo->prepare(
-                        'INSERT INTO cargas_cartera
-                         (fecha_carga, usuario_id, nombre_archivo, total_documentos, total_saldo, hash_archivo, estado, created_at)
-                         VALUES (NOW(), ?, ?, ?, ?, ?, ?, NOW())'
-                    );
-                    $insertLoad->execute([
-                        $_SESSION['user']['id'],
-                        $file['name'],
-                        count($validation['records']),
-                        (float)($validation['totals']['saldo'] ?? 0),
-                        $hash,
-                        'activa',
-                    ]);
+                    if ($tieneCamposVersionado) {
+                        $insertLoad = $pdo->prepare(
+                            'INSERT INTO cargas_cartera
+                             (fecha_carga, usuario_id, nombre_archivo, total_documentos, total_saldo, hash_archivo, hash_sha256, periodo_detectado, version, activo, estado, created_at)
+                             VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+                        );
+                        $insertLoad->execute([
+                            $_SESSION['user']['id'],
+                            $file['name'],
+                            count($validation['records']),
+                            (float)($validation['totals']['saldo'] ?? 0),
+                            $hash,
+                            $hash,
+                            $periodoDetectado,
+                            $versionPeriodo,
+                            1,
+                            'activa',
+                        ]);
+                    } else {
+                        $insertLoad = $pdo->prepare(
+                            'INSERT INTO cargas_cartera
+                             (fecha_carga, usuario_id, nombre_archivo, total_documentos, total_saldo, hash_archivo, estado, created_at)
+                             VALUES (NOW(), ?, ?, ?, ?, ?, ?, NOW())'
+                        );
+                        $insertLoad->execute([
+                            $_SESSION['user']['id'],
+                            $file['name'],
+                            count($validation['records']),
+                            (float)($validation['totals']['saldo'] ?? 0),
+                            $hash,
+                            'activa',
+                        ]);
+                    }
                     $cargaId = (int)$pdo->lastInsertId();
 
+                    if ($tieneCamposVersionado && $periodoDetectado !== null) {
+                        $deactivateStmt = $pdo->prepare('UPDATE cargas_cartera SET activo = 0 WHERE periodo_detectado = ? AND id <> ?');
+                        $deactivateStmt->execute([$periodoDetectado, $cargaId]);
+                    }
+
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
+                    if ($tieneCamposVersionado && $periodoDetectado !== null) {
+                        $periodoStmt = $pdo->prepare('INSERT INTO periodos_cartera (periodo, cartera_cargada, updated_at) VALUES (?, 1, NOW()) ON DUPLICATE KEY UPDATE cartera_cargada = 1, updated_at = NOW()');
+                        $periodoStmt->execute([$periodoDetectado]);
+                    }
                     $totalInsertados = (int)($metrics['new_count'] ?? 0);
                     $totalActualizados = (int)($metrics['updated_count'] ?? 0);
                     $totalCerrados = (int)($metrics['closed_count'] ?? 0);
@@ -268,6 +378,8 @@ ob_start();
         #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
       </p>
       <p class="carga-rules">Reglas aplicadas: upsert por llave lógica (cuenta+nro_documento+tipo), cierre de documentos no reportados en el nuevo corte y procesamiento batch de 1000 registros.</p>
+      <label><input type="checkbox" name="permitir_historico" value="1"> Permitir modo histórico (periodos anteriores)</label>
+      <label><input type="checkbox" name="reemplazar_periodo" value="1"> Reemplazar periodo (crear nueva versión activa)</label>
       <div class="carga-form-actions">
         <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
         <button class="btn carga-btn-primary" type="submit" id="uploadSubmitBtn"><i class="fa-solid fa-play"></i> Validar y procesar</button>
