@@ -13,6 +13,7 @@ function cartera_expected_headers(): array
         'contacto',
         'telefono',
         'canal',
+        'uens',
         'empleado_de_ventas',
         'regional',
         'nro_documento',
@@ -47,14 +48,98 @@ function cartera_expected_required_headers(): array
         'valor_documento',
         'saldo_pendiente',
         'moneda',
-        'actual',
-        '1_30_dias',
-        '31_60_dias',
-        '61_90_dias',
-        '91_180_dias',
-        '181_360_dias',
-        '361_dias',
     ];
+}
+
+function normalize_header_name(mixed $value): string
+{
+    $raw = trim((string)$value);
+    if ($raw === '') {
+        return '';
+    }
+
+    $normalized = mb_strtolower($raw, 'UTF-8');
+    $normalized = strtr($normalized, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n', '+' => 'plus', '#' => 'numero']);
+    $normalized = preg_replace('/[^a-z0-9]+/u', '_', $normalized) ?? $normalized;
+    return trim($normalized, '_');
+}
+
+function cartera_header_aliases(): array
+{
+    return [
+        'cuenta' => ['cuenta'],
+        'cliente' => ['cliente'],
+        'nit' => ['nit'],
+        'direccion' => ['direccion'],
+        'contacto' => ['contacto'],
+        'telefono' => ['telefono'],
+        'canal' => ['canal'],
+        'uens' => ['uens', 'uen', 'u_e_n_s'],
+        'empleado_de_ventas' => ['empleado_de_ventas', 'empleado_ventas', 'asesor', 'asesor_comercial'],
+        'regional' => ['regional'],
+        'nro_documento' => ['nro_documento', 'numero_documento', 'documento'],
+        'nro_ref_de_cliente' => ['nro_ref_de_cliente', 'nro_ref_cliente', 'referencia_cliente'],
+        'tipo' => ['tipo', 'tipo_documento'],
+        'fecha_contabilizacion' => ['fecha_contabilizacion', 'fecha_emision'],
+        'fecha_vencimiento' => ['fecha_vencimiento'],
+        'valor_documento' => ['valor_documento', 'valor_original'],
+        'saldo_pendiente' => ['saldo_pendiente', 'saldo_actual', 'saldo'],
+        'moneda' => ['moneda'],
+        'dias_vencido' => ['dias_vencido', 'dias_mora', 'dias_vencimiento'],
+        'actual' => ['actual'],
+        '1_30_dias' => ['1_30_dias', '1_30'],
+        '31_60_dias' => ['31_60_dias', '31_60'],
+        '61_90_dias' => ['61_90_dias', '61_90'],
+        '91_180_dias' => ['91_180_dias', '91_180'],
+        '181_360_dias' => ['181_360_dias', '181_360'],
+        '361_dias' => ['361_dias', '361_plus_dias', '361_plus', 'mas_de_360_dias'],
+    ];
+}
+
+function map_headers_by_name(array $headers): array
+{
+    $normalizedToIndex = [];
+    foreach ($headers as $index => $header) {
+        $normalized = normalize_header_name($header);
+        if ($normalized !== '' && !array_key_exists($normalized, $normalizedToIndex)) {
+            $normalizedToIndex[$normalized] = $index;
+        }
+    }
+
+    $fieldMap = [];
+    foreach (cartera_header_aliases() as $field => $aliases) {
+        foreach ($aliases as $alias) {
+            $key = normalize_header_name($alias);
+            if (array_key_exists($key, $normalizedToIndex)) {
+                $fieldMap[$field] = $normalizedToIndex[$key];
+                break;
+            }
+        }
+    }
+
+    return $fieldMap;
+}
+
+function calculate_bucket_values(int $diasVencido, float $saldoPendiente): array
+{
+    $buckets = ['bucket_actual' => 0.0, 'bucket_1_30' => 0.0, 'bucket_31_60' => 0.0, 'bucket_61_90' => 0.0, 'bucket_91_180' => 0.0, 'bucket_181_360' => 0.0, 'bucket_361_plus' => 0.0];
+    if ($diasVencido <= 0) {
+        $buckets['bucket_actual'] = $saldoPendiente;
+    } elseif ($diasVencido <= 30) {
+        $buckets['bucket_1_30'] = $saldoPendiente;
+    } elseif ($diasVencido <= 60) {
+        $buckets['bucket_31_60'] = $saldoPendiente;
+    } elseif ($diasVencido <= 90) {
+        $buckets['bucket_61_90'] = $saldoPendiente;
+    } elseif ($diasVencido <= 180) {
+        $buckets['bucket_91_180'] = $saldoPendiente;
+    } elseif ($diasVencido <= 360) {
+        $buckets['bucket_181_360'] = $saldoPendiente;
+    } else {
+        $buckets['bucket_361_plus'] = $saldoPendiente;
+    }
+
+    return $buckets;
 }
 
 function supports_xlsx_import(): bool
@@ -179,34 +264,6 @@ function calculate_dias_mora(string $fechaVencimiento): int
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
-    $columnasEsperadas = 26;
-    $map = [
-        'cuenta' => 1,
-        'cliente' => 2,
-        'nit' => 3,
-        'direccion' => 4,
-        'contacto' => 5,
-        'telefono' => 6,
-        'canal' => 7,
-        'empleado_de_ventas' => 8,
-        'regional' => 9,
-        'nro_documento' => 10,
-        'nro_ref_de_cliente' => 11,
-        'tipo' => 12,
-        'fecha_contabilizacion' => 13,
-        'fecha_vencimiento' => 14,
-        'valor_documento' => 15,
-        'saldo_pendiente' => 16,
-        'moneda' => 17,
-        'dias_vencido' => 18,
-        'actual' => 19,
-        '1_30_dias' => 20,
-        '31_60_dias' => 21,
-        '61_90_dias' => 22,
-        '91_180_dias' => 23,
-        '181_360_dias' => 24,
-        '361_dias' => 25,
-    ];
 
     if (count($rows) < 2) {
         return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
@@ -216,17 +273,8 @@ function validate_cartera_rows(array $rows): array
         return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
     }
 
-    $headers = $rows[0];
-    if (count($headers) !== $columnasEsperadas) {
-        return [
-            'ok' => false,
-            'structural_error' => true,
-            'errors' => [build_validation_error(1, 'columnas', count($headers), 'Error estructural: Se esperaban ' . $columnasEsperadas . ' columnas y se encontraron ' . count($headers))],
-            'headers' => $expected,
-            'records' => [],
-            'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
-        ];
-    }
+    $headers = is_array($rows[0]) ? $rows[0] : [];
+    $map = map_headers_by_name($headers);
 
     $errors = [];
     $records = [];
@@ -239,11 +287,13 @@ function validate_cartera_rows(array $rows): array
 
     for ($i = 1; $i < count($rows); $i++) {
         $excelRow = $i + 1;
-        $normalizedRow = array_slice(array_pad($rows[$i], $columnasEsperadas, ''), 0, $columnasEsperadas);
-
-        $rowData = ['#' => $normalizedRow[0] ?? ''];
-        foreach ($map as $field => $columnIndex) {
-            $rowData[$field] = $normalizedRow[$columnIndex] ?? '';
+        $currentRow = is_array($rows[$i]) ? $rows[$i] : [];
+        $rowData = [];
+        foreach ($expected as $field) {
+            if ($field === '#') {
+                continue;
+            }
+            $rowData[$field] = isset($map[$field]) ? ($currentRow[$map[$field]] ?? '') : '';
         }
 
         if (count(array_filter($rowData, static fn($v): bool => trim((string)$v) !== '')) === 0) {
@@ -277,33 +327,59 @@ function validate_cartera_rows(array $rows): array
 
         $valorDoc = normalize_decimal_value($rowData['valor_documento']);
         $saldoPend = normalize_decimal_value($rowData['saldo_pendiente']);
-        $bucketActual = normalize_decimal_value($rowData['actual']) ?? 0.0;
-        $bucket1_30 = normalize_decimal_value($rowData['1_30_dias']) ?? 0.0;
-        $bucket31_60 = normalize_decimal_value($rowData['31_60_dias']) ?? 0.0;
-        $bucket61_90 = normalize_decimal_value($rowData['61_90_dias']) ?? 0.0;
-        $bucket91_180 = normalize_decimal_value($rowData['91_180_dias']) ?? 0.0;
-        $bucket181_360 = normalize_decimal_value($rowData['181_360_dias']) ?? 0.0;
-        $bucket361Plus = normalize_decimal_value($rowData['361_dias']) ?? 0.0;
-        $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
-
-        if ($saldoPend !== null) {
-            $totalSaldoGlobal += $saldoPend;
-            $totalBucketsGlobal += $sumBuckets;
-            $totalDocumentos++;
-        }
-
-        if ($saldoPend !== null) {
-            if (round($sumBuckets, 2) !== round($saldoPend, 2)) {
-                $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'Fila ' . $excelRow . ': La suma de buckets no coincide con el saldo pendiente');
-            }
-        }
-
         $diasVencido = null;
         if (trim((string)$rowData['dias_vencido']) !== '') {
             if (!is_numeric($rowData['dias_vencido'])) {
                 $errors[] = build_validation_error($excelRow, 'dias_vencido', $rowData['dias_vencido'], 'Debe ser numérico');
             } else {
                 $diasVencido = (int)$rowData['dias_vencido'];
+            }
+        }
+
+        $bucketActualValue = normalize_decimal_value($rowData['actual']);
+        $bucket1_30Value = normalize_decimal_value($rowData['1_30_dias']);
+        $bucket31_60Value = normalize_decimal_value($rowData['31_60_dias']);
+        $bucket61_90Value = normalize_decimal_value($rowData['61_90_dias']);
+        $bucket91_180Value = normalize_decimal_value($rowData['91_180_dias']);
+        $bucket181_360Value = normalize_decimal_value($rowData['181_360_dias']);
+        $bucket361PlusValue = normalize_decimal_value($rowData['361_dias']);
+        $hasBucketColumnsInFile = isset($map['actual']) || isset($map['1_30_dias']) || isset($map['31_60_dias']) || isset($map['61_90_dias']) || isset($map['91_180_dias']) || isset($map['181_360_dias']) || isset($map['361_dias']);
+        $hasAnyBucketValue = $bucketActualValue !== null || $bucket1_30Value !== null || $bucket31_60Value !== null || $bucket61_90Value !== null || $bucket91_180Value !== null || $bucket181_360Value !== null || $bucket361PlusValue !== null;
+
+        $bucketActual = $bucketActualValue ?? 0.0;
+        $bucket1_30 = $bucket1_30Value ?? 0.0;
+        $bucket31_60 = $bucket31_60Value ?? 0.0;
+        $bucket61_90 = $bucket61_90Value ?? 0.0;
+        $bucket91_180 = $bucket91_180Value ?? 0.0;
+        $bucket181_360 = $bucket181_360Value ?? 0.0;
+        $bucket361Plus = $bucket361PlusValue ?? 0.0;
+
+        if ((!$hasBucketColumnsInFile || !$hasAnyBucketValue) && $saldoPend !== null) {
+            $diasBase = $diasVencido;
+            if ($diasBase === null && $fechaVen !== null) {
+                $diasBase = calculate_dias_mora($fechaVen);
+            }
+
+            if ($diasBase !== null) {
+                $calculatedBuckets = calculate_bucket_values($diasBase, $saldoPend);
+                $bucketActual = $calculatedBuckets['bucket_actual'];
+                $bucket1_30 = $calculatedBuckets['bucket_1_30'];
+                $bucket31_60 = $calculatedBuckets['bucket_31_60'];
+                $bucket61_90 = $calculatedBuckets['bucket_61_90'];
+                $bucket91_180 = $calculatedBuckets['bucket_91_180'];
+                $bucket181_360 = $calculatedBuckets['bucket_181_360'];
+                $bucket361Plus = $calculatedBuckets['bucket_361_plus'];
+            }
+        }
+
+        $sumBuckets = $bucketActual + $bucket1_30 + $bucket31_60 + $bucket61_90 + $bucket91_180 + $bucket181_360 + $bucket361Plus;
+
+        if ($saldoPend !== null) {
+            $totalSaldoGlobal += $saldoPend;
+            $totalBucketsGlobal += $sumBuckets;
+            $totalDocumentos++;
+            if (round($sumBuckets, 2) !== round($saldoPend, 2)) {
+                $errors[] = build_validation_error($excelRow, 'buckets', $rowData['saldo_pendiente'], 'Fila ' . $excelRow . ': La suma de buckets no coincide con el saldo pendiente');
             }
         }
 
@@ -329,6 +405,7 @@ function validate_cartera_rows(array $rows): array
             'contacto' => trim((string)$rowData['contacto']),
             'telefono' => trim((string)$rowData['telefono']),
             'canal' => trim((string)$rowData['canal']),
+            'uens' => trim((string)$rowData['uens']),
             'empleado_ventas' => trim((string)$rowData['empleado_de_ventas']),
             'regional' => trim((string)$rowData['regional']),
             'nro_documento' => trim((string)$rowData['nro_documento']),
@@ -400,12 +477,13 @@ function build_document_batch_values(array $batch, int $cargaId): array
 
     foreach ($batch as $record) {
         $diasVencido = $record['dias_vencido'] ?? calculate_dias_mora((string)$record['fecha_vencimiento']);
-        $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+        $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
         $params[] = $cargaId;
         $params[] = (int)$record['cliente_id'];
         $params[] = $record['cuenta'];
         $params[] = $record['cliente'];
         $params[] = $record['canal'] !== '' ? $record['canal'] : null;
+        $params[] = $record['uens'] !== '' ? $record['uens'] : null;
         $params[] = $record['regional'] !== '' ? $record['regional'] : null;
         $params[] = $record['nro_documento'];
         $params[] = $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null;
@@ -466,6 +544,7 @@ function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
             cuenta,
             cliente,
             canal,
+            uens,
             regional,
             nro_documento,
             nro_ref_cliente,

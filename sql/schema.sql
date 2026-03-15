@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS cartera_documentos (
     cuenta VARCHAR(80) NOT NULL,
     cliente VARCHAR(180) NOT NULL,
     canal VARCHAR(80) NULL,
+    uens VARCHAR(120) NULL,
     regional VARCHAR(80) NULL,
     nro_documento VARCHAR(80) NOT NULL,
     nro_ref_cliente VARCHAR(80) NULL,
