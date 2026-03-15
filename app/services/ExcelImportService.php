@@ -263,6 +263,35 @@ function calculate_dias_mora(string $fechaVencimiento): int
     return $due > $today ? 0 : (int)$due->diff($today)->days;
 }
 
+function normalize_document_type(string $tipo): string
+{
+    return mb_strtoupper(trim($tipo), 'UTF-8');
+}
+
+function build_documento_uid(string $tipo, string $nroDocumento): string
+{
+    return normalize_document_type($tipo) . '-' . trim($nroDocumento);
+}
+
+function classify_financial_document_type(string $tipo): string
+{
+    $normalized = normalize_document_type($tipo);
+    if (in_array($normalized, ['NCN', 'NCI'], true)) {
+        return 'nota_credito';
+    }
+    if ($normalized === 'RC') {
+        return 'recibo';
+    }
+    if ($normalized === 'AC') {
+        return 'ajuste';
+    }
+    if (in_array($normalized, ['FA', 'POS'], true)) {
+        return 'factura';
+    }
+
+    return 'factura';
+}
+
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
@@ -402,7 +431,9 @@ function validate_cartera_rows(array $rows): array
             'regional' => trim((string)$rowData['regional']),
             'nro_documento' => trim((string)$rowData['nro_documento']),
             'nro_ref_cliente' => trim((string)$rowData['nro_ref_de_cliente']),
-            'tipo' => trim((string)$rowData['tipo']),
+            'tipo' => normalize_document_type((string)$rowData['tipo']),
+            'documento_uid' => build_documento_uid((string)$rowData['tipo'], (string)$rowData['nro_documento']),
+            'tipo_documento_financiero' => classify_financial_document_type((string)$rowData['tipo']),
             'fecha_contabilizacion' => $fechaCont,
             'fecha_vencimiento' => $fechaVen,
             'valor_documento' => $valorDoc ?? 0.0,
@@ -469,7 +500,7 @@ function build_document_batch_values(array $batch, int $cargaId): array
 
     foreach ($batch as $record) {
         $diasVencido = $record['dias_vencido'] ?? calculate_dias_mora((string)$record['fecha_vencimiento']);
-        $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+        $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
         $params[] = $cargaId;
         $params[] = (int)$record['cliente_id'];
         $params[] = $record['cuenta'];
@@ -480,6 +511,8 @@ function build_document_batch_values(array $batch, int $cargaId): array
         $params[] = $record['nro_documento'];
         $params[] = $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null;
         $params[] = $record['tipo'];
+        $params[] = $record['documento_uid'];
+        $params[] = $record['tipo_documento_financiero'];
         $params[] = $record['fecha_contabilizacion'];
         $params[] = $record['fecha_vencimiento'];
         $params[] = $record['valor_documento'];
@@ -592,6 +625,8 @@ function build_update_document_statement(PDO $pdo): PDOStatement
              nro_documento = ?,
              nro_ref_cliente = ?,
              tipo = ?,
+             documento_uid = ?,
+             tipo_documento_financiero = ?,
              fecha_contabilizacion = ?,
              fecha_vencimiento = ?,
              valor_documento = ?,
@@ -625,6 +660,8 @@ function update_existing_document(PDOStatement $stmt, array $record, int $cargaI
         $record['nro_documento'],
         $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null,
         $record['tipo'],
+        $record['documento_uid'],
+        $record['tipo_documento_financiero'],
         $record['fecha_contabilizacion'],
         $record['fecha_vencimiento'],
         $record['valor_documento'],
@@ -694,6 +731,8 @@ function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
             nro_documento,
             nro_ref_cliente,
             tipo,
+            documento_uid,
+            tipo_documento_financiero,
             fecha_contabilizacion,
             fecha_vencimiento,
             valor_documento,

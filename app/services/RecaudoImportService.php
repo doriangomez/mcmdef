@@ -10,6 +10,7 @@ function recaudo_expected_required_headers(): array
         'nro_recibo',
         'fecha_recibo',
         'cliente',
+        'tipo_documento_aplicado',
         'nro_documento_aplicado',
         'fecha_aplicacion',
         'importe_aplicado',
@@ -128,11 +129,12 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
     }
 
-    $documentNumbers = [];
+    $documentUids = [];
     for ($i = 1, $len = count($rows); $i < $len; $i++) {
+        $tipo = normalize_document_type(trim((string)($rows[$i][$map['tipo_documento_aplicado']] ?? '')));
         $doc = trim((string)($rows[$i][$map['nro_documento_aplicado']] ?? ''));
-        if ($doc !== '') {
-            $documentNumbers[$doc] = true;
+        if ($doc !== '' && $tipo !== '') {
+            $documentUids[build_documento_uid($tipo, $doc)] = true;
         }
     }
 
@@ -140,22 +142,22 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         return ['errors' => [build_validation_error(0, 'nro_documento_aplicado', '', 'No se encontraron documentos para conciliar.')], 'warnings' => $warnings];
     }
 
-    $placeholders = implode(',', array_fill(0, count($documentNumbers), '?'));
-    $stmt = $pdo->prepare("SELECT id, nro_documento, cliente, saldo_pendiente, uens, canal, dias_vencido FROM cartera_documentos WHERE nro_documento IN ($placeholders) ORDER BY id DESC");
-    $stmt->execute(array_keys($documentNumbers));
+    $placeholders = implode(',', array_fill(0, count($documentUids), '?'));
+    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, uens, canal, dias_vencido FROM cartera_documentos WHERE documento_uid IN ($placeholders) ORDER BY id DESC");
+    $stmt->execute(array_keys($documentUids));
     $docsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $docsByNumber = [];
+    $docsByUid = [];
     foreach ($docsRaw as $doc) {
-        $nro = (string)$doc['nro_documento'];
-        if (!isset($docsByNumber[$nro])) {
-            $docsByNumber[$nro] = $doc;
+        $uid = (string)$doc['documento_uid'];
+        if (!isset($docsByUid[$uid])) {
+            $docsByUid[$uid] = $doc;
         }
     }
 
     $workingBalance = [];
-    foreach ($docsByNumber as $nro => $doc) {
-        $workingBalance[$nro] = (float)$doc['saldo_pendiente'];
+    foreach ($docsByUid as $uid => $doc) {
+        $workingBalance[$uid] = (float)$doc['saldo_pendiente'];
     }
 
     $validRows = [];
@@ -176,20 +178,27 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
         $summary['total']++;
 
+        $tipoDocumento = normalize_document_type(trim((string)($row[$map['tipo_documento_aplicado']] ?? '')));
         $nroDocumento = trim((string)($row[$map['nro_documento_aplicado']] ?? ''));
+        $documentoUid = build_documento_uid($tipoDocumento, $nroDocumento);
         $cliente = trim((string)($row[$map['cliente']] ?? ''));
         $importe = normalize_decimal_value($row[$map['importe_aplicado']] ?? null);
         $fechaAplicacion = normalize_date_value($row[$map['fecha_aplicacion']] ?? null);
         $fechaRecibo = normalize_date_value($row[$map['fecha_recibo']] ?? null);
         $periodoRegistro = substr((string)($fechaAplicacion ?? $fechaRecibo ?? ''), 0, 7);
 
+        if ($tipoDocumento === '') {
+            $errors[] = build_validation_error($fila, 'tipo_documento_aplicado', '', 'Tipo de documento aplicado vacío.');
+            $summary['con_error']++;
+            continue;
+        }
         if ($nroDocumento === '') {
             $errors[] = build_validation_error($fila, 'nro_documento_aplicado', '', 'Documento aplicado vacío.');
             $summary['con_error']++;
             continue;
         }
-        if (!isset($docsByNumber[$nroDocumento])) {
-            $errors[] = build_validation_error($fila, 'nro_documento_aplicado', $nroDocumento, 'Documento no encontrado en cartera.');
+        if (!isset($docsByUid[$documentoUid])) {
+            $errors[] = build_validation_error($fila, 'nro_documento_aplicado', $documentoUid, 'Documento no encontrado en cartera por tipo + número.');
             $summary['con_error']++;
             continue;
         }
@@ -204,18 +213,18 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             continue;
         }
 
-        $saldoActual = $workingBalance[$nroDocumento] ?? 0.0;
+        $saldoActual = $workingBalance[$documentoUid] ?? 0.0;
         if ($importe > $saldoActual) {
             $errors[] = build_validation_error($fila, 'importe_aplicado', (string)$importe, 'Error de conciliación: recaudo mayor al saldo.');
             $summary['con_error']++;
             continue;
         }
 
-        $doc = $docsByNumber[$nroDocumento];
+        $doc = $docsByUid[$documentoUid];
         $clienteCartera = trim((string)($doc['cliente'] ?? ''));
         $clienteMatch = ($cliente === '' || mb_strtolower($cliente) === mb_strtolower($clienteCartera));
 
-        $workingBalance[$nroDocumento] = max(0, $saldoActual - $importe);
+        $workingBalance[$documentoUid] = max(0, $saldoActual - $importe);
         $summary['validas']++;
         $summary['total_aplicado'] += $importe;
 
@@ -223,6 +232,9 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'fila' => $fila,
             'periodo' => $periodoRegistro,
             'nro_recibo' => trim((string)($row[$map['nro_recibo']] ?? '')),
+            'tipo_documento_aplicado' => $tipoDocumento,
+            'nro_documento_aplicado' => $nroDocumento,
+            'documento_uid' => $documentoUid,
             'fecha_recibo' => $fechaRecibo,
             'fecha_aplicacion' => $fechaAplicacion ?? $fechaRecibo,
             'cliente' => $cliente,
