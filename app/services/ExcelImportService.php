@@ -503,13 +503,38 @@ function build_document_batch_values(array $batch, int $cargaId): array
 function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
 {
     $insertedCount = 0;
+    $updatedCount = 0;
+    $closedCount = 0;
     $batchSize = 1000;
     $batch = [];
 
+    $activeByKey = load_active_documents_by_logical_key($pdo);
+    $inactiveLookupStmt = $pdo->prepare('SELECT id FROM cartera_documentos WHERE cuenta = ? AND nro_documento = ? AND tipo = ? ORDER BY id DESC LIMIT 1');
+    $updateStmt = build_update_document_statement($pdo);
+    $idsToClose = [];
+
     foreach ($records as $record) {
         $record['cliente_id'] = upsert_cliente($pdo, $record);
-        $batch[] = $record;
+        $key = build_document_logical_key($record);
 
+        if (isset($activeByKey[$key])) {
+            $entry = $activeByKey[$key];
+            $updatedCount += update_existing_document($updateStmt, $record, $cargaId, (int)$entry['primary_id']);
+            if (!empty($entry['duplicate_ids'])) {
+                $idsToClose = array_merge($idsToClose, $entry['duplicate_ids']);
+            }
+            unset($activeByKey[$key]);
+            continue;
+        }
+
+        $inactiveLookupStmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo']]);
+        $inactiveId = $inactiveLookupStmt->fetchColumn();
+        if ($inactiveId !== false) {
+            $updatedCount += update_existing_document($updateStmt, $record, $cargaId, (int)$inactiveId);
+            continue;
+        }
+
+        $batch[] = $record;
         if (count($batch) === $batchSize) {
             $insertedCount += insert_document_batch($pdo, $cargaId, $batch);
             $batch = [];
@@ -520,7 +545,135 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
         $insertedCount += insert_document_batch($pdo, $cargaId, $batch);
     }
 
-    return ['new_count' => $insertedCount, 'updated_count' => 0];
+    foreach ($activeByKey as $entry) {
+        $idsToClose[] = (int)$entry['primary_id'];
+        if (!empty($entry['duplicate_ids'])) {
+            $idsToClose = array_merge($idsToClose, $entry['duplicate_ids']);
+        }
+    }
+
+    if (!empty($idsToClose)) {
+        $closedCount = close_documents_by_ids($pdo, $idsToClose, 'recaudado_cerrado_por_no_aparecer_en_corte');
+    }
+
+    return ['new_count' => $insertedCount, 'updated_count' => $updatedCount, 'closed_count' => $closedCount];
+}
+
+function load_active_documents_by_logical_key(PDO $pdo): array
+{
+    $stmt = $pdo->query("SELECT id, cuenta, nro_documento, tipo FROM cartera_documentos WHERE estado_documento = 'activo' ORDER BY id DESC");
+    $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+    $indexed = [];
+    foreach ($rows as $row) {
+        $key = build_document_logical_key($row);
+        if (!isset($indexed[$key])) {
+            $indexed[$key] = ['primary_id' => (int)$row['id'], 'duplicate_ids' => []];
+            continue;
+        }
+
+        $indexed[$key]['duplicate_ids'][] = (int)$row['id'];
+    }
+
+    return $indexed;
+}
+
+function build_update_document_statement(PDO $pdo): PDOStatement
+{
+    return $pdo->prepare(
+        'UPDATE cartera_documentos
+         SET id_carga = ?,
+             cliente_id = ?,
+             cuenta = ?,
+             cliente = ?,
+             canal = ?,
+             uens = ?,
+             regional = ?,
+             nro_documento = ?,
+             nro_ref_cliente = ?,
+             tipo = ?,
+             fecha_contabilizacion = ?,
+             fecha_vencimiento = ?,
+             valor_documento = ?,
+             saldo_pendiente = ?,
+             moneda = ?,
+             dias_vencido = ?,
+             bucket_actual = ?,
+             bucket_1_30 = ?,
+             bucket_31_60 = ?,
+             bucket_61_90 = ?,
+             bucket_91_180 = ?,
+             bucket_181_360 = ?,
+             bucket_361_plus = ?,
+             estado_documento = ?,
+             estado_documento_detalle = ?
+         WHERE id = ?'
+    );
+}
+
+function update_existing_document(PDOStatement $stmt, array $record, int $cargaId, int $documentId): int
+{
+    $diasVencido = $record['dias_vencido'] ?? calculate_dias_mora((string)$record['fecha_vencimiento']);
+    $stmt->execute([
+        $cargaId,
+        (int)$record['cliente_id'],
+        $record['cuenta'],
+        $record['cliente'],
+        $record['canal'] !== '' ? $record['canal'] : null,
+        $record['uens'] !== '' ? $record['uens'] : null,
+        $record['regional'] !== '' ? $record['regional'] : null,
+        $record['nro_documento'],
+        $record['nro_ref_cliente'] !== '' ? $record['nro_ref_cliente'] : null,
+        $record['tipo'],
+        $record['fecha_contabilizacion'],
+        $record['fecha_vencimiento'],
+        $record['valor_documento'],
+        $record['saldo_pendiente'],
+        $record['moneda'],
+        $diasVencido,
+        $record['bucket_actual'],
+        $record['bucket_1_30'],
+        $record['bucket_31_60'],
+        $record['bucket_61_90'],
+        $record['bucket_91_180'],
+        $record['bucket_181_360'],
+        $record['bucket_361_plus'],
+        'activo',
+        null,
+        $documentId,
+    ]);
+
+    return $stmt->rowCount() > 0 ? 1 : 0;
+}
+
+function close_documents_by_ids(PDO $pdo, array $ids, string $detail): int
+{
+    $ids = array_values(array_unique(array_map('intval', $ids)));
+    if (empty($ids)) {
+        return 0;
+    }
+
+    $affected = 0;
+    $chunkSize = 1000;
+    for ($offset = 0, $total = count($ids); $offset < $total; $offset += $chunkSize) {
+        $chunk = array_slice($ids, $offset, $chunkSize);
+        $placeholders = implode(', ', array_fill(0, count($chunk), '?'));
+        $sql = "UPDATE cartera_documentos SET estado_documento = 'inactivo', estado_documento_detalle = ? WHERE id IN ({$placeholders}) AND estado_documento = 'activo'";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(array_merge([$detail], $chunk));
+        $affected += $stmt->rowCount();
+    }
+
+    return $affected;
+}
+
+function build_document_logical_key(array $record): string
+{
+    return implode('|', [
+        mb_strtolower(trim((string)($record['cuenta'] ?? '')), 'UTF-8'),
+        mb_strtolower(trim((string)($record['nro_documento'] ?? '')), 'UTF-8'),
+        mb_strtolower(trim((string)($record['tipo'] ?? '')), 'UTF-8'),
+    ]);
 }
 
 function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
@@ -567,25 +720,7 @@ function insert_document_batch(PDO $pdo, int $cargaId, array $batch): int
 
 function validate_duplicate_keys_in_db(PDO $pdo, array $records): array
 {
-    try {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM cartera_documentos d WHERE d.cuenta = ? AND d.nro_documento = ? AND d.tipo = ? AND d.fecha_contabilizacion = ? AND d.estado_documento = 'activo'");
-    } catch (PDOException $exception) {
-        throw new RuntimeException('La tabla cartera_documentos no existe o no está disponible. Ejecute el esquema de base de datos antes de cargar archivos.', 0, $exception);
-    }
-
-    $errors = [];
-    foreach ($records as $record) {
-        try {
-            $stmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]);
-        } catch (PDOException $exception) {
-            throw new RuntimeException('Error validando duplicados en cartera_documentos: ' . $exception->getMessage(), 0, $exception);
-        }
-
-        if ((int)$stmt->fetchColumn() > 0) {
-            $errors[] = build_validation_error((int)$record['excel_row'], 'clave', implode('|', [$record['cuenta'], $record['nro_documento'], $record['tipo'], $record['fecha_contabilizacion']]), 'Duplicado en base de datos para (cuenta+nro_documento+tipo+fecha_contabilizacion)');
-        }
-    }
-    return $errors;
+    return [];
 }
 
 
