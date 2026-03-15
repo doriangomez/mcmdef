@@ -146,7 +146,7 @@ ob_start();
       </label>
       <button class="btn" type="submit">Aplicar UEN</button>
     </form>
-    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel CSV)</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel XLSX)</a>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
   </div>
 </section>

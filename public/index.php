@@ -21,7 +21,7 @@ ob_start();
       <div class="filter-actions">
         <button type="submit" class="btn">Aplicar</button>
         <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
-        <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel CSV)</a>
+        <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
       </div>
     </form>
     <div class="hero-meta"><span class="dashboard-updated-at" id="dashboardUpdatedAt">Sin actualizar</span></div>

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 require_once __DIR__ . '/../../../app/services/UenService.php';
+require_once __DIR__ . '/../../../app/services/XlsxExportService.php';
 
 if (!is_logged_in()) {
     http_response_code(401);
@@ -69,15 +70,34 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="analisis_cartera.csv"');
-$out = fopen('php://output', 'wb');
-fputcsv($out, ['Cuenta', 'Cliente', 'NIT', 'UEN', 'Canal', 'Regional', 'Empleado de Ventas', 'Nro Documento', 'Tipo', 'Fecha Contabilización', 'Fecha Vencimiento', 'Valor Documento', 'Saldo Pendiente', 'Moneda', 'Dias Vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días']);
+$headers = ['Cuenta', 'Cliente', 'NIT', 'UEN', 'Canal', 'Regional', 'Empleado de Ventas', 'Nro Documento', 'Tipo', 'Fecha Contabilización', 'Fecha Vencimiento', 'Valor Documento', 'Saldo Pendiente', 'Moneda', 'Dias Vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días'];
 
+$exportRows = [];
 foreach ($rows as $row) {
-    fputcsv($out, [
-        $row['cuenta'] ?? '', $row['cliente'] ?? '', $row['nit'] ?? '', $row['uens'] ?? '', $row['canal'] ?? '', $row['regional'] ?? '', $row['empleado_ventas'] ?? '', $row['nro_documento'] ?? '', $row['tipo'] ?? '', $row['fecha_contabilizacion'] ?? '', $row['fecha_vencimiento'] ?? '', $row['valor_documento'] ?? 0, $row['saldo_pendiente'] ?? 0, $row['moneda'] ?? '', $row['dias_vencido'] ?? 0, $row['bucket_actual'] ?? 0, $row['bucket_1_30'] ?? 0, $row['bucket_31_60'] ?? 0, $row['bucket_61_90'] ?? 0, $row['bucket_91_180'] ?? 0, $row['bucket_181_360'] ?? 0, $row['bucket_361_plus'] ?? 0,
-    ]);
+    $exportRows[] = [
+        'Cuenta' => $row['cuenta'] ?? '',
+        'Cliente' => $row['cliente'] ?? '',
+        'NIT' => $row['nit'] ?? '',
+        'UEN' => $row['uens'] ?? '',
+        'Canal' => $row['canal'] ?? '',
+        'Regional' => $row['regional'] ?? '',
+        'Empleado de Ventas' => $row['empleado_ventas'] ?? '',
+        'Nro Documento' => $row['nro_documento'] ?? '',
+        'Tipo' => $row['tipo'] ?? '',
+        'Fecha Contabilización' => $row['fecha_contabilizacion'] ?? '',
+        'Fecha Vencimiento' => $row['fecha_vencimiento'] ?? '',
+        'Valor Documento' => $row['valor_documento'] ?? 0,
+        'Saldo Pendiente' => $row['saldo_pendiente'] ?? 0,
+        'Moneda' => $row['moneda'] ?? '',
+        'Dias Vencido' => $row['dias_vencido'] ?? 0,
+        'Actual' => $row['bucket_actual'] ?? 0,
+        '1-30 Días' => $row['bucket_1_30'] ?? 0,
+        '31-60 Días' => $row['bucket_31_60'] ?? 0,
+        '61-90 Días' => $row['bucket_61_90'] ?? 0,
+        '91-180 Días' => $row['bucket_91_180'] ?? 0,
+        '181-360 Días' => $row['bucket_181_360'] ?? 0,
+        '361+ Días' => $row['bucket_361_plus'] ?? 0,
+    ];
 }
 
-fclose($out);
+export_xlsx('analisis_cartera.xlsx', $headers, $exportRows, ['Valor Documento', 'Saldo Pendiente', 'Dias Vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días']);

@@ -446,7 +446,7 @@ ob_start(); ?>
 <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
   <a class="btn" href="<?= htmlspecialchars(app_url('cartera/dashboard.php')) ?>"><i class="fa-solid fa-chart-pie"></i> Dashboard de Gestión de Cartera</a>
   <?php $baseExport = array_merge($_GET, ['export' => 1, 'page' => 1]); ?>
-  <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel CSV)</a>
+  <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel XLSX)</a>
   <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($baseExport, ['export_mode' => 'documento'])))) ?>">Exportar detalle documentos</a>
   <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($baseExport, ['export_mode' => 'cliente'])))) ?>">Exportar resumen por cliente</a>
 </div>
