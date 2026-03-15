@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 if (!is_logged_in()) {
     http_response_code(401);
@@ -16,6 +17,9 @@ $tipo = trim((string)($_GET['tipo'] ?? 'cartera_regional'));
 $desde = trim((string)($_GET['desde'] ?? ''));
 $hasta = trim((string)($_GET['hasta'] ?? ''));
 $format = trim((string)($_GET['format'] ?? 'json'));
+$selectedUens = uen_requested_values('uens');
+$allowedUens = uen_user_allowed_values($pdo);
+$selectedUens = uen_apply_scope($selectedUens, $allowedUens);
 
 $where = ["d.estado_documento = 'activo'"];
 $params = [];
@@ -23,6 +27,11 @@ $scope = portfolio_document_scope_sql('d');
 if ($scope['sql'] !== '') {
     $where[] = ltrim($scope['sql'], ' AND');
     $params = array_merge($params, $scope['params']);
+}
+$uenScope = uen_sql_condition('d.uens', $selectedUens);
+if ($uenScope['sql'] !== '') {
+    $where[] = ltrim($uenScope['sql'], ' AND');
+    $params = array_merge($params, $uenScope['params']);
 }
 $wsql = implode(' AND ', $where);
 

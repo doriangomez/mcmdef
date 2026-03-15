@@ -15,11 +15,13 @@ ob_start();
       <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" data-placeholder="Todos los periodos"><option value="">Todos los periodos</option></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
+      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uens[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
       <label class="filter-field"><span>Cliente</span><select name="cliente" id="filterCliente" data-placeholder="Todos los clientes"><option value="">Todos los clientes</option></select></label>
       <div class="filter-actions">
         <button type="submit" class="btn">Aplicar</button>
         <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
+        <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel CSV)</a>
       </div>
     </form>
     <div class="hero-meta"><span class="dashboard-updated-at" id="dashboardUpdatedAt">Sin actualizar</span></div>
@@ -76,6 +78,15 @@ ob_start();
 
   function hydrateSelect(selectId, values, selected) {
     var el = document.getElementById(selectId);
+    if (!el) return;
+    if (el.multiple) {
+      el.innerHTML = (values || []).map(function (v) { return '<option value="' + v + '">' + v + '</option>'; }).join('');
+      var selectedValues = Array.isArray(selected) ? selected : [];
+      Array.prototype.forEach.call(el.options, function (opt) {
+        opt.selected = selectedValues.indexOf(opt.value) !== -1;
+      });
+      return;
+    }
     var ph = el.getAttribute('data-placeholder');
     var html = ['<option value="">' + ph + '</option>'];
     (values || []).forEach(function (v) { html.push('<option value="' + v + '">' + (selectId === 'filterPeriodo' ? formatPeriod(v) : v) + '</option>'); });
@@ -171,6 +182,9 @@ ob_start();
         hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
         hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
         hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
+        hydrateSelect('filterUens', payload.filter_options.uens || [], payload.meta.selected_filters.uens || []);
+        var exportQuery = new URLSearchParams(new FormData(form)).toString();
+        document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?> + (exportQuery ? '?' + exportQuery : '');
         renderKpis(payload.kpis || [], payload.empty_message || '');
         renderCharts(payload.charts || {});
         updatedAtEl.textContent = 'Actualizado: ' + (payload.meta.generated_at_human || '--');

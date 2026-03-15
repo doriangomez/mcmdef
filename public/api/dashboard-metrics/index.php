@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -30,6 +31,9 @@ $rawFilters = [
     'empleado_ventas' => qf('empleado_ventas'),
     'cliente' => qf('cliente'),
 ];
+$selectedUens = uen_requested_values('uens');
+$allowedUens = uen_user_allowed_values($pdo);
+$selectedUens = uen_apply_scope($selectedUens, $allowedUens);
 
 $regionalExpr = "COALESCE(NULLIF(TRIM(d.regional), ''), NULLIF(TRIM(c.regional), ''), 'Sin dato')";
 $canalExpr = "COALESCE(NULLIF(TRIM(d.canal), ''), NULLIF(TRIM(c.canal), ''), 'Sin dato')";
@@ -42,6 +46,8 @@ $regionalOptions = $pdo->query("SELECT DISTINCT $regionalExpr v FROM cartera_doc
 $canalOptions = $pdo->query("SELECT DISTINCT $canalExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $empleadoOptions = $pdo->query("SELECT DISTINCT $empleadoExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
 $clienteOptions = $pdo->query("SELECT DISTINCT $clienteExpr v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
+$uenOptions = $pdo->query("SELECT DISTINCT d.uens v FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id WHERE d.estado_documento = 'activo' AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY v")->fetchAll(PDO::FETCH_COLUMN);
+if (!empty($allowedUens)) { $uenOptions = array_values(array_intersect($uenOptions, $allowedUens)); }
 
 $periodSet = array_fill_keys(array_map('strval', $periodOptions), true);
 $regionalSet = [];
@@ -59,6 +65,7 @@ $filters = [
     'canal' => isset($canalSet[normalize($rawFilters['canal'])]) ? $rawFilters['canal'] : '',
     'empleado_ventas' => isset($empleadoSet[normalize($rawFilters['empleado_ventas'])]) ? $rawFilters['empleado_ventas'] : '',
     'cliente' => isset($clienteSet[normalize($rawFilters['cliente'])]) ? $rawFilters['cliente'] : '',
+    'uens' => $selectedUens,
 ];
 
 $where = ["d.estado_documento = 'activo'"];
@@ -72,6 +79,11 @@ if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWE
 if ($filters['canal'] !== '') { $where[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['canal']; }
 if ($filters['empleado_ventas'] !== '') { $where[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $params[] = $filters['empleado_ventas']; }
 if ($filters['cliente'] !== '') { $where[] = "LOWER(TRIM($clienteExpr)) = LOWER(TRIM(?))"; $params[] = $filters['cliente']; }
+$uenScope = uen_sql_condition('d.uens', $filters['uens']);
+if ($uenScope['sql'] !== '') {
+    $where[] = ltrim($uenScope['sql'], ' AND');
+    $params = array_merge($params, $uenScope['params']);
+}
 $whereSql = ' WHERE ' . implode(' AND ', $where);
 
 $kpiSql = "SELECT
@@ -236,6 +248,7 @@ echo json_encode([
         'canal' => $canalOptions,
         'empleado_ventas' => $empleadoOptions,
         'cliente' => $clienteOptions,
+        'uens' => $uenOptions,
     ],
     'kpis' => [
         ['title' => 'Cartera Total', 'value' => $carteraTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-sack-dollar', 'tooltip' => 'Suma total del saldo pendiente de todos los documentos según filtros aplicados.'],

@@ -2,12 +2,20 @@
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 $tipo = trim((string)($_GET['tipo'] ?? 'cartera_regional'));
 $desde = trim((string)($_GET['desde'] ?? ''));
 $hasta = trim((string)($_GET['hasta'] ?? ''));
+$uens = uen_requested_values('uens');
+$allowedUens = uen_user_allowed_values($pdo);
+$uens = uen_apply_scope($uens, $allowedUens);
+$uensOptions = $pdo->query("SELECT DISTINCT uens FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+if (!empty($allowedUens)) {
+    $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
+}
 
-$api = app_url('api/gestion/reportes.php?' . http_build_query(['tipo' => $tipo, 'desde' => $desde, 'hasta' => $hasta]));
+$api = app_url('api/gestion/reportes.php?' . http_build_query(['tipo' => $tipo, 'desde' => $desde, 'hasta' => $hasta, 'uens' => $uens]));
 $data = @file_get_contents($api);
 $rows = [];
 if ($data !== false) {
@@ -32,8 +40,14 @@ ob_start(); ?>
     </select>
     <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>">
     <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>">
+    <select name="uens[]" multiple size="4" required>
+      <?php foreach ($uensOptions as $option): ?>
+        <option value="<?= htmlspecialchars((string)$option) ?>" <?= in_array((string)$option, $uens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$option) ?></option>
+      <?php endforeach; ?>
+    </select>
     <button class="btn">Consultar</button>
-    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('api/gestion/reportes.php?' . http_build_query(['tipo' => $tipo, 'desde' => $desde, 'hasta' => $hasta, 'format' => 'csv']))) ?>">Exportar a Excel (CSV)</a>
+    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel CSV)</a>
+    <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('api/gestion/reportes.php?' . http_build_query(['tipo' => $tipo, 'desde' => $desde, 'hasta' => $hasta, 'uens' => $uens, 'format' => 'csv']))) ?>">Exportar a Excel (CSV)</a>
   </div>
 </form>
 

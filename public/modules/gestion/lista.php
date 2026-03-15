@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 require_role(['admin', 'analista']);
 
@@ -14,6 +15,8 @@ $currentUserId = (int)($_SESSION['user']['id'] ?? 0);
 $isAdmin = portfolio_is_admin();
 $responsableId = $isAdmin ? (int)($_GET['responsable_id'] ?? 0) : $currentUserId;
 $responsables = gestion_get_responsables($pdo);
+$uens = uen_apply_scope(uen_requested_values('uens'), uen_user_allowed_values($pdo));
+$uensOptions = $pdo->query("SELECT DISTINCT uens FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 $where = [];
 $params = [];
@@ -26,6 +29,11 @@ if ($clienteFiltro !== '') {
     $params[] = '%' . $clienteFiltro . '%';
     $params[] = '%' . $clienteFiltro . '%';
     $params[] = '%' . $clienteFiltro . '%';
+}
+$uenScope = uen_sql_condition('d.uens', $uens);
+if ($uenScope['sql'] !== '') {
+    $where[] = ltrim($uenScope['sql'], ' AND');
+    $params = array_merge($params, $uenScope['params']);
 }
 if ($responsableId > 0) {
     $where[] = 'c.responsable_usuario_id = ?';
@@ -56,6 +64,11 @@ ob_start(); ?>
       <option value="0">Todos los responsables</option>
       <?php foreach ($responsables as $responsable): ?>
         <option value="<?= (int)$responsable['id'] ?>" <?= (int)$responsable['id'] === $responsableId ? 'selected' : '' ?>><?= htmlspecialchars((string)$responsable['nombre']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <select name="uens[]" multiple size="3" required>
+      <?php foreach ($uensOptions as $u): ?>
+        <option value="<?= htmlspecialchars((string)$u) ?>" <?= in_array((string)$u, $uens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$u) ?></option>
       <?php endforeach; ?>
     </select>
     <button class="btn">Filtrar</button>

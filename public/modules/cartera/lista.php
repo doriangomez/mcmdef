@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExportService.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
+require_once __DIR__ . '/../../../app/services/UenService.php';
 
 function cartera_mora_sql(string $range): ?string
 {
@@ -58,7 +59,7 @@ $filters = [
     'tipo' => trim($_GET['tipo'] ?? ''),
     'canal' => trim($_GET['canal'] ?? ''),
     'regional' => trim($_GET['regional'] ?? ''),
-    'uens' => trim($_GET['uens'] ?? ''),
+    'uens' => uen_requested_values('uens'),
     'mora_rango' => trim($_GET['mora_rango'] ?? ''),
     'estado' => trim($_GET['estado'] ?? 'activo'),
     'vista' => trim($_GET['vista'] ?? 'documento'),
@@ -126,9 +127,12 @@ if ($filters['regional'] !== '') {
     $where[] = 'd.regional = ?';
     $params[] = $filters['regional'];
 }
-if ($filters['uens'] !== '') {
-    $where[] = 'd.uens = ?';
-    $params[] = $filters['uens'];
+$allowedUens = uen_user_allowed_values($pdo);
+$filters['uens'] = uen_apply_scope($filters['uens'], $allowedUens);
+$uenScope = uen_sql_condition('d.uens', $filters['uens']);
+if ($uenScope['sql'] !== '') {
+    $where[] = ltrim($uenScope['sql'], ' AND');
+    $params = array_merge($params, $uenScope['params']);
 }
 if ($filters['estado'] !== '') {
     $where[] = 'd.estado_documento = ?';
@@ -155,9 +159,12 @@ $canalOptions = $canalStmt->fetchAll(PDO::FETCH_COLUMN);
 $regionalStmt = $pdo->prepare('SELECT DISTINCT d.regional ' . $baseScopeSql . ' ORDER BY d.regional');
 $regionalStmt->execute($scope['params']);
 $regionalOptions = $regionalStmt->fetchAll(PDO::FETCH_COLUMN);
-$uensStmt = $pdo->prepare('SELECT DISTINCT d.uens ' . $baseScopeSql . ' ORDER BY d.uens');
+$uensStmt = $pdo->prepare('SELECT DISTINCT d.uens ' . $baseScopeSql . ' AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY d.uens');
 $uensStmt->execute($scope['params']);
-$uensOptions = $uensStmt->fetchAll(PDO::FETCH_COLUMN);
+$uensOptions = array_values(array_filter(array_map('strval', $uensStmt->fetchAll(PDO::FETCH_COLUMN) ?: [])));
+if (!empty($allowedUens)) {
+    $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
+}
 
 $kpiStmt = $pdo->prepare(
     'SELECT
@@ -394,7 +401,7 @@ ob_start(); ?>
     <div><label>Tipo</label><select name="tipo"><option value="">Todos</option><?php foreach ($tipoOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['tipo'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div><label>Canal</label><select name="canal"><option value="">Todos</option><?php foreach ($canalOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['canal'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div><label>Regional</label><select name="regional"><option value="">Todas</option><?php foreach ($regionalOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['regional'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
-    <div><label>UEN</label><select name="uens"><option value="">Todas</option><?php foreach ($uensOptions as $option): if (trim((string)$option) === '') { continue; } ?><option value="<?= htmlspecialchars($option) ?>" <?= $filters['uens'] === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
+    <div><label>UEN (obligatorio)</label><select name="uens[]" multiple size="4" required><?php foreach ($uensOptions as $option): ?><option value="<?= htmlspecialchars($option) ?>" <?= in_array($option, $filters['uens'], true) ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option><?php endforeach; ?></select></div>
     <div>
       <label>Días mora</label>
       <select name="mora_rango">
@@ -439,6 +446,7 @@ ob_start(); ?>
 <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
   <a class="btn" href="<?= htmlspecialchars(app_url('cartera/dashboard.php')) ?>"><i class="fa-solid fa-chart-pie"></i> Dashboard de Gestión de Cartera</a>
   <?php $baseExport = array_merge($_GET, ['export' => 1, 'page' => 1]); ?>
+  <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel CSV)</a>
   <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($baseExport, ['export_mode' => 'documento'])))) ?>">Exportar detalle documentos</a>
   <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php?' . http_build_query(array_merge($baseExport, ['export_mode' => 'cliente'])))) ?>">Exportar resumen por cliente</a>
 </div>
