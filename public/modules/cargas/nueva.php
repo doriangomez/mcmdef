@@ -22,6 +22,11 @@ $totalActualizados = 0;
 $totalCerrados = 0;
 $totalSaldoInsertado = 0.0;
 
+if (isset($_SESSION['flash_carga_ok'])) {
+    $msg = (string)$_SESSION['flash_carga_ok'];
+    unset($_SESSION['flash_carga_ok']);
+}
+
 $kpiStmt = $pdo->query(
     'SELECT
         COUNT(*) AS total_cargas,
@@ -189,7 +194,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
                     $pdo->commit();
                     $estadoCarga = 'exitosa';
-                    $msg = 'Carga exitosa. Nuevos: ' . $totalInsertados . ', actualizados: ' . $totalActualizados . ', cerrados: ' . $totalCerrados . '. Valor total del corte: $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
+                    $_SESSION['flash_carga_ok'] = 'Carga exitosa. Nuevos: ' . $totalInsertados . ', actualizados: ' . $totalActualizados . ', cerrados: ' . $totalCerrados . '. Valor total del corte: $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
+                    header('Location: ' . app_url('cargas/nueva.php?status=ok'));
+                    exit;
                 }
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
