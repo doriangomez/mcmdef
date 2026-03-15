@@ -107,6 +107,17 @@ function cartera_periodo_activo(PDO $pdo): ?string
     return $periodoLegacy !== '' ? $periodoLegacy : null;
 }
 
+function cartera_ultimo_periodo_cargado(PDO $pdo): ?string
+{
+    $stmt = $pdo->query("SELECT DATE_FORMAT(MAX(d.fecha_contabilizacion), '%Y-%m') AS periodo
+        FROM cartera_documentos d
+        INNER JOIN cargas_cartera c ON c.id = d.id_carga
+        WHERE c.estado = 'activa' AND c.activo = 1");
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $periodo = trim((string)($row['periodo'] ?? ''));
+    return $periodo !== '' ? $periodo : null;
+}
+
 function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 {
     if (count($rows) < 2) {
@@ -133,9 +144,9 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         return ['errors' => $errors, 'warnings' => $warnings];
     }
 
-    $periodoCartera = cartera_periodo_activo($pdo);
-    if ($periodoCartera !== null && $periodoCartera !== $periodoDetectado) {
-        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo diferente a la cartera activa.');
+    $ultimoPeriodoCartera = cartera_ultimo_periodo_cargado($pdo);
+    if ($ultimoPeriodoCartera !== null && strcmp($periodoDetectado, $ultimoPeriodoCartera) < 0) {
+        $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo anterior. Verifique que la cartera correspondiente esté cargada.');
     }
 
     $documentUids = [];
@@ -145,12 +156,6 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         if ($doc !== '' && $tipo !== '') {
             $documentUids[build_documento_uid($tipo, $doc)] = true;
         }
-    }
-
-    $carteraValidationError = periodo_control_validar_recaudo($pdo, $periodoDetectado);
-    if ($carteraValidationError !== null) {
-        $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, $carteraValidationError);
-        return ['errors' => $errors, 'warnings' => $warnings];
     }
 
     if (empty($documentUids)) {
