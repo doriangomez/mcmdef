@@ -98,7 +98,6 @@ ob_start(); ?>
     <th>Periodo</th>
     <th>Total documentos</th>
     <th>Total saldo</th>
-    <th>Versión</th>
     <th>Estado</th>
     <th>Activo</th>
     <th>Usuario</th>
@@ -113,7 +112,6 @@ ob_start(); ?>
       <td><?= htmlspecialchars((string)($c['periodo_detectado'] ?? 'N/A')) ?></td>
       <td><?= (int)$c['total_documentos'] ?></td>
       <td><?= number_format((float)$c['total_saldo'], 2, ',', '.') ?></td>
-      <td>v<?= (int)($c['version'] ?? 1) ?></td>
       <td><?= (($c['estado'] ?? '') === 'activa') ? ui_badge('Activa', 'success') : ui_badge('Anulada', 'warning') ?></td>
       <td><?= (int)($c['activo'] ?? 0) === 1 ? ui_badge('Sí', 'success') : ui_badge('No', 'warning') ?></td>
       <td><?= htmlspecialchars($c['usuario'] ?? '-') ?></td>
