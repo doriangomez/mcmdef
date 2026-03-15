@@ -65,7 +65,9 @@ $kpiStmt = $pdo->query(
         COUNT(*) AS total_cargas,
         COALESCE(SUM(total_documentos), 0) AS total_documentos,
         COALESCE(SUM(total_saldo), 0) AS total_saldo
-     FROM cargas_cartera'
+     FROM cargas_cartera
+     WHERE activo = 1
+       AND estado = "activa"'
 );
 $kpiData = $kpiStmt ? ($kpiStmt->fetch(PDO::FETCH_ASSOC) ?: []) : [];
 
@@ -83,6 +85,7 @@ $ultimaExitosaStmt = $pdo->query(
      FROM cargas_cartera c
      LEFT JOIN usuarios u ON u.id = c.usuario_id
      WHERE c.estado = "activa"
+       AND c.activo = 1
      ORDER BY c.fecha_carga DESC, c.id DESC
      LIMIT 1'
 );
@@ -92,6 +95,8 @@ $historialRecienteStmt = $pdo->query(
     'SELECT c.id, c.fecha_carga, c.nombre_archivo, c.total_documentos, c.total_saldo, c.estado, u.nombre AS usuario
      FROM cargas_cartera c
      LEFT JOIN usuarios u ON u.id = c.usuario_id
+     WHERE c.activo = 1
+       AND c.estado = "activa"
      ORDER BY c.fecha_carga DESC, c.id DESC
      LIMIT 20'
 );
@@ -245,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $hayErrores = true;
                 }
 
-                $samePeriodStmt = $pdo->prepare('SELECT COUNT(*) FROM cargas_cartera WHERE periodo_detectado = ?');
+                $samePeriodStmt = $pdo->prepare('SELECT COUNT(*) FROM cargas_cartera WHERE periodo_detectado = ? AND estado = "activa" AND activo = 1');
                 $samePeriodStmt->execute([$periodoDetectado]);
                 $samePeriodCount = (int)$samePeriodStmt->fetchColumn();
                 if ($samePeriodCount > 0 && !$reemplazarPeriodo) {
@@ -312,8 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
                     $metrics = process_cartera_records($pdo, $cargaId, $validation['records']);
                     if ($tieneCamposVersionado && $periodoDetectado !== null) {
-                        $periodoStmt = $pdo->prepare('INSERT INTO periodos_cartera (periodo, cartera_cargada, updated_at) VALUES (?, 1, NOW()) ON DUPLICATE KEY UPDATE cartera_cargada = 1, updated_at = NOW()');
-                        $periodoStmt->execute([$periodoDetectado]);
+                        periodo_control_registrar_cartera($pdo, $periodoDetectado, true);
                     }
                     $totalInsertados = (int)($metrics['new_count'] ?? 0);
                     $totalActualizados = (int)($metrics['updated_count'] ?? 0);
@@ -321,10 +325,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $totalSaldoInsertado = (float)($validation['totals']['saldo'] ?? 0.0);
 
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
-
-                    if ($periodoDetectadoCartera !== null) {
-                        periodo_control_registrar_cartera($pdo, $periodoDetectadoCartera, true);
-                    }
 
                     $pdo->commit();
                     $estadoCarga = 'exitosa';
