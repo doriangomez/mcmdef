@@ -201,6 +201,8 @@ ob_start();
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="upload_type" value="recaudo">
       <p>El periodo se detecta automáticamente a partir de <code>fecha_aplicacion</code> o <code>fecha_recibo</code>.</p>
+      <label><input type="checkbox" name="permitir_historico_recaudo" value="1"> Permitir modo histórico (periodos anteriores)</label>
+      <label><input type="checkbox" name="reemplazar_periodo_recaudo" value="1"> Reemplazar periodo (nueva versión activa)</label>
       <label>Archivo recaudo (CSV/XLSX/XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button class="btn" type="submit">Cargar y conciliar</button>
     </form>
