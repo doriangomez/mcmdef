@@ -11,7 +11,6 @@ function recaudo_expected_required_headers(): array
         'nro_recibo',
         'fecha_recibo',
         'cliente',
-        'tipo_documento_aplicado',
         'nro_documento_aplicado',
         'fecha_aplicacion',
         'importe_aplicado',
@@ -149,35 +148,34 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo anterior. Verifique que la cartera correspondiente esté cargada.');
     }
 
-    $documentUids = [];
+    $documentNumbers = [];
     for ($i = 1, $len = count($rows); $i < $len; $i++) {
-        $tipo = normalize_document_type(trim((string)($rows[$i][$map['tipo_documento_aplicado']] ?? '')));
         $doc = trim((string)($rows[$i][$map['nro_documento_aplicado']] ?? ''));
-        if ($doc !== '' && $tipo !== '') {
-            $documentUids[build_documento_uid($tipo, $doc)] = true;
+        if ($doc !== '') {
+            $documentNumbers[$doc] = true;
         }
     }
 
-    if (empty($documentUids)) {
+    if (empty($documentNumbers)) {
         return ['errors' => [build_validation_error(0, 'nro_documento_aplicado', '', 'No se encontraron documentos para conciliar.')], 'warnings' => $warnings];
     }
 
-    $placeholders = implode(',', array_fill(0, count($documentUids), '?'));
-    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, uens AS uen, canal, dias_vencido FROM cartera_documentos WHERE documento_uid IN ($placeholders) ORDER BY id DESC");
-    $stmt->execute(array_keys($documentUids));
+    $placeholders = implode(',', array_fill(0, count($documentNumbers), '?'));
+    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, uens AS uen, canal, dias_vencido FROM cartera_documentos WHERE nro_documento IN ($placeholders) ORDER BY id DESC");
+    $stmt->execute(array_keys($documentNumbers));
     $docsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $docsByUid = [];
+    $docsByNumber = [];
     foreach ($docsRaw as $doc) {
-        $uid = (string)$doc['documento_uid'];
-        if (!isset($docsByUid[$uid])) {
-            $docsByUid[$uid] = $doc;
+        $number = trim((string)$doc['nro_documento']);
+        if ($number !== '' && !isset($docsByNumber[$number])) {
+            $docsByNumber[$number] = $doc;
         }
     }
 
     $workingBalance = [];
-    foreach ($docsByUid as $uid => $doc) {
-        $workingBalance[$uid] = (float)$doc['saldo_pendiente'];
+    foreach ($docsByNumber as $number => $doc) {
+        $workingBalance[$number] = (float)$doc['saldo_pendiente'];
     }
 
     $validRows = [];
@@ -198,27 +196,16 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
         $summary['total']++;
 
-        $tipoDocumento = normalize_document_type(trim((string)($row[$map['tipo_documento_aplicado']] ?? '')));
+        $tipoDocumento = normalize_document_type(trim((string)($row[$map['tipo_documento_aplicado'] ?? -1] ?? '')));
         $nroDocumento = trim((string)($row[$map['nro_documento_aplicado']] ?? ''));
-        $documentoUid = build_documento_uid($tipoDocumento, $nroDocumento);
         $cliente = trim((string)($row[$map['cliente']] ?? ''));
         $importe = normalize_decimal_value($row[$map['importe_aplicado']] ?? null);
         $fechaAplicacion = normalize_date_value($row[$map['fecha_aplicacion']] ?? null);
         $fechaRecibo = normalize_date_value($row[$map['fecha_recibo']] ?? null);
         $periodoRegistro = substr((string)($fechaAplicacion ?? $fechaRecibo ?? ''), 0, 7);
 
-        if ($tipoDocumento === '') {
-            $errors[] = build_validation_error($fila, 'tipo_documento_aplicado', '', 'Tipo de documento aplicado vacío.');
-            $summary['con_error']++;
-            continue;
-        }
         if ($nroDocumento === '') {
             $errors[] = build_validation_error($fila, 'nro_documento_aplicado', '', 'Documento aplicado vacío.');
-            $summary['con_error']++;
-            continue;
-        }
-        if (!isset($docsByUid[$documentoUid])) {
-            $errors[] = build_validation_error($fila, 'nro_documento_aplicado', $documentoUid, 'Documento no encontrado en cartera por tipo + número.');
             $summary['con_error']++;
             continue;
         }
@@ -233,20 +220,25 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             continue;
         }
 
-        $saldoActual = $workingBalance[$documentoUid] ?? 0.0;
-        if ($importe > $saldoActual) {
-            $errors[] = build_validation_error($fila, 'importe_aplicado', (string)$importe, 'Error de conciliación: recaudo mayor al saldo.');
-            $summary['con_error']++;
-            continue;
+        $doc = $docsByNumber[$nroDocumento] ?? null;
+        $saldoActual = $doc !== null ? ($workingBalance[$nroDocumento] ?? 0.0) : 0.0;
+        if ($doc !== null && $importe > $saldoActual) {
+            $warnings[] = build_validation_error($fila, 'importe_aplicado', (string)$importe, 'Importe aplicado mayor al saldo de cartera para el número de documento. Se marcará como parcial.');
         }
 
-        $doc = $docsByUid[$documentoUid];
         $clienteCartera = trim((string)($doc['cliente'] ?? ''));
         $clienteMatch = ($cliente === '' || mb_strtolower($cliente) === mb_strtolower($clienteCartera));
 
-        $workingBalance[$documentoUid] = max(0, $saldoActual - $importe);
+        if ($doc !== null) {
+            $workingBalance[$nroDocumento] = max(0, $saldoActual - $importe);
+        }
         $summary['validas']++;
         $summary['total_aplicado'] += $importe;
+
+        $estadoConciliacion = 'pago_sin_factura';
+        if ($doc !== null) {
+            $estadoConciliacion = ($importe <= $saldoActual) ? 'conciliado' : 'parcial';
+        }
 
         $validRows[] = [
             'fila' => $fila,
@@ -254,23 +246,24 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'nro_recibo' => trim((string)($row[$map['nro_recibo']] ?? '')),
             'tipo_documento_aplicado' => $tipoDocumento,
             'nro_documento_aplicado' => $nroDocumento,
-            'documento_uid' => $documentoUid,
+            'documento_uid' => build_documento_uid($tipoDocumento, $nroDocumento),
             'fecha_recibo' => $fechaRecibo,
             'fecha_aplicacion' => $fechaAplicacion ?? $fechaRecibo,
             'cliente' => $cliente,
             'vendedor' => trim((string)($row[$map['vendedor']] ?? '')),
-            'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado']] ?? '')),
+            'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado'] ?? -1] ?? '')),
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
-            'saldo_documento' => $workingBalance[$documentoUid],
+            'saldo_documento' => $doc !== null ? ($workingBalance[$nroDocumento] ?? 0.0) : 0.0,
             'uen' => trim((string)($doc['uen'] ?? '')),
             'canal' => trim((string)($doc['canal'] ?? '')),
-            'bucket' => cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)),
-            'cartera_documento_id' => (int)$doc['id'],
+            'bucket' => $doc !== null ? cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)) : 'Sin factura',
+            'cartera_documento_id' => $doc !== null ? (int)$doc['id'] : null,
             'cliente_conciliado' => $clienteMatch ? 1 : 0,
+            'estado_conciliacion' => $estadoConciliacion,
         ];
 
-        if (!$clienteMatch) {
+        if ($doc !== null && !$clienteMatch) {
             $warnings[] = build_validation_error($fila, 'cliente', $cliente, 'Cliente en recaudo no coincide con cliente en cartera (validación recomendada).');
         }
     }
@@ -303,7 +296,7 @@ function cartera_bucket_label(int $diasVencido): string
 
 function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
 {
-    $insertDetalle = $pdo->prepare('INSERT INTO recaudo_detalle (carga_id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, tipo_documento, cliente, vendedor, importe_aplicado, saldo_documento, periodo, uen, canal, bucket, cartera_documento_id, cliente_conciliado, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+    $insertDetalle = $pdo->prepare('INSERT INTO recaudo_detalle (carga_id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, tipo_documento, cliente, vendedor, importe_aplicado, saldo_documento, periodo, uen, canal, bucket, cartera_documento_id, cliente_conciliado, estado_conciliacion, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
     $updateSaldo = $pdo->prepare('UPDATE cartera_documentos SET saldo_pendiente = GREATEST(saldo_pendiente - ?, 0), estado_documento = CASE WHEN (saldo_pendiente - ?) <= 0 THEN "inactivo" ELSE estado_documento END, estado_documento_detalle = CASE WHEN (saldo_pendiente - ?) <= 0 THEN "pagado_recaudo" ELSE estado_documento_detalle END WHERE id = ?');
 
     foreach ($rows as $row) {
@@ -324,13 +317,59 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
             $row['bucket'],
             $row['cartera_documento_id'],
             $row['cliente_conciliado'],
+            $row['estado_conciliacion'],
         ]);
 
-        $updateSaldo->execute([
-            $row['importe_aplicado'],
-            $row['importe_aplicado'],
-            $row['importe_aplicado'],
-            $row['cartera_documento_id'],
+        if (!empty($row['cartera_documento_id'])) {
+            $updateSaldo->execute([
+                $row['importe_aplicado'],
+                $row['importe_aplicado'],
+                $row['importe_aplicado'],
+                $row['cartera_documento_id'],
+            ]);
+        }
+    }
+}
+
+function recaudo_auto_conciliar(PDO $pdo, int $cargaId): void
+{
+    $insert = $pdo->prepare('INSERT INTO recaudo_conciliacion (carga_id, cartera_documento_id, documento_aplicado, estado_conciliacion, saldo_inicial, total_pagado, saldo_final, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE estado_conciliacion = VALUES(estado_conciliacion), saldo_inicial = VALUES(saldo_inicial), total_pagado = VALUES(total_pagado), saldo_final = VALUES(saldo_final), updated_at = NOW()');
+
+    $detalleRows = $pdo->prepare('SELECT d.documento_aplicado, d.cartera_documento_id, SUM(d.importe_aplicado) AS total_pagado, MAX(d.estado_conciliacion) AS estado_conciliacion, MAX(cd.saldo_pendiente) AS saldo_final FROM recaudo_detalle d LEFT JOIN cartera_documentos cd ON cd.id = d.cartera_documento_id WHERE d.carga_id = ? GROUP BY d.documento_aplicado, d.cartera_documento_id');
+    $detalleRows->execute([$cargaId]);
+    $pagos = $detalleRows->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($pagos as $pago) {
+        $carteraId = $pago['cartera_documento_id'] !== null ? (int)$pago['cartera_documento_id'] : null;
+        $totalPagado = (float)($pago['total_pagado'] ?? 0);
+        $saldoFinal = (float)($pago['saldo_final'] ?? 0);
+        $saldoInicial = $totalPagado + $saldoFinal;
+        $estado = (string)($pago['estado_conciliacion'] ?? 'pago_sin_factura');
+
+        $insert->execute([
+            $cargaId,
+            $carteraId,
+            (string)$pago['documento_aplicado'],
+            $estado,
+            $saldoInicial,
+            $totalPagado,
+            max(0, $saldoFinal),
+        ]);
+    }
+
+    $sinPago = $pdo->prepare('SELECT cd.id AS cartera_documento_id, cd.nro_documento, cd.saldo_pendiente FROM cartera_documentos cd WHERE cd.estado_documento = "activo" AND cd.id NOT IN (SELECT DISTINCT d.cartera_documento_id FROM recaudo_detalle d WHERE d.carga_id = ? AND d.cartera_documento_id IS NOT NULL)');
+    $sinPago->execute([$cargaId]);
+    $sinPagoRows = $sinPago->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($sinPagoRows as $row) {
+        $saldo = (float)($row['saldo_pendiente'] ?? 0);
+        $insert->execute([
+            $cargaId,
+            (int)$row['cartera_documento_id'],
+            (string)$row['nro_documento'],
+            'sin_pago',
+            $saldo,
+            0,
+            $saldo,
         ]);
     }
 }
