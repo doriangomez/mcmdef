@@ -143,7 +143,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
     }
 
     $placeholders = implode(',', array_fill(0, count($documentUids), '?'));
-    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, uens, canal, dias_vencido FROM cartera_documentos WHERE documento_uid IN ($placeholders) ORDER BY id DESC");
+    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, uens AS uen, canal, dias_vencido FROM cartera_documentos WHERE documento_uid IN ($placeholders) ORDER BY id DESC");
     $stmt->execute(array_keys($documentUids));
     $docsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
@@ -243,7 +243,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
             'saldo_documento' => $workingBalance[$nroDocumento],
-            'uen' => trim((string)($doc['uens'] ?? '')),
+            'uen' => trim((string)($doc['uen'] ?? '')),
             'canal' => trim((string)($doc['canal'] ?? '')),
             'bucket' => cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)),
             'cartera_documento_id' => (int)$doc['id'],

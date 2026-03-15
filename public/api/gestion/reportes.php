@@ -68,7 +68,7 @@ if ($tipo === 'cartera_regional') {
             INNER JOIN clientes c ON c.id=d.cliente_id
             WHERE ' . $wsql . '
             ORDER BY d.saldo_pendiente DESC';
-    $csvHeaders = ['Cliente', 'Documento', 'Saldo', 'Dias vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días', 'Canal', 'Regional', 'Empleado de ventas', 'UENS'];
+    $csvHeaders = ['Cliente', 'Documento', 'Saldo', 'Dias vencido', 'Actual', '1-30 Días', '31-60 Días', '61-90 Días', '91-180 Días', '181-360 Días', '361+ Días', 'Canal', 'Regional', 'Empleado de ventas', 'UEN'];
 } else {
     $extra = '';
     if ($desde !== '') { $extra .= ' AND DATE(g.created_at) >= ?'; $params[] = $desde; }
