@@ -63,9 +63,9 @@ $canalExpr = "COALESCE(NULLIF(TRIM(d.canal), ''), NULLIF(TRIM(c.canal), ''), 'Si
 $empleadoExpr = "COALESCE(NULLIF(TRIM(c.empleado_ventas), ''), 'Sin dato')";
 $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), ''), c.cuenta, CONCAT('Cliente #', c.id))";
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
-$monthExpr = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m')";
+$monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
 
-$periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.fecha_contabilizacion IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
 $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
 
@@ -84,7 +84,7 @@ $dateBoundsSql = "SELECT MIN($fechaExpr) AS min_fecha, MAX($fechaExpr) AS max_fe
     WHERE d.estado_documento = 'activo'";
 $dateBoundsParams = [];
 if ($selectedPeriod !== '') {
-    $dateBoundsSql .= " AND DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?";
+    $dateBoundsSql .= " AND DATE_FORMAT($fechaExpr, '%Y-%m') = ?";
     $dateBoundsParams[] = $selectedPeriod;
 }
 $dateBoundsStmt = $pdo->prepare($dateBoundsSql);
@@ -98,7 +98,7 @@ $optionBase = " FROM cartera_documentos d
     WHERE d.estado_documento = 'activo'";
 $optionParams = [];
 if ($selectedPeriod !== '') {
-    $optionBase .= ' AND DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") = ?';
+    $optionBase .= " AND DATE_FORMAT($fechaExpr, '%Y-%m') = ?";
     $optionParams[] = $selectedPeriod;
 }
 $regionalStmt = $pdo->prepare("SELECT DISTINCT $regionalExpr v" . $optionBase . ' ORDER BY v');
@@ -113,8 +113,15 @@ $empleadoOptions = $empleadoStmt->fetchAll(PDO::FETCH_COLUMN);
 $clienteStmt = $pdo->prepare("SELECT DISTINCT $clienteExpr v" . $optionBase . ' ORDER BY v');
 $clienteStmt->execute($optionParams);
 $clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_COLUMN);
-$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ? AND d.estado_documento = 'activo' AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
-$uenOptionsStmt->execute([$selectedPeriod]);
+$uenOptionsSql = "SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND d.uens IS NOT NULL AND TRIM(d.uens) <> ''";
+$uenOptionsParams = [];
+if ($selectedPeriod !== '') {
+    $uenOptionsSql .= " AND DATE_FORMAT($fechaExpr, '%Y-%m') = ?";
+    $uenOptionsParams[] = $selectedPeriod;
+}
+$uenOptionsSql .= ' ORDER BY d.uens';
+$uenOptionsStmt = $pdo->prepare($uenOptionsSql);
+$uenOptionsStmt->execute($uenOptionsParams);
 $uenOptions = $uenOptionsStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 if (!empty($allowedUens)) {
@@ -265,7 +272,7 @@ foreach ($agingDefs as $def) {
 $trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $trendWhere[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?"; $trendParams[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $trendWhere[] = "DATE_FORMAT($fechaExpr, '%Y-%m') = ?"; $trendParams[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $trendWhere[] = "$fechaExpr >= ?"; $trendParams[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $trendWhere[] = "$fechaExpr <= ?"; $trendParams[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $trendWhere[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['regional']; }
@@ -359,10 +366,37 @@ if ($filters['periodo'] !== '') {
 $recaudoTotal = array_reduce($recaudoRows, static fn(float $acc, array $row): float => $acc + (float)$row['recaudo_periodo'], 0.0);
 $recuperacionPct = $carteraTotal > 0 ? ($recaudoTotal / $carteraTotal) * 100 : 0;
 
+$recaudoState = [
+    'loaded' => false,
+    'integrated' => false,
+    'message' => 'Pendiente carga de recaudo',
+];
+if ($filters['periodo'] !== '') {
+    $recaudoStatusStmt = $pdo->prepare('SELECT
+        COUNT(*) AS total,
+        COALESCE(SUM(CASE WHEN cartera_documento_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS integrados
+        FROM recaudo_detalle
+        WHERE periodo = ?');
+    $recaudoStatusStmt->execute([$filters['periodo']]);
+    $recaudoStatus = $recaudoStatusStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'integrados' => 0];
+    $recaudoRowsCount = (int)($recaudoStatus['total'] ?? 0);
+    $integradosCount = (int)($recaudoStatus['integrados'] ?? 0);
+    $recaudoState['loaded'] = $recaudoRowsCount > 0;
+    $recaudoState['integrated'] = $integradosCount > 0;
+    if (!$recaudoState['loaded']) {
+        $recaudoState['message'] = 'Pendiente carga de recaudo';
+    } elseif (!$recaudoState['integrated']) {
+        $recaudoState['message'] = 'Pendiente integración de recaudo';
+    } else {
+        $recaudoState['message'] = '';
+    }
+}
+
 $budgetMonth = $filters['periodo'] !== '' ? $filters['periodo'] : date('Y-m');
 $budgetStmt = $pdo->prepare('SELECT COALESCE(SUM(valor_presupuesto),0) AS presupuesto FROM presupuesto_recaudo WHERE periodo = ?');
 $budgetStmt->execute([$budgetMonth]);
 $budget = (float)(($budgetStmt->fetch(PDO::FETCH_ASSOC) ?: ['presupuesto' => 0])['presupuesto'] ?? 0);
+$hasBudget = $budget > 0;
 $recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS real FROM recaudo_detalle d INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
 $recaudoMonthStmt->execute([$budgetMonth]);
 $recaudoRealMes = (float)(($recaudoMonthStmt->fetch(PDO::FETCH_ASSOC) ?: ['real' => 0])['real'] ?? 0);
@@ -405,20 +439,16 @@ $kpis = [
     ['title' => 'Cartera Total', 'value' => $carteraTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-sack-dollar', 'tooltip' => 'Suma del saldo pendiente para los filtros aplicados.'],
     ['title' => '% Cartera Crítica (>180 días)', 'value' => $porcCritica, 'unit' => 'percent', 'icon' => 'fa-solid fa-circle-exclamation', 'status' => $porcCritica > 20 ? 'critical' : 'good', 'tooltip' => 'Porcentaje de cartera en mora superior a 180 días.'],
     ['title' => 'Índice de Severidad de Mora', 'value' => $indiceSeveridad, 'unit' => 'ratio', 'icon' => 'fa-solid fa-gauge-high', 'status' => $indiceSeveridad > 1.6 ? 'critical' : 'warning', 'tooltip' => 'Pondera los buckets superiores a 90 días con mayor peso.'],
-    ['title' => 'Rotación de Cartera (días)', 'value' => $rotationDays, 'unit' => 'days', 'icon' => 'fa-solid fa-rotate', 'tooltip' => 'Días promedio de recuperación: cartera promedio / recaudo del periodo.'],
+    ['title' => 'Rotación de Cartera (días)', 'value' => $rotationDays, 'unit' => 'days', 'icon' => 'fa-solid fa-rotate', 'tooltip' => 'Días promedio de recuperación: cartera promedio / recaudo del periodo.', 'message' => $recaudoState['message']],
     ['title' => '% Concentración Top 5 Clientes', 'value' => $top5ConcentrationPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-users-viewfinder', 'tooltip' => 'Participación de los 5 clientes más expuestos.'],
     ['title' => '% Dependencia Cliente Mayor', 'value' => $dependenciaMayorPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-user-large', 'tooltip' => 'Participación del cliente con mayor saldo.'],
     ['title' => '% Documentos Vencidos', 'value' => $docsVencidosPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-file-circle-xmark', 'tooltip' => 'Proporción de documentos vencidos sobre el total.'],
-    ['title' => 'Recaudo del periodo', 'value' => $recaudoTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-money-bill-trend-up', 'tooltip' => 'Valor total recaudado en el rango seleccionado.'],
-    ['title' => '% Recuperación del periodo', 'value' => $recuperacionPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-hand-holding-dollar', 'tooltip' => 'Recaudo del periodo frente a cartera del periodo.'],
-    ['title' => 'Presupuesto de recaudo (' . $budgetMonth . ')', 'value' => $budget, 'unit' => 'currency', 'icon' => 'fa-solid fa-bullseye', 'tooltip' => 'Meta de recaudo configurada para el mes.'],
-    ['title' => 'Recaudo vs meta (' . $budgetMonth . ')', 'value' => $budget > 0 ? ($recaudoRealMes / $budget) * 100 : 0, 'unit' => 'percent', 'icon' => 'fa-solid fa-chart-column', 'tooltip' => 'Cumplimiento de presupuesto de recaudo mensual.'],
+    ['title' => 'Recaudo del periodo', 'value' => $recaudoTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-money-bill-trend-up', 'tooltip' => 'Valor total recaudado en el rango seleccionado.', 'message' => $recaudoState['message']],
+    ['title' => '% Recuperación del periodo', 'value' => $recuperacionPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-hand-holding-dollar', 'tooltip' => 'Recaudo del periodo frente a cartera del periodo.', 'message' => $recaudoState['message']],
+    ['title' => 'Presupuesto de recaudo (' . $budgetMonth . ')', 'value' => $budget, 'unit' => 'currency', 'icon' => 'fa-solid fa-bullseye', 'tooltip' => 'Meta de recaudo configurada para el mes.', 'message' => $hasBudget ? '' : 'Pendiente carga de presupuesto'],
+    ['title' => 'Recaudo vs meta (' . $budgetMonth . ')', 'value' => $budget > 0 ? ($recaudoRealMes / $budget) * 100 : 0, 'unit' => 'percent', 'icon' => 'fa-solid fa-chart-column', 'tooltip' => 'Cumplimiento de presupuesto de recaudo mensual.', 'message' => $hasBudget ? '' : 'Pendiente carga de presupuesto'],
     ['title' => '% Saldo Negativo', 'value' => $saldoNegativoPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-arrow-trend-down', 'tooltip' => 'Proporción de saldos negativos en cartera.'],
 ];
-
-if ($filters['vista'] === 'operativo') {
-    $kpis = array_values(array_filter($kpis, static fn(array $k): bool => in_array($k['title'], ['Cartera Total', '% Cartera Crítica (>180 días)', 'Recaudo del periodo', '% Recuperación del periodo'], true)));
-}
 
 echo json_encode([
     'ok' => true,
