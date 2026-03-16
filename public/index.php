@@ -225,21 +225,63 @@ ob_start();
       });
   }
 
+  function buildDashboardQuery() {
+    var params = new URLSearchParams();
+    var vistaEl = document.getElementById('filterVista');
+    var periodoEl = document.getElementById('filterPeriodo');
+    var fechaDesdeEl = document.getElementById('filterFechaDesde');
+    var fechaHastaEl = document.getElementById('filterFechaHasta');
+    var regionalEl = document.getElementById('filterRegional');
+    var canalEl = document.getElementById('filterCanal');
+    var empleadoEl = document.getElementById('filterEmpleado');
+    var clienteEl = document.getElementById('filterCliente');
+    var compararEl = document.getElementById('filterComparar');
+    var uenEl = document.getElementById('filterUens');
+
+    if (vistaEl && vistaEl.value) params.set('vista', vistaEl.value);
+    if (periodoEl && periodoEl.value) params.set('periodo', periodoEl.value);
+    if (fechaDesdeEl && fechaDesdeEl.value) params.set('fecha_desde', fechaDesdeEl.value);
+    if (fechaHastaEl && fechaHastaEl.value) params.set('fecha_hasta', fechaHastaEl.value);
+    if (regionalEl && regionalEl.value) params.set('regional', regionalEl.value);
+    if (canalEl && canalEl.value) params.set('canal', canalEl.value);
+    if (empleadoEl && empleadoEl.value) params.set('empleado_ventas', empleadoEl.value);
+    if (clienteEl && clienteEl.value) params.set('cliente', clienteEl.value);
+    if (compararEl && compararEl.checked) params.set('comparar_anterior', '1');
+
+    if (uenEl && uenEl.options) {
+      Array.prototype.forEach.call(uenEl.options, function (opt) {
+        if (opt.selected && opt.value) params.append('uen[]', opt.value);
+      });
+    }
+
+    return params.toString();
+  }
+
+  function safelyHydrateFilters(payload) {
+    if (!payload || !payload.filter_options || !payload.meta || !payload.meta.selected_filters) return;
+
+    var selected = payload.meta.selected_filters || {};
+    var options = payload.filter_options || {};
+    hydrateSelect('filterRegional', options.regional, selected.regional);
+    hydrateSelect('filterCanal', options.canal, selected.canal);
+    hydrateSelect('filterEmpleado', options.empleado_ventas, selected.empleado_ventas);
+    hydrateSelect('filterCliente', options.cliente, selected.cliente);
+    hydratePeriod(options.periodo || [], selected.periodo || '');
+    document.getElementById('filterPeriodo').value = selected.periodo || '';
+    loadUensByPeriod(selected.periodo || '', selected.uen || []);
+    document.getElementById('filterFechaDesde').value = selected.fecha_desde || options.fecha_desde || '';
+    document.getElementById('filterFechaHasta').value = selected.fecha_hasta || options.fecha_hasta || '';
+    document.getElementById('filterComparar').checked = !!selected.comparar_anterior;
+    document.getElementById('filterVista').value = selected.vista || 'ejecutivo';
+  }
+
   function requestData() {
-    fetch(endpointUrl, { headers: { 'Accept': 'application/json' } })
+    var query = buildDashboardQuery();
+    var url = query ? endpointUrl + '?' + query : endpointUrl;
+    fetch(url, { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (payload) {
-        hydrateSelect('filterRegional', payload.filter_options.regional, payload.meta.selected_filters.regional);
-        hydrateSelect('filterCanal', payload.filter_options.canal, payload.meta.selected_filters.canal);
-        hydrateSelect('filterEmpleado', payload.filter_options.empleado_ventas, payload.meta.selected_filters.empleado_ventas);
-        hydrateSelect('filterCliente', payload.filter_options.cliente, payload.meta.selected_filters.cliente);
-        hydratePeriod(payload.filter_options.periodo || [], payload.meta.selected_filters.periodo || '');
-        document.getElementById('filterPeriodo').value = payload.meta.selected_filters.periodo || '';
-        loadUensByPeriod(payload.meta.selected_filters.periodo || '', payload.meta.selected_filters.uen || []);
-        document.getElementById('filterFechaDesde').value = payload.meta.selected_filters.fecha_desde || payload.filter_options.fecha_desde || '';
-        document.getElementById('filterFechaHasta').value = payload.meta.selected_filters.fecha_hasta || payload.filter_options.fecha_hasta || '';
-        document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
-        document.getElementById('filterVista').value = payload.meta.selected_filters.vista || 'ejecutivo';
+        safelyHydrateFilters(payload);
 
         if (payload.meta && payload.meta.degraded_to_global) {
           fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
@@ -260,6 +302,12 @@ ob_start();
         } else {
           comparisonBox.textContent = '';
         }
+      })
+      .catch(function () {
+        kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
+        comparisonBox.textContent = '';
+        fallbackNotice.textContent = '';
+        updatedAtEl.textContent = 'Error de actualización';
       });
   }
 
