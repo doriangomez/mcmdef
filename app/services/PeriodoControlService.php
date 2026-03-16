@@ -87,7 +87,13 @@ function periodo_control_validar_cronologia_cartera(PDO $pdo, string $periodo): 
         return 'No fue posible detectar el periodo de cartera.';
     }
 
-    $maxPeriodo = (string)(($pdo->query('SELECT MAX(periodo) AS periodo FROM control_periodos_cartera')->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
+    $sql = "SELECT MAX(periodo_detectado) AS periodo
+            FROM cargas_cartera
+            WHERE estado = 'activa'
+              AND activo = 1
+              AND periodo_detectado IS NOT NULL
+              AND periodo_detectado <> ''";
+    $maxPeriodo = (string)(($pdo->query($sql)->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
     if ($maxPeriodo !== '' && strcmp($periodo, $maxPeriodo) < 0) {
         return 'El periodo ' . $periodo . ' es anterior al último periodo cargado (' . $maxPeriodo . ').';
     }
