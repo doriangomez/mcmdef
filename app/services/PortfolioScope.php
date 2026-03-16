@@ -15,7 +15,7 @@ function portfolio_client_scope_sql(string $clientAlias = 'c', ?array $user = nu
     }
 
     return [
-        'sql' => " AND {$clientAlias}.responsable_usuario_id = ?",
+        'sql' => " AND ({$clientAlias}.responsable_usuario_id = ? OR {$clientAlias}.responsable_usuario_id IS NULL)",
         'params' => [(int)($user['id'] ?? 0)],
     ];
 }
@@ -28,7 +28,7 @@ function portfolio_document_scope_sql(string $documentAlias = 'd', ?array $user 
     }
 
     return [
-        'sql' => " AND EXISTS (SELECT 1 FROM clientes csc WHERE csc.id = {$documentAlias}.cliente_id AND csc.responsable_usuario_id = ?)",
+        'sql' => " AND EXISTS (SELECT 1 FROM clientes csc WHERE csc.id = {$documentAlias}.cliente_id AND (csc.responsable_usuario_id = ? OR csc.responsable_usuario_id IS NULL))",
         'params' => [(int)($user['id'] ?? 0)],
     ];
 }

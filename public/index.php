@@ -16,7 +16,7 @@ ob_start();
       <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" required></select></label>
       <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde" readonly></label>
       <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta" readonly></label>
-      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uen[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
+      <label class="filter-field"><span>UEN</span><select name="uen[]" id="filterUens" multiple data-placeholder="Seleccione UEN"></select></label>
       <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
       <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
       <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
@@ -32,6 +32,7 @@ ob_start();
     </form>
     <div class="hero-meta"><span class="dashboard-updated-at" id="dashboardUpdatedAt">Sin actualizar</span></div>
     <div id="comparisonBox" class="kpi-premium-subtext"></div>
+    <div id="dashboardFallbackNotice" class="kpi-premium-subtext"></div>
   </div>
 </section>
 
@@ -58,6 +59,7 @@ ob_start();
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
   var kpiGrid = document.getElementById('kpiGrid');
   var comparisonBox = document.getElementById('comparisonBox');
+  var fallbackNotice = document.getElementById('dashboardFallbackNotice');
   var selectAllUensBtn = document.getElementById('selectAllUens');
   var charts = {};
 
@@ -218,15 +220,9 @@ ob_start();
         hydrateSelect('filterUens', uens, selectedUens);
         if (uens.length === 0) {
           el.innerHTML = '';
-          var option = document.createElement('option');
-          option.value = '';
-          option.textContent = 'No existen UEN registradas para este periodo';
-          option.disabled = true;
-          option.selected = true;
-          el.appendChild(option);
           el.required = false;
         } else {
-          el.required = true;
+          el.required = false;
         }
         return uens;
       });
@@ -248,6 +244,12 @@ ob_start();
         document.getElementById('filterFechaHasta').value = payload.meta.selected_filters.fecha_hasta || payload.filter_options.fecha_hasta || '';
         document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
         document.getElementById('filterVista').value = payload.meta.selected_filters.vista || 'ejecutivo';
+
+        if (payload.meta && payload.meta.degraded_to_global) {
+          fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
+        } else {
+          fallbackNotice.textContent = '';
+        }
 
         var exportQuery = new URLSearchParams(new FormData(form)).toString();
         document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?> + (exportQuery ? '?' + exportQuery : '');
