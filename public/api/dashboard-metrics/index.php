@@ -67,7 +67,7 @@ $monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
 
 $periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
-$selectedPeriod = '';
+$selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : '';
 
 $periodStart = '';
 $periodEnd = '';
@@ -154,27 +154,75 @@ if ($fechaDesde !== '' && $fechaHasta !== '' && $fechaDesde > $fechaHasta) {
     [$fechaDesde, $fechaHasta] = [$fechaHasta, $fechaDesde];
 }
 
+$selectedRegional = '';
+if ($rawFilters['regional'] !== '' && isset($regionalSet[normalize($rawFilters['regional'])])) {
+    $selectedRegional = $rawFilters['regional'];
+}
+
+$selectedCanal = '';
+if ($rawFilters['canal'] !== '' && isset($canalSet[normalize($rawFilters['canal'])])) {
+    $selectedCanal = $rawFilters['canal'];
+}
+
+$selectedEmpleado = '';
+if ($rawFilters['empleado_ventas'] !== '' && isset($empleadoSet[normalize($rawFilters['empleado_ventas'])])) {
+    $selectedEmpleado = $rawFilters['empleado_ventas'];
+}
+
+$selectedCliente = '';
+if ($rawFilters['cliente'] !== '' && isset($clienteSet[normalize($rawFilters['cliente'])])) {
+    $selectedCliente = $rawFilters['cliente'];
+}
+
 $filters = [
-    'periodo' => '',
-    'fecha_desde' => '',
-    'fecha_hasta' => '',
-    'comparar_anterior' => false,
-    'regional' => '',
-    'canal' => '',
-    'empleado_ventas' => '',
-    'cliente' => '',
-    'uen' => [],
+    'periodo' => $selectedPeriod,
+    'fecha_desde' => $fechaDesde,
+    'fecha_hasta' => $fechaHasta,
+    'comparar_anterior' => $rawFilters['comparar_anterior'],
+    'regional' => $selectedRegional,
+    'canal' => $selectedCanal,
+    'empleado_ventas' => $selectedEmpleado,
+    'cliente' => $selectedCliente,
+    'uen' => $selectedUens,
     'vista' => $rawFilters['vista'],
 ];
 
-$scope = ['sql' => '', 'params' => []];
+$scope = user_portfolio_scope($pdo, $user ?? null, 'd', 'c');
 $where = ["d.estado_documento = 'activo'"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
-$uenScope = ['sql' => '', 'params' => []];
+$uenScope = uen_sql_condition('d.uens', $selectedUens);
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
     $params = array_merge($params, $uenScope['params']);
+}
+if ($filters['periodo'] !== '') {
+    $where[] = "$monthExpr = ?";
+    $params[] = $filters['periodo'];
+}
+if ($filters['fecha_desde'] !== '') {
+    $where[] = "$fechaExpr >= ?";
+    $params[] = $filters['fecha_desde'];
+}
+if ($filters['fecha_hasta'] !== '') {
+    $where[] = "$fechaExpr <= ?";
+    $params[] = $filters['fecha_hasta'];
+}
+if ($filters['regional'] !== '') {
+    $where[] = "$regionalExpr = ?";
+    $params[] = $filters['regional'];
+}
+if ($filters['canal'] !== '') {
+    $where[] = "$canalExpr = ?";
+    $params[] = $filters['canal'];
+}
+if ($filters['empleado_ventas'] !== '') {
+    $where[] = "$empleadoExpr = ?";
+    $params[] = $filters['empleado_ventas'];
+}
+if ($filters['cliente'] !== '') {
+    $where[] = "$clienteExpr = ?";
+    $params[] = $filters['cliente'];
 }
 $whereSql = ' WHERE ' . implode(' AND ', $where);
 

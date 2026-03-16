@@ -258,7 +258,7 @@ ob_start();
 
     if (uenEl && uenEl.options) {
       Array.prototype.forEach.call(uenEl.options, function (opt) {
-        if (opt.selected && opt.value) params.append('uen[]', opt.value);
+        if (opt.selected && opt.value) params.append('uen', opt.value);
       });
     }
 
@@ -284,9 +284,7 @@ ob_start();
   }
 
   function requestData() {
-    var query = buildDashboardQuery();
-    var url = query ? endpointUrl + '?' + query : endpointUrl;
-    fetch(url, { headers: { 'Accept': 'application/json' } })
+    fetch(endpointUrl + '?' + buildDashboardQuery(), { headers: { 'Accept': 'application/json' } })
       .then(async function (response) {
         var data = await response.json();
         console.log('Dashboard response:', data);
