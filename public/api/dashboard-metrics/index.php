@@ -133,6 +133,12 @@ if (empty($selectedUens) && !empty($uenOptions)) {
     $selectedUens = $uenOptions;
 }
 
+$uenFilterActive = !empty($selectedUens);
+$degradedFilters = [];
+if (!$uenFilterActive && $selectedPeriod !== '') {
+    $degradedFilters[] = 'uen';
+}
+
 $regionalSet = [];
 foreach ($regionalOptions as $value) { $regionalSet[normalize((string)$value)] = true; }
 $canalSet = [];
@@ -172,7 +178,7 @@ if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWE
 if ($filters['canal'] !== '') { $where[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['canal']; }
 if ($filters['empleado_ventas'] !== '') { $where[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $params[] = $filters['empleado_ventas']; }
 if ($filters['cliente'] !== '') { $where[] = "LOWER(TRIM($clienteExpr)) = LOWER(TRIM(?))"; $params[] = $filters['cliente']; }
-$uenScope = uen_sql_condition('d.uens', $filters['uen']);
+$uenScope = $uenFilterActive ? uen_sql_condition('d.uens', $filters['uen']) : ['sql' => '', 'params' => []];
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
     $params = array_merge($params, $uenScope['params']);
@@ -455,6 +461,8 @@ echo json_encode([
     'meta' => [
         'generated_at_human' => date('d/m/Y H:i:s'),
         'selected_filters' => $filters,
+        'degraded_to_global' => !empty($degradedFilters),
+        'degraded_filters' => $degradedFilters,
     ],
     'filter_options' => [
         'periodo' => $periodOptions,
@@ -486,7 +494,5 @@ echo json_encode([
         ],
     ],
     'empty' => $totalDocs === 0,
-    'empty_message' => $selectedPeriod !== '' && empty($uenOptions)
-        ? 'No existen UEN registradas para este periodo'
-        : 'Sin datos para los filtros seleccionados',
+    'empty_message' => 'Sin datos para los filtros seleccionados',
 ]);
