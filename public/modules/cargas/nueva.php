@@ -375,7 +375,7 @@ ob_start();
     <h3>Centro de control de cargas</h3>
     <span class="badge badge-info">Batch seguro</span>
   </div>
-  <form method="post" enctype="multipart/form-data" id="uploadCarteraForm" novalidate>
+  <form method="post" enctype="multipart/form-data" id="uploadCarteraForm" class="form-carga" novalidate>
       <p class="carga-template"><strong>Plantilla esperada (orden exacto):</strong><br>
         #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
       </p>
