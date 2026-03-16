@@ -303,10 +303,21 @@ ob_start();
 <section class="gd-grid-2">
   <article class="card">
     <h3>Cargar archivo de recaudo</h3>
-    <form method="post" enctype="multipart/form-data">
+    <form id="form-recaudo" method="post" enctype="multipart/form-data">
       <input type="hidden" name="upload_type" value="recaudo">
-      <label>Archivo recaudo (CSV / XLSX / XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
-      <button class="btn" type="submit">Cargar</button>
+      <label>Archivo recaudo (CSV / XLSX / XLS) <input id="archivo-recaudo" type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
+      <button id="btn-cargar-recaudo" class="btn" type="submit">Cargar</button>
+      <div id="loader-recaudo" class="loader-recaudo" style="display:none;" role="status" aria-live="polite">
+        <div class="spinner"></div>
+        <p class="loader-title">Procesando archivo de recaudo...</p>
+        <p class="loader-subtitle">Esto puede tardar algunos segundos dependiendo del tamaño del archivo.</p>
+        <ul class="loader-steps">
+          <li>Cargando archivo...</li>
+          <li>Validando registros...</li>
+          <li>Ejecutando conciliación...</li>
+          <li>Finalizando proceso...</li>
+        </ul>
+      </div>
     </form>
   </article>
   <article class="card">
@@ -467,6 +478,21 @@ ob_start();
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
+  var formRecaudo = document.getElementById('form-recaudo');
+  if (formRecaudo) {
+    formRecaudo.addEventListener('submit', function () {
+      var loader = document.getElementById('loader-recaudo');
+      var btnCargar = document.getElementById('btn-cargar-recaudo');
+      var inputArchivo = document.getElementById('archivo-recaudo');
+      if (loader) loader.style.display = 'block';
+      if (btnCargar) {
+        btnCargar.disabled = true;
+        btnCargar.setAttribute('aria-busy', 'true');
+      }
+      if (inputArchivo) inputArchivo.disabled = true;
+    });
+  }
+
   if (!window.Chart) return;
   var currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   function bar(id, labels, data, color) {
@@ -498,6 +524,49 @@ ob_start();
   });
 })();
 </script>
+<style>
+  .loader-recaudo {
+    margin-top: 12px;
+    text-align: center;
+    border: 1px solid #dbeafe;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #1b4b8c;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 8px auto;
+  }
+
+  .loader-title {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .loader-subtitle {
+    margin: 4px 0 8px;
+    color: #334155;
+  }
+
+  .loader-steps {
+    margin: 0;
+    padding-left: 20px;
+    text-align: left;
+    display: inline-block;
+    color: #334155;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
 <?php
 $content = ob_get_clean();
 render_layout('Recaudos', $content);
