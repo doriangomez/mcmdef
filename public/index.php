@@ -279,8 +279,15 @@ ob_start();
     var query = buildDashboardQuery();
     var url = query ? endpointUrl + '?' + query : endpointUrl;
     fetch(url, { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function (payload) {
+        if (!payload || payload.ok !== true) {
+          throw new Error('API error');
+        }
+
         safelyHydrateFilters(payload);
 
         if (payload.meta && payload.meta.degraded_to_global) {
