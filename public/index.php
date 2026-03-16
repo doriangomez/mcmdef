@@ -11,12 +11,12 @@ ob_start();
     <p class="hero-copy">Vista separada para análisis ejecutivo y operación de cobranza.</p>
   </div>
   <div class="hero-controls">
-    <form id="dashboardFilters" class="dashboard-filters" autocomplete="off" style="display:none;">
+    <form id="filtersForm" class="dashboard-filters" autocomplete="off">
       <select name="vista" id="filterVista"><option value="ejecutivo" selected>Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select>
       <select name="periodo" id="filterPeriodo"></select>
       <input type="date" name="fecha_desde" id="filterFechaDesde" readonly>
       <input type="date" name="fecha_hasta" id="filterFechaHasta" readonly>
-      <select name="uen[]" id="filterUens" multiple></select>
+      <select name="uen[]" id="filterUen" multiple></select>
       <select name="regional" id="filterRegional"><option value="">Todas las regionales</option></select>
       <select name="canal" id="filterCanal"><option value="">Todos los canales</option></select>
       <select name="empleado_ventas" id="filterEmpleado"><option value="">Todos los asesores</option></select>
@@ -51,7 +51,7 @@ ob_start();
 (function () {
   var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
   var uensEndpointUrl = <?= json_encode(app_url('api/uens/')) ?>;
-  var form = document.getElementById('dashboardFilters');
+  var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
   var clearButton = document.getElementById('dashboardClear');
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
   var kpiGrid = document.getElementById('kpiGrid');
@@ -211,9 +211,9 @@ ob_start();
   }
 
   function loadUensByPeriod(periodo, selected) {
-    var el = document.getElementById('filterUens');
+    var el = document.getElementById('filterUen') || document.getElementById('filterUens');
     if (!periodo) {
-      hydrateSelect('filterUens', [], []);
+      hydrateSelect('filterUen', [], []);
       return Promise.resolve([]);
     }
 
@@ -222,7 +222,7 @@ ob_start();
       .then(function (payload) {
         var uens = (payload && payload.uens) || [];
         var selectedUens = Array.isArray(selected) && selected.length ? selected : uens;
-        hydrateSelect('filterUens', uens, selectedUens);
+        hydrateSelect('filterUen', uens, selectedUens);
         if (uens.length === 0) {
           el.innerHTML = '';
           el.required = false;
@@ -244,7 +244,7 @@ ob_start();
     var empleadoEl = document.getElementById('filterEmpleado');
     var clienteEl = document.getElementById('filterCliente');
     var compararEl = document.getElementById('filterComparar');
-    var uenEl = document.getElementById('filterUens');
+    var uenEl = document.getElementById('filterUen') || document.getElementById('filterUens');
 
     if (vistaEl && vistaEl.value) params.set('vista', vistaEl.value);
     if (periodoEl && periodoEl.value) params.set('periodo', periodoEl.value);
@@ -348,7 +348,7 @@ ob_start();
   });
   if (selectAllUensBtn) {
     selectAllUensBtn.addEventListener('click', function () {
-      var el = document.getElementById('filterUens');
+      var el = document.getElementById('filterUen') || document.getElementById('filterUens');
       Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
       requestData();
     });
@@ -357,7 +357,7 @@ ob_start();
     clearButton.addEventListener('click', function () {
       form.reset();
       loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
-        Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
+        Array.prototype.forEach.call((document.getElementById('filterUen') || document.getElementById('filterUens')).options, function (opt) { opt.selected = true; });
         requestData();
       });
     });
