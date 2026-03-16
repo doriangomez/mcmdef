@@ -233,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             $tieneCamposVersionado = $hasHashSha && column_exists($pdo, 'cargas_cartera', 'periodo_detectado') && column_exists($pdo, 'cargas_cartera', 'version') && column_exists($pdo, 'cargas_cartera', 'activo');
 
             if (!$hayErrorEstructural && !$hayErrores && $periodoDetectado !== null && $tieneCamposVersionado) {
-                $lastStmt = $pdo->query('SELECT MAX(periodo_detectado) FROM cargas_cartera WHERE periodo_detectado IS NOT NULL');
+                $lastStmt = $pdo->query("SELECT MAX(periodo_detectado) FROM cargas_cartera WHERE estado = 'activa' AND activo = 1 AND periodo_detectado IS NOT NULL AND periodo_detectado <> ''");
                 $ultimoPeriodo = (string)($lastStmt->fetchColumn() ?: '');
                 if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo) {
                     $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: el periodo detectado es anterior al último cargado (' . $ultimoPeriodo . '). La carga fue bloqueada.');
