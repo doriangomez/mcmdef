@@ -350,48 +350,66 @@ $recaudoSql = "SELECT
     GROUP BY periodo
     ORDER BY periodo DESC";
 $recaudoRows = [];
-if ($filters['periodo'] !== '') {
-    $recaudoStmt = $pdo->prepare($recaudoSql);
-    $recaudoStmt->execute([$filters['periodo']]);
-    $recaudoRows = $recaudoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-}
-$recaudoTotal = array_reduce($recaudoRows, static fn(float $acc, array $row): float => $acc + (float)$row['recaudo_periodo'], 0.0);
-$recuperacionPct = $carteraTotal > 0 ? ($recaudoTotal / $carteraTotal) * 100 : 0;
+$recaudoTotal = 0.0;
+$recuperacionPct = 0.0;
+$recaudoRealMes = 0.0;
 
 $recaudoState = [
     'loaded' => false,
     'integrated' => false,
     'message' => 'Pendiente carga de recaudo',
 ];
-if ($filters['periodo'] !== '') {
-    $recaudoStatusStmt = $pdo->prepare('SELECT
-        COUNT(*) AS total,
-        COALESCE(SUM(CASE WHEN cartera_documento_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS integrados
-        FROM recaudo_detalle
-        WHERE periodo = ?');
-    $recaudoStatusStmt->execute([$filters['periodo']]);
-    $recaudoStatus = $recaudoStatusStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'integrados' => 0];
-    $recaudoRowsCount = (int)($recaudoStatus['total'] ?? 0);
-    $integradosCount = (int)($recaudoStatus['integrados'] ?? 0);
-    $recaudoState['loaded'] = $recaudoRowsCount > 0;
-    $recaudoState['integrated'] = $integradosCount > 0;
-    if (!$recaudoState['loaded']) {
-        $recaudoState['message'] = 'Pendiente carga de recaudo';
-    } elseif (!$recaudoState['integrated']) {
-        $recaudoState['message'] = 'Pendiente integración de recaudo';
-    } else {
-        $recaudoState['message'] = '';
-    }
-}
 
 $budgetMonth = $filters['periodo'] !== '' ? $filters['periodo'] : date('Y-m');
+
+try {
+    if ($filters['periodo'] !== '') {
+        $recaudoStmt = $pdo->prepare($recaudoSql);
+        $recaudoStmt->execute([$filters['periodo']]);
+        $recaudoRows = $recaudoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $recaudoStatusStmt = $pdo->prepare('SELECT
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN cartera_documento_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS integrados
+            FROM recaudo_detalle
+            WHERE periodo = ?');
+        $recaudoStatusStmt->execute([$filters['periodo']]);
+        $recaudoStatus = $recaudoStatusStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'integrados' => 0];
+        $recaudoRowsCount = (int)($recaudoStatus['total'] ?? 0);
+        $integradosCount = (int)($recaudoStatus['integrados'] ?? 0);
+        $recaudoState['loaded'] = $recaudoRowsCount > 0;
+        $recaudoState['integrated'] = $integradosCount > 0;
+        if (!$recaudoState['loaded']) {
+            $recaudoState['message'] = 'Pendiente carga de recaudo';
+        } elseif (!$recaudoState['integrated']) {
+            $recaudoState['message'] = 'Pendiente integración de recaudo';
+        } else {
+            $recaudoState['message'] = '';
+        }
+    }
+
+    $recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS recaudo_real FROM recaudo_detalle d INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
+    $recaudoMonthStmt->execute([$budgetMonth]);
+    $recaudoRealMes = (float)(($recaudoMonthStmt->fetch(PDO::FETCH_ASSOC) ?: ['recaudo_real' => 0])['recaudo_real'] ?? 0);
+} catch (Throwable $e) {
+    $recaudoRows = [];
+    $recaudoTotal = 0.0;
+    $recuperacionPct = 0.0;
+    $recaudoRealMes = 0.0;
+    $recaudoState = [
+        'loaded' => false,
+        'integrated' => false,
+        'message' => 'Pendiente procesamiento de recaudo',
+    ];
+}
+
+$recaudoTotal = array_reduce($recaudoRows, static fn(float $acc, array $row): float => $acc + (float)$row['recaudo_periodo'], 0.0);
+$recuperacionPct = $carteraTotal > 0 ? ($recaudoTotal / $carteraTotal) * 100 : 0;
+
 $budgetStmt = $pdo->prepare('SELECT COALESCE(SUM(valor_presupuesto),0) AS presupuesto FROM presupuesto_recaudo WHERE periodo = ?');
 $budgetStmt->execute([$budgetMonth]);
 $budget = (float)(($budgetStmt->fetch(PDO::FETCH_ASSOC) ?: ['presupuesto' => 0])['presupuesto'] ?? 0);
 $hasBudget = $budget > 0;
-$recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS real FROM recaudo_detalle d INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
-$recaudoMonthStmt->execute([$budgetMonth]);
-$recaudoRealMes = (float)(($recaudoMonthStmt->fetch(PDO::FETCH_ASSOC) ?: ['real' => 0])['real'] ?? 0);
 
 $rotationDays = $recaudoTotal > 0 ? ($carteraTotal / $recaudoTotal) * 30 : 0;
 
