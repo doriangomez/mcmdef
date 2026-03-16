@@ -74,3 +74,18 @@ Usuario inicial:
 - La validación recorre el archivo completo y acumula errores por fila/campo/valor/descripción antes de insertar.
 - Si hay un solo error, no se inserta ningún dato.
 - Se habilita descarga de reporte de errores en CSV desde la misma pantalla de carga.
+
+## Diagnóstico externo de dashboard (CLI)
+Si necesitas diagnosticar conexión/carga/filtros sin tocar la app, usa:
+
+```bash
+php tools_dashboard_diagnostico.php --host=127.0.0.1 --port=3306 --db=mcm_cartera --user=root --pass=secret --formato=txt
+```
+
+También puedes exportar JSON para compartir resultados:
+
+```bash
+php tools_dashboard_diagnostico.php --host=127.0.0.1 --port=3306 --db=mcm_cartera --user=root --pass=secret --periodo=2026-02 --formato=json
+```
+
+El reporte cubre flujo: **carga → validación → dashboard** e informa si filtros (UEN/canal/regional/empleado/cliente) están vacíos.
