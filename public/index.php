@@ -280,25 +280,35 @@ ob_start();
     var url = query ? endpointUrl + '?' + query : endpointUrl;
     fetch(url, { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
-      .then(function (payload) {
-        safelyHydrateFilters(payload);
+      .then(function (data) {
+        console.log('Dashboard data:', data);
 
-        if (payload.meta && payload.meta.degraded_to_global) {
+        if (!data) {
+          kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
+          comparisonBox.textContent = '';
+          fallbackNotice.textContent = '';
+          updatedAtEl.textContent = 'Error de actualización';
+          return;
+        }
+
+        safelyHydrateFilters(data);
+
+        if (data.meta && data.meta.degraded_to_global) {
           fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
         } else {
           fallbackNotice.textContent = '';
         }
 
         document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?>;
-        renderKpis(payload.kpis || [], payload.empty_message || '');
-        renderCharts(payload.charts || {});
-        updatedAtEl.textContent = 'Actualizado: ' + (payload.meta.generated_at_human || '--');
+        renderKpis(data.kpis);
+        renderCharts(data.charts);
+        updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
 
-        if (payload.comparison) {
-          comparisonBox.innerHTML = 'Comparación periodo anterior (' + payload.comparison.periodo_anterior.desde + ' a ' + payload.comparison.periodo_anterior.hasta + '): ' +
-            'Cartera ' + decimal.format(payload.comparison.variacion_cartera_pct || 0) + '% | ' +
-            'Mora ' + decimal.format(payload.comparison.variacion_mora_pct || 0) + '% | ' +
-            'Exposición crítica ' + decimal.format(payload.comparison.variacion_exposicion_pct || 0) + '%';
+        if (data.comparison) {
+          comparisonBox.innerHTML = 'Comparación periodo anterior (' + data.comparison.periodo_anterior.desde + ' a ' + data.comparison.periodo_anterior.hasta + '): ' +
+            'Cartera ' + decimal.format(data.comparison.variacion_cartera_pct || 0) + '% | ' +
+            'Mora ' + decimal.format(data.comparison.variacion_mora_pct || 0) + '% | ' +
+            'Exposición crítica ' + decimal.format(data.comparison.variacion_exposicion_pct || 0) + '%';
         } else {
           comparisonBox.textContent = '';
         }
