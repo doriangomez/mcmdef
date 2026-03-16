@@ -21,6 +21,11 @@ $params = [];
 $where = ["d.estado_documento = 'activo'"];
 $scope = portfolio_document_scope_sql('d', $user);
 $selectedUens = uen_apply_scope(uen_requested_values('uen'), uen_user_allowed_values($pdo, $user));
+$hasUenValuesStmt = $pdo->query("SELECT 1 FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' LIMIT 1");
+$hasUenValues = (bool)$hasUenValuesStmt->fetchColumn();
+if (!$hasUenValues) {
+    $selectedUens = [];
+}
 if ($scope['sql'] !== '') {
     $where[] = ltrim($scope['sql'], ' AND');
     $params = array_merge($params, $scope['params']);
@@ -31,7 +36,7 @@ if ($uenScope['sql'] !== '') {
     $params = array_merge($params, $uenScope['params']);
 }
 if ($responsableId > 0) {
-    $where[] = 'c.responsable_usuario_id = ?';
+    $where[] = '(c.responsable_usuario_id = ? OR c.responsable_usuario_id IS NULL)';
     $params[] = $responsableId;
 }
 $whereSql = implode(' AND ', $where);
