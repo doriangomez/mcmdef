@@ -3,15 +3,31 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
-require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
-$user = current_user();
-$isAdmin = portfolio_is_admin($user);
-$scope = portfolio_document_scope_sql('d', $user);
-$baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
-$baseParams = $scope['params'];
+$baseWhere = ' WHERE d.estado_documento = "activo"';
+$baseParams = [];
+
+
+$globalKpiStmt = $pdo->query(
+    'SELECT
+        COUNT(*) AS total_documentos,
+        COUNT(DISTINCT d.cliente_id) AS total_clientes,
+        COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera
+     FROM cartera_documentos d
+     WHERE d.estado_documento = "activo"'
+);
+$globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$lastLoadStmt = $pdo->query(
+    'SELECT fecha_carga, periodo_detectado, nombre_archivo
+     FROM cargas_cartera
+     WHERE estado = "activa" AND activo = 1
+     ORDER BY fecha_carga DESC
+     LIMIT 1'
+);
+$lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
 
 $globalKpiStmt = $pdo->query(
@@ -160,9 +176,10 @@ $compromisosStmt = $pdo->prepare(
      FROM bitacora_gestion bg
      INNER JOIN cartera_documentos d ON d.id = bg.id_documento
      LEFT JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.estado_documento = "activo"' . $scope['sql']
+     WHERE d.estado_documento = "activo"
+'
 );
-$compromisosStmt->execute($scope['params']);
+$compromisosStmt->execute($baseParams);
 $compromisos = $compromisosStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $actividadStmt = $pdo->prepare(
@@ -171,15 +188,15 @@ $actividadStmt = $pdo->prepare(
         bg.tipo_gestion,
         bg.estado_compromiso,
         d.nro_documento,
-        c.nombre AS cliente
+        COALESCE(NULLIF(TRIM(c.nombre), ""), NULLIF(TRIM(d.cliente), ""), CONCAT("Cliente #", d.cliente_id)) AS cliente
      FROM bitacora_gestion bg
      INNER JOIN cartera_documentos d ON d.id = bg.id_documento
      LEFT JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
+     WHERE d.estado_documento = "activo"
      ORDER BY bg.created_at DESC
      LIMIT 10'
 );
-$actividadStmt->execute($scope['params']);
+$actividadStmt->execute($baseParams);
 $actividadRows = $actividadStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $totalVencido = (float)($kpi['cartera_vencida'] ?? 0);
@@ -230,7 +247,6 @@ foreach ($paretoRows as $row) {
 $globalDocs = (int)($globalKpi['total_documentos'] ?? 0);
 $globalSaldo = (float)($globalKpi['total_cartera'] ?? 0);
 $globalClientes = (int)($globalKpi['total_clientes'] ?? 0);
-$scopeWarning = !$isAdmin && $globalDocs > 0 && $totalDocumentos === 0;
 $sinCarteraActiva = $globalDocs === 0;
 
 ob_start();
@@ -241,7 +257,7 @@ ob_start();
     <p class="kpi-subtext">Rediseño funcional: el tablero inicia con cartera total cargada. Recaudo y presupuesto quedan como capas adicionales.</p>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-    <span class="badge" style="background:#f59e0b; color:#111827;">Vista base sin filtros avanzados</span>
+    <span class="badge" style="background:#f59e0b; color:#111827;">Vista total de cartera (sin filtros)</span>
     <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
   </div>
@@ -255,13 +271,11 @@ ob_start();
 <section class="card" style="margin-bottom:16px;">
   <h3 style="margin-top:0;">Estado de datos cargados</h3>
   <p style="margin:0 0 8px; color:#334155;">Documentos activos (global): <strong><?= number_format($globalDocs, 0, ',', '.') ?></strong> · Clientes con cartera (global): <strong><?= number_format($globalClientes, 0, ',', '.') ?></strong> · Saldo global: <strong>$<?= number_format($globalSaldo, 0, ',', '.') ?></strong>.</p>
-  <p style="margin:0; color:#334155;">Alcance de usuario actual: <strong><?= number_format($totalDocumentos, 0, ',', '.') ?></strong> documentos visibles<?php if ($assignedClientsCount !== null): ?> · <strong><?= number_format($assignedClientsCount, 0, ',', '.') ?></strong> clientes asignados<?php endif; ?>.</p>
+  <p style="margin:0; color:#334155;">Datos visibles en dashboard: <strong><?= number_format($totalDocumentos, 0, ',', '.') ?></strong> documentos activos.</p>
   <?php if ($lastLoad): ?>
     <p style="margin:8px 0 0; color:#334155;">Última carga activa: <strong><?= htmlspecialchars((string)$lastLoad['fecha_carga']) ?></strong><?php if (!empty($lastLoad['periodo_detectado'])): ?> · Periodo: <strong><?= htmlspecialchars((string)$lastLoad['periodo_detectado']) ?></strong><?php endif; ?> · Archivo: <strong><?= htmlspecialchars((string)$lastLoad['nombre_archivo']) ?></strong>.</p>
   <?php endif; ?>
-  <?php if ($scopeWarning): ?>
-    <p style="margin:10px 0 0; color:#b45309; font-weight:600;">Hay cartera activa en base de datos, pero tu usuario no tiene clientes en alcance para este módulo. Se requiere asignar clientes al responsable para visualizar datos.</p>
-  <?php elseif ($sinCarteraActiva): ?>
+  <?php if ($sinCarteraActiva): ?>
     <p style="margin:10px 0 0; color:#b45309; font-weight:600;">No hay cartera activa disponible. Se necesita una carga de cartera activa para poblar el dashboard.</p>
   <?php endif; ?>
 </section>
