@@ -67,7 +67,7 @@ $monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
 
 $periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
-$selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
+$selectedPeriod = '';
 
 $periodStart = '';
 $periodEnd = '';
@@ -133,6 +133,12 @@ if (empty($selectedUens) && !empty($uenOptions)) {
     $selectedUens = $uenOptions;
 }
 
+$uenFilterActive = !empty($selectedUens);
+$degradedFilters = [];
+if (!$uenFilterActive && $selectedPeriod !== '') {
+    $degradedFilters[] = 'uen';
+}
+
 $regionalSet = [];
 foreach ($regionalOptions as $value) { $regionalSet[normalize((string)$value)] = true; }
 $canalSet = [];
@@ -149,30 +155,23 @@ if ($fechaDesde !== '' && $fechaHasta !== '' && $fechaDesde > $fechaHasta) {
 }
 
 $filters = [
-    'periodo' => $selectedPeriod,
-    'fecha_desde' => $fechaDesde,
-    'fecha_hasta' => $fechaHasta,
-    'comparar_anterior' => $rawFilters['comparar_anterior'],
-    'regional' => isset($regionalSet[normalize($rawFilters['regional'])]) ? $rawFilters['regional'] : '',
-    'canal' => isset($canalSet[normalize($rawFilters['canal'])]) ? $rawFilters['canal'] : '',
-    'empleado_ventas' => isset($empleadoSet[normalize($rawFilters['empleado_ventas'])]) ? $rawFilters['empleado_ventas'] : '',
-    'cliente' => isset($clienteSet[normalize($rawFilters['cliente'])]) ? $rawFilters['cliente'] : '',
-    'uen' => $selectedUens,
+    'periodo' => '',
+    'fecha_desde' => '',
+    'fecha_hasta' => '',
+    'comparar_anterior' => false,
+    'regional' => '',
+    'canal' => '',
+    'empleado_ventas' => '',
+    'cliente' => '',
+    'uen' => [],
     'vista' => $rawFilters['vista'],
 ];
 
-$scope = portfolio_client_scope_sql('c');
+$scope = ['sql' => '', 'params' => []];
 $where = ["d.estado_documento = 'activo'"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $where[] = "$monthExpr = ?"; $params[] = $filters['periodo']; }
-if ($filters['fecha_desde'] !== '') { $where[] = "$fechaExpr >= ?"; $params[] = $filters['fecha_desde']; }
-if ($filters['fecha_hasta'] !== '') { $where[] = "$fechaExpr <= ?"; $params[] = $filters['fecha_hasta']; }
-if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
-if ($filters['canal'] !== '') { $where[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['canal']; }
-if ($filters['empleado_ventas'] !== '') { $where[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $params[] = $filters['empleado_ventas']; }
-if ($filters['cliente'] !== '') { $where[] = "LOWER(TRIM($clienteExpr)) = LOWER(TRIM(?))"; $params[] = $filters['cliente']; }
-$uenScope = uen_sql_condition('d.uens', $filters['uen']);
+$uenScope = ['sql' => '', 'params' => []];
 if ($uenScope['sql'] !== '') {
     $where[] = ltrim($uenScope['sql'], ' AND');
     $params = array_merge($params, $uenScope['params']);
@@ -272,13 +271,6 @@ foreach ($agingDefs as $def) {
 $trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $trendWhere[] = "DATE_FORMAT($fechaExpr, '%Y-%m') = ?"; $trendParams[] = $filters['periodo']; }
-if ($filters['fecha_desde'] !== '') { $trendWhere[] = "$fechaExpr >= ?"; $trendParams[] = $filters['fecha_desde']; }
-if ($filters['fecha_hasta'] !== '') { $trendWhere[] = "$fechaExpr <= ?"; $trendParams[] = $filters['fecha_hasta']; }
-if ($filters['regional'] !== '') { $trendWhere[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['regional']; }
-if ($filters['canal'] !== '') { $trendWhere[] = "LOWER(TRIM($canalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['canal']; }
-if ($filters['empleado_ventas'] !== '') { $trendWhere[] = "LOWER(TRIM($empleadoExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['empleado_ventas']; }
-if ($filters['cliente'] !== '') { $trendWhere[] = "LOWER(TRIM($clienteExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['cliente']; }
 if ($uenScope['sql'] !== '') {
     $trendWhere[] = ltrim($uenScope['sql'], ' AND');
     $trendParams = array_merge($trendParams, $uenScope['params']);
@@ -455,6 +447,8 @@ echo json_encode([
     'meta' => [
         'generated_at_human' => date('d/m/Y H:i:s'),
         'selected_filters' => $filters,
+        'degraded_to_global' => false,
+        'degraded_filters' => [],
     ],
     'filter_options' => [
         'periodo' => $periodOptions,
@@ -486,7 +480,5 @@ echo json_encode([
         ],
     ],
     'empty' => $totalDocs === 0,
-    'empty_message' => $selectedPeriod !== '' && empty($uenOptions)
-        ? 'No existen UEN registradas para este periodo'
-        : 'Sin datos para los filtros seleccionados',
+    'empty_message' => 'Sin datos para los filtros seleccionados',
 ]);

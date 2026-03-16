@@ -11,27 +11,25 @@ ob_start();
     <p class="hero-copy">Vista separada para análisis ejecutivo y operación de cobranza.</p>
   </div>
   <div class="hero-controls">
-    <form id="dashboardFilters" class="dashboard-filters" autocomplete="off">
-      <label class="filter-field"><span>Vista</span><select name="vista" id="filterVista"><option value="ejecutivo">Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select></label>
-      <label class="filter-field"><span>Periodo</span><select name="periodo" id="filterPeriodo" required></select></label>
-      <label class="filter-field"><span>Fecha desde</span><input type="date" name="fecha_desde" id="filterFechaDesde" readonly></label>
-      <label class="filter-field"><span>Fecha hasta</span><input type="date" name="fecha_hasta" id="filterFechaHasta" readonly></label>
-      <label class="filter-field"><span>UEN (obligatorio)</span><select name="uen[]" id="filterUens" multiple required data-placeholder="Seleccione UEN"></select></label>
-      <label class="filter-field"><span>Regional</span><select name="regional" id="filterRegional" data-placeholder="Todas las regionales"><option value="">Todas las regionales</option></select></label>
-      <label class="filter-field"><span>Canal</span><select name="canal" id="filterCanal" data-placeholder="Todos los canales"><option value="">Todos los canales</option></select></label>
-      <label class="filter-field"><span>Empleado de Ventas</span><select name="empleado_ventas" id="filterEmpleado" data-placeholder="Todos los asesores"><option value="">Todos los asesores</option></select></label>
-      <label class="filter-field"><span>Cliente</span><select name="cliente" id="filterCliente" data-placeholder="Todos los clientes"><option value="">Todos los clientes</option></select></label>
-      <label class="filter-field" style="display:flex;align-items:center;gap:8px;padding-top:20px;"><input type="checkbox" name="comparar_anterior" value="1" id="filterComparar"> Comparar con periodo anterior</label>
-      <div class="filter-actions">
-        <button type="button" class="btn btn-secondary" id="selectAllUens">Seleccionar todas las UEN</button>
-        <button type="submit" class="btn">Aplicar</button>
-        <button type="button" class="btn btn-secondary" id="dashboardClear">Limpiar</button>
-        <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
-        <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a dashboard operativo (detalle)</a>
-      </div>
+    <form id="dashboardFilters" class="dashboard-filters" autocomplete="off" style="display:none;">
+      <select name="vista" id="filterVista"><option value="ejecutivo" selected>Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select>
+      <select name="periodo" id="filterPeriodo"></select>
+      <input type="date" name="fecha_desde" id="filterFechaDesde" readonly>
+      <input type="date" name="fecha_hasta" id="filterFechaHasta" readonly>
+      <select name="uen[]" id="filterUens" multiple></select>
+      <select name="regional" id="filterRegional"><option value="">Todas las regionales</option></select>
+      <select name="canal" id="filterCanal"><option value="">Todos los canales</option></select>
+      <select name="empleado_ventas" id="filterEmpleado"><option value="">Todos los asesores</option></select>
+      <select name="cliente" id="filterCliente"><option value="">Todos los clientes</option></select>
+      <input type="checkbox" name="comparar_anterior" value="1" id="filterComparar">
     </form>
+    <div class="filter-actions">
+      <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
+      <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a dashboard operativo (detalle)</a>
+    </div>
     <div class="hero-meta"><span class="dashboard-updated-at" id="dashboardUpdatedAt">Sin actualizar</span></div>
     <div id="comparisonBox" class="kpi-premium-subtext"></div>
+    <div id="dashboardFallbackNotice" class="kpi-premium-subtext"></div>
   </div>
 </section>
 
@@ -58,6 +56,7 @@ ob_start();
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
   var kpiGrid = document.getElementById('kpiGrid');
   var comparisonBox = document.getElementById('comparisonBox');
+  var fallbackNotice = document.getElementById('dashboardFallbackNotice');
   var selectAllUensBtn = document.getElementById('selectAllUens');
   var charts = {};
 
@@ -218,23 +217,16 @@ ob_start();
         hydrateSelect('filterUens', uens, selectedUens);
         if (uens.length === 0) {
           el.innerHTML = '';
-          var option = document.createElement('option');
-          option.value = '';
-          option.textContent = 'No existen UEN registradas para este periodo';
-          option.disabled = true;
-          option.selected = true;
-          el.appendChild(option);
           el.required = false;
         } else {
-          el.required = true;
+          el.required = false;
         }
         return uens;
       });
   }
 
   function requestData() {
-    var query = new URLSearchParams(new FormData(form)).toString();
-    fetch(endpointUrl + (query ? '?' + query : ''), { headers: { 'Accept': 'application/json' } })
+    fetch(endpointUrl, { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (payload) {
         hydrateSelect('filterRegional', payload.filter_options.regional, payload.meta.selected_filters.regional);
@@ -249,8 +241,13 @@ ob_start();
         document.getElementById('filterComparar').checked = !!payload.meta.selected_filters.comparar_anterior;
         document.getElementById('filterVista').value = payload.meta.selected_filters.vista || 'ejecutivo';
 
-        var exportQuery = new URLSearchParams(new FormData(form)).toString();
-        document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?> + (exportQuery ? '?' + exportQuery : '');
+        if (payload.meta && payload.meta.degraded_to_global) {
+          fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
+        } else {
+          fallbackNotice.textContent = '';
+        }
+
+        document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?>;
         renderKpis(payload.kpis || [], payload.empty_message || '');
         renderCharts(payload.charts || {});
         updatedAtEl.textContent = 'Actualizado: ' + (payload.meta.generated_at_human || '--');
@@ -274,18 +271,22 @@ ob_start();
     }
     requestData();
   });
-  selectAllUensBtn.addEventListener('click', function () {
-    var el = document.getElementById('filterUens');
-    Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
-    requestData();
-  });
-  clearButton.addEventListener('click', function () {
-    form.reset();
-    loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
-      Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
+  if (selectAllUensBtn) {
+    selectAllUensBtn.addEventListener('click', function () {
+      var el = document.getElementById('filterUens');
+      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
       requestData();
     });
-  });
+  }
+  if (clearButton) {
+    clearButton.addEventListener('click', function () {
+      form.reset();
+      loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
+        Array.prototype.forEach.call(document.getElementById('filterUens').options, function (opt) { opt.selected = true; });
+        requestData();
+      });
+    });
+  }
   requestData();
 })();
 </script>
