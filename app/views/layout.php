@@ -220,7 +220,7 @@ function render_layout(string $title, string $content): void
         </footer>
       </div>
 
-      <div id="loader-global" aria-live="polite" aria-busy="true">
+      <div id="loader-global" aria-live="polite" aria-busy="true" role="status">
         <div class="loader-box">
           <div class="loader-spinner"></div>
           <div id="loader-message">Procesando archivo...</div>
@@ -369,6 +369,84 @@ function render_layout(string $title, string $content): void
 
           window.addEventListener('pageshow', loaderHide);
           window.addEventListener('load', loaderHide);
+        })();
+
+        (function () {
+          var loaderTimer = null;
+          var loaderSteps = [
+            { progress: 10, message: 'Validando archivo...' },
+            { progress: 40, message: 'Leyendo registros...' },
+            { progress: 70, message: 'Procesando conciliación...' },
+            { progress: 90, message: 'Guardando información...' },
+            { progress: 100, message: 'Finalizando proceso...' }
+          ];
+
+          window.loaderShow = function (message) {
+            var loader = document.getElementById('loader-global');
+            var loaderMessage = document.getElementById('loader-message');
+            if (!loader || !loaderMessage) return;
+
+            loader.style.display = 'flex';
+            if (message) {
+              loaderMessage.innerText = message;
+            }
+          };
+
+          window.loaderProgress = function (percent) {
+            var loaderBar = document.getElementById('loader-progress');
+            if (!loaderBar) return;
+            loaderBar.style.width = percent + '%';
+          };
+
+          window.loaderHide = function () {
+            var loader = document.getElementById('loader-global');
+            if (!loader) return;
+
+            loader.style.display = 'none';
+            window.loaderProgress(0);
+            if (loaderTimer) {
+              window.clearInterval(loaderTimer);
+              loaderTimer = null;
+            }
+          };
+
+          document.querySelectorAll('.form-carga').forEach(function (form) {
+            form.addEventListener('submit', function () {
+              var submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
+              if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.setAttribute('aria-busy', 'true');
+              }
+
+              window.loaderShow(loaderSteps[0].message);
+              window.loaderProgress(loaderSteps[0].progress);
+
+              var index = 1;
+              if (loaderTimer) {
+                window.clearInterval(loaderTimer);
+              }
+              loaderTimer = window.setInterval(function () {
+                if (index >= loaderSteps.length) {
+                  window.clearInterval(loaderTimer);
+                  loaderTimer = null;
+                  return;
+                }
+
+                var step = loaderSteps[index];
+                window.loaderShow(step.message);
+                window.loaderProgress(step.progress);
+                index += 1;
+              }, 900);
+            });
+          });
+
+          window.addEventListener('pageshow', function () {
+            window.loaderHide();
+          });
+
+          window.addEventListener('load', function () {
+            window.loaderHide();
+          });
         })();
       </script>
     </body>
