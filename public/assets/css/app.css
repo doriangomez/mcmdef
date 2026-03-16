@@ -1444,6 +1444,10 @@ textarea {
   margin-bottom: 16px;
 }
 
+.gd-kpi-grid-wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .gd-kpi-card {
   background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
   color: #f8fafc;
@@ -1468,6 +1472,62 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.gd-view-switch {
+  display: inline-flex;
+  gap: 8px;
+  margin: 0 0 16px;
+  background: #e2e8f0;
+  border-radius: 12px;
+  padding: 6px;
+}
+
+.gd-view-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  background: transparent;
+  color: #334155;
+  font-weight: 600;
+}
+
+.gd-view-btn.is-active {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.gd-view-panel {
+  display: none;
+}
+
+.gd-view-panel.is-active {
+  display: block;
+}
+
+.gd-table-card {
+  overflow-x: auto;
+}
+
+.gd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.gd-table th,
+.gd-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.gd-table th {
+  color: #334155;
+  font-weight: 600;
+  background: #f8fafc;
 }
 
 .gd-chart-card h3 {
