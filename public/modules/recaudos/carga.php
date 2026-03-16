@@ -303,7 +303,7 @@ ob_start();
 <section class="gd-grid-2">
   <article class="card">
     <h3>Cargar archivo de recaudo</h3>
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" class="form-carga">
       <input type="hidden" name="upload_type" value="recaudo">
       <label>Archivo recaudo (CSV / XLSX / XLS) <input type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button class="btn" type="submit">Cargar</button>
@@ -311,7 +311,7 @@ ob_start();
   </article>
   <article class="card">
     <h3>Cargar presupuesto de recaudo</h3>
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" class="form-carga">
       <input type="hidden" name="upload_type" value="presupuesto">
       <label>Archivo presupuesto (periodo,vendedor,valor_presupuesto) <input type="file" name="archivo_presupuesto" accept=".csv,.xlsx,.xls" required></label>
       <button class="btn" type="submit">Cargar presupuesto</button>
