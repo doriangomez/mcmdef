@@ -20,7 +20,7 @@ if ($periodo === '' || !preg_match('/^\d{4}-\d{2}$/', $periodo)) {
     exit;
 }
 
-$stmt = $pdo->prepare("SELECT DISTINCT uens FROM cartera_documentos WHERE DATE_FORMAT(fecha_contabilizacion, '%Y-%m') = ? AND uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens");
+$stmt = $pdo->prepare("SELECT DISTINCT uens FROM cartera_documentos WHERE estado_documento = 'activo' AND DATE_FORMAT(COALESCE(fecha_contabilizacion, created_at), '%Y-%m') = ? AND uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens");
 $stmt->execute([$periodo]);
 $uens = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 

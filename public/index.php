@@ -75,7 +75,7 @@ ob_start();
   function noDataOptions(height) {
     return {
       chart: { height: height, toolbar: { show: false }, fontFamily: 'Inter, sans-serif' },
-      noData: { text: 'No hay datos para los filtros seleccionados.' },
+      noData: { text: 'Sin datos para los filtros seleccionados' },
       dataLabels: { enabled: false },
       tooltip: { theme: 'light' }
     };
@@ -105,7 +105,7 @@ ob_start();
 
   function renderKpis(kpis, emptyMessage) {
     if (!kpis || !kpis.length) {
-      kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Sin datos</p><p class="kpi-premium-subtext">' + (emptyMessage || 'No hay datos para los filtros seleccionados.') + '</p></article>';
+      kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Sin datos</p><p class="kpi-premium-subtext">' + (emptyMessage || 'Sin datos para los filtros seleccionados') + '</p></article>';
       return;
     }
     kpiGrid.innerHTML = kpis.map(function (kpi) {
