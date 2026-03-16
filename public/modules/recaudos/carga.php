@@ -15,6 +15,7 @@ $errors = [];
 $warnings = [];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
 $periodoDetectado = null;
+$validationResult = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'eliminar_carga_recaudo') {
     $cargaId = (int)($_POST['carga_id'] ?? 0);
@@ -68,6 +69,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             $summary = $validation['summary'] ?? $summary;
             $validRows = $validation['valid_rows'] ?? [];
             $periodoDetectado = $validation['periodo_detectado'] ?? null;
+            $validationResult = [
+                'periodo_detectado' => $periodoDetectado,
+                'errors' => $errors,
+                'warnings' => $warnings,
+                'summary' => $summary,
+            ];
 
             if (!empty($errors)) {
                 $msg = 'Carga de recaudo rechazada por validaciones obligatorias.';
@@ -133,6 +140,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 $pdo->rollBack();
             }
             $errors[] = build_validation_error(0, 'proceso', '', $e->getMessage());
+            $validationResult = [
+                'periodo_detectado' => $periodoDetectado,
+                'errors' => $errors,
+                'warnings' => $warnings,
+                'summary' => $summary,
+            ];
             $msg = 'No fue posible procesar el recaudo.';
         }
     }
@@ -281,6 +294,32 @@ ob_start();
 <?php if ($warnings): ?><div class="alert alert-info"><ul><?php foreach ($warnings as $warning): ?><li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div class="alert alert-error"><ul><?php foreach ($errors as $error): ?><li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
+<?php if ($validationResult !== null): ?>
+<section class="card">
+  <h3>Resultado de validación de recaudo</h3>
+  <p><strong>Periodo detectado:</strong> <?= htmlspecialchars((string)($validationResult['periodo_detectado'] ?? 'No detectado')) ?></p>
+  <p><strong>Registros válidos:</strong> <?= (int)(($validationResult['summary']['validas'] ?? 0)) ?></p>
+  <?php if (!empty($validationResult['errors'])): ?>
+    <p><strong>Errores por fila:</strong></p>
+    <ul>
+      <?php foreach ($validationResult['errors'] as $error): ?>
+        <li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php else: ?>
+    <p>No se encontraron errores obligatorios por fila.</p>
+  <?php endif; ?>
+  <?php if (!empty($validationResult['warnings'])): ?>
+    <p><strong>Observaciones por fila:</strong></p>
+    <ul>
+      <?php foreach ($validationResult['warnings'] as $warning): ?>
+        <li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
+</section>
+<?php endif; ?>
+
 <section class="gd-kpi-grid">
   <article class="gd-kpi-card"><span>Recaudo acumulado</span><strong>$<?= number_format($recaudoPeriodo, 2, ',', '.') ?></strong></article>
   <article class="gd-kpi-card"><span>% recuperación de cartera</span><strong><?= number_format($recuperacionPct, 2, ',', '.') ?>%</strong></article>
@@ -303,7 +342,7 @@ ob_start();
 <section class="gd-grid-2">
   <article class="card">
     <h3>Cargar archivo de recaudo</h3>
-    <form id="form-recaudo" class="form-carga" method="post" enctype="multipart/form-data">
+    <form id="form-recaudo" method="post" enctype="multipart/form-data" class="form-carga">
       <input type="hidden" name="upload_type" value="recaudo">
       <label>Archivo recaudo (CSV / XLSX / XLS) <input id="archivo-recaudo" type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button id="btn-cargar-recaudo" class="btn" type="submit">Cargar</button>
