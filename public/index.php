@@ -279,9 +279,9 @@ ob_start();
     var query = buildDashboardQuery();
     var url = query ? endpointUrl + '?' + query : endpointUrl;
     fetch(url, { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        console.log('Dashboard data:', data);
+      .then(async function (response) {
+        var data = await response.json();
+        console.log('Dashboard response:', data);
 
         if (!data) {
           kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
@@ -300,8 +300,15 @@ ob_start();
         }
 
         document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?>;
-        renderKpis(data.kpis);
-        renderCharts(data.charts);
+
+        if (data && data.kpis) {
+          renderKpis(data.kpis);
+        }
+
+        if (data && data.charts) {
+          renderCharts(data.charts);
+        }
+
         updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
 
         if (data.comparison) {
