@@ -65,7 +65,7 @@ $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), '')
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
 $monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
 
-$periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
 $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
 
@@ -165,7 +165,7 @@ $scope = portfolio_client_scope_sql('c');
 $where = ["d.estado_documento = 'activo'"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $where[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?"; $params[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $where[] = "$monthExpr = ?"; $params[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $where[] = "$fechaExpr >= ?"; $params[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $where[] = "$fechaExpr <= ?"; $params[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
@@ -417,7 +417,7 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
       COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
       FROM cartera_documentos d
       INNER JOIN clientes c ON c.id = d.cliente_id
-      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
+      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND $monthExpr = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
     $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
     $cmpStmt->execute($cmpParams);
@@ -488,5 +488,5 @@ echo json_encode([
     'empty' => $totalDocs === 0,
     'empty_message' => $selectedPeriod !== '' && empty($uenOptions)
         ? 'No existen UEN registradas para este periodo'
-        : 'No hay datos para los filtros seleccionados. Ajusta los filtros para continuar.',
+        : 'Sin datos para los filtros seleccionados',
 ]);
