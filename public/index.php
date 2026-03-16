@@ -123,7 +123,7 @@ ob_start();
       ],
       xaxis: { categories: aging.map(function (r) { return r.bucket; }) },
       yaxis: [{ labels: { formatter: function (v) { return currency.format(v); } } }, { opposite: true, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }],
-      tooltip: { shared: true }
+      tooltip: { shared: true, intersect: false }
     }));
 
     var trend = data.trend || [];
@@ -171,7 +171,7 @@ ob_start();
         { title: { text: 'Saldo' }, labels: { formatter: function (v) { return currency.format(v); } } },
         { opposite: true, max: 100, title: { text: '% acumulado' }, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
       ],
-      tooltip: { shared: true }
+      tooltip: { shared: true, intersect: false }
     }));
 
     var dep = data.dependencia_mayor || { cliente: 'Sin dato', pct: 0, saldo: 0 };
