@@ -331,7 +331,7 @@ function render_layout(string $title, string $content): void
 
           function lockForm(form) {
             form.querySelectorAll('button, input, select, textarea').forEach(function (field) {
-              if (field.type === 'hidden') return;
+              if (field.type === 'hidden' || field.type === 'file') return;
               field.setAttribute('disabled', 'disabled');
             });
           }

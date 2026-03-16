@@ -257,11 +257,6 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $summary['validas']++;
         $summary['total_aplicado'] += $importe;
 
-        $estadoConciliacion = 'pago_sin_factura';
-        if ($doc !== null) {
-            $estadoConciliacion = ($importe <= $saldoActual) ? 'conciliado' : 'parcial';
-        }
-
         $validRows[] = [
             'fila' => $fila,
             'periodo' => $periodoRegistro,
