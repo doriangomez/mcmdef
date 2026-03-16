@@ -81,8 +81,16 @@ ob_start();
   }
 
   function upsert(key, id, options) {
-    if (charts[key]) charts[key].updateOptions(options, false, true, true);
-    else { charts[key] = new ApexCharts(document.getElementById(id), options); charts[key].render(); }
+    try {
+      if (charts[key]) charts[key].updateOptions(options, false, true, true);
+      else { charts[key] = new ApexCharts(document.getElementById(id), options); charts[key].render(); }
+    } catch (e) {
+      console.error('Error renderizando gráfico:', key, e);
+      var container = document.getElementById(id);
+      if (container) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:#888">Gráfico no disponible</div>';
+      }
+    }
   }
 
   function hydrateSelect(selectId, values, selected) {
@@ -123,7 +131,7 @@ ob_start();
       ],
       xaxis: { categories: aging.map(function (r) { return r.bucket; }) },
       yaxis: [{ labels: { formatter: function (v) { return currency.format(v); } } }, { opposite: true, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }],
-      tooltip: { shared: true }
+      tooltip: { shared: true, intersect: false }
     }));
 
     var trend = data.trend || [];
@@ -171,7 +179,7 @@ ob_start();
         { title: { text: 'Saldo' }, labels: { formatter: function (v) { return currency.format(v); } } },
         { opposite: true, max: 100, title: { text: '% acumulado' }, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
       ],
-      tooltip: { shared: true }
+      tooltip: { shared: true, intersect: false }
     }));
 
     var dep = data.dependencia_mayor || { cliente: 'Sin dato', pct: 0, saldo: 0 };
