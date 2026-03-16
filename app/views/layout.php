@@ -277,6 +277,98 @@ function render_layout(string $title, string $content): void
               closeSidebar();
             }
           });
+
+          function loaderShow(message) {
+            var loader = document.getElementById('loader-global');
+            var messageNode = document.getElementById('loader-message');
+            if (!loader) return;
+
+            loader.style.display = 'flex';
+            if (message && messageNode) {
+              messageNode.innerText = message;
+            }
+          }
+
+          function loaderProgress(percent) {
+            var progressNode = document.getElementById('loader-progress');
+            if (!progressNode) return;
+
+            var safePercent = Number(percent);
+            if (Number.isNaN(safePercent)) {
+              safePercent = 0;
+            }
+
+            safePercent = Math.max(0, Math.min(100, safePercent));
+            progressNode.style.width = safePercent + '%';
+          }
+
+          function loaderHide() {
+            var loader = document.getElementById('loader-global');
+            var progressNode = document.getElementById('loader-progress');
+            var messageNode = document.getElementById('loader-message');
+            if (!loader) return;
+
+            loader.style.display = 'none';
+            if (progressNode) {
+              progressNode.style.width = '0%';
+            }
+            if (messageNode) {
+              messageNode.innerText = 'Procesando archivo...';
+            }
+          }
+
+          window.loaderShow = loaderShow;
+          window.loaderProgress = loaderProgress;
+          window.loaderHide = loaderHide;
+
+          var flowSteps = [
+            { delay: 0, progress: 10, message: 'Validando archivo...' },
+            { delay: 250, progress: 40, message: 'Leyendo registros...' },
+            { delay: 500, progress: 70, message: 'Procesando conciliación...' },
+            { delay: 750, progress: 90, message: 'Guardando información...' },
+            { delay: 1000, progress: 100, message: 'Finalizando proceso...' }
+          ];
+
+          function lockForm(form) {
+            form.querySelectorAll('button, input, select, textarea').forEach(function (field) {
+              if (field.type === 'hidden') return;
+              field.setAttribute('disabled', 'disabled');
+            });
+          }
+
+          document.querySelectorAll('.form-carga').forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+              if (form.dataset.submitting === 'true') {
+                return;
+              }
+
+              var hasFile = Array.prototype.some.call(form.querySelectorAll('input[type="file"]'), function (fileInput) {
+                return fileInput.files && fileInput.files.length > 0;
+              });
+
+              if (!hasFile) {
+                return;
+              }
+
+              event.preventDefault();
+              form.dataset.submitting = 'true';
+              lockForm(form);
+
+              flowSteps.forEach(function (step) {
+                window.setTimeout(function () {
+                  loaderShow(step.message);
+                  loaderProgress(step.progress);
+                }, step.delay);
+              });
+
+              window.setTimeout(function () {
+                form.submit();
+              }, flowSteps[flowSteps.length - 1].delay + 50);
+            });
+          });
+
+          window.addEventListener('pageshow', loaderHide);
+          window.addEventListener('load', loaderHide);
         })();
 
         (function () {
