@@ -81,8 +81,16 @@ ob_start();
   }
 
   function upsert(key, id, options) {
-    if (charts[key]) charts[key].updateOptions(options, false, true, true);
-    else { charts[key] = new ApexCharts(document.getElementById(id), options); charts[key].render(); }
+    try {
+      if (charts[key]) charts[key].updateOptions(options, false, true, true);
+      else { charts[key] = new ApexCharts(document.getElementById(id), options); charts[key].render(); }
+    } catch (e) {
+      console.error('Error renderizando gráfico:', key, e);
+      var container = document.getElementById(id);
+      if (container) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:#888">Gráfico no disponible</div>';
+      }
+    }
   }
 
   function hydrateSelect(selectId, values, selected) {
