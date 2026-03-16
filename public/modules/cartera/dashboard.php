@@ -29,6 +29,33 @@ $lastLoadStmt = $pdo->query(
 );
 $lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
+
+$globalKpiStmt = $pdo->query(
+    'SELECT
+        COUNT(*) AS total_documentos,
+        COUNT(DISTINCT d.cliente_id) AS total_clientes,
+        COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera
+     FROM cartera_documentos d
+     WHERE d.estado_documento = "activo"'
+);
+$globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$assignedClientsCount = null;
+if (!$isAdmin) {
+    $assignedStmt = $pdo->prepare('SELECT COUNT(*) FROM clientes WHERE responsable_usuario_id = ?');
+    $assignedStmt->execute([(int)(current_user()['id'] ?? 0)]);
+    $assignedClientsCount = (int)$assignedStmt->fetchColumn();
+}
+
+$lastLoadStmt = $pdo->query(
+    'SELECT fecha_carga, periodo_detectado, nombre_archivo
+     FROM cargas_cartera
+     WHERE estado = "activa" AND activo = 1
+     ORDER BY fecha_carga DESC
+     LIMIT 1'
+);
+$lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
 $kpiStmt = $pdo->prepare(
     'SELECT
         COUNT(*) AS total_documentos,
