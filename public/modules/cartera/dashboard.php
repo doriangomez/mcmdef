@@ -7,7 +7,9 @@ require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 require_role(['admin', 'analista']);
 
-$scope = portfolio_client_scope_sql('c');
+$user = current_user();
+$isAdmin = portfolio_is_admin($user);
+$scope = portfolio_document_scope_sql('d', $user);
 $baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
 $baseParams = $scope['params'];
 
@@ -23,7 +25,7 @@ $globalKpiStmt = $pdo->query(
 $globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $assignedClientsCount = null;
-if (!portfolio_is_admin()) {
+if (!$isAdmin) {
     $assignedStmt = $pdo->prepare('SELECT COUNT(*) FROM clientes WHERE responsable_usuario_id = ?');
     $assignedStmt->execute([(int)(current_user()['id'] ?? 0)]);
     $assignedClientsCount = (int)$assignedStmt->fetchColumn();
@@ -47,7 +49,7 @@ $kpiStmt = $pdo->prepare(
         COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END), 0) AS documentos_vencidos
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
 $kpiStmt->execute($baseParams);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -60,7 +62,7 @@ $moraStmt = $pdo->prepare(
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 61 AND 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b61_90,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b90_plus
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
 $moraStmt->execute($baseParams);
 $mora = $moraStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -70,7 +72,7 @@ $uenStmt = $pdo->prepare(
         COALESCE(NULLIF(TRIM(d.uens), ""), "Sin UEN") AS etiqueta,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
      GROUP BY etiqueta
      ORDER BY total DESC
      LIMIT 12'
@@ -83,7 +85,7 @@ $canalStmt = $pdo->prepare(
         COALESCE(NULLIF(TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)), ""), "Sin canal") AS etiqueta,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
      GROUP BY etiqueta
      ORDER BY total DESC
      LIMIT 12'
@@ -96,7 +98,7 @@ $vendedorStmt = $pdo->prepare(
         COALESCE(NULLIF(TRIM(c.empleado_ventas), ""), "Sin vendedor") AS etiqueta,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
      GROUP BY etiqueta
      ORDER BY total DESC
      LIMIT 12'
@@ -106,29 +108,28 @@ $vendedorRows = $vendedorStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $clienteCarteraStmt = $pdo->prepare(
     'SELECT
-        c.nombre,
+        COALESCE(NULLIF(TRIM(c.nombre), ""), NULLIF(TRIM(d.cliente), ""), CONCAT("Cliente #", d.cliente_id)) AS nombre,
         COUNT(*) AS documentos,
         COALESCE(SUM(d.saldo_pendiente), 0) AS saldo_total,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS saldo_vencido
-     FROM clientes c
-     INNER JOIN cartera_documentos d ON d.cliente_id = c.id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
-     GROUP BY c.id, c.nombre
+     FROM cartera_documentos d
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     GROUP BY d.cliente_id, nombre
      ORDER BY saldo_total DESC
      LIMIT 10'
 );
-$clienteCarteraStmt->execute($scope['params']);
+$clienteCarteraStmt->execute($baseParams);
 $clienteCarteraRows = $clienteCarteraStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $documentoStmt = $pdo->prepare(
     'SELECT
         d.nro_documento,
-        c.nombre AS cliente,
+        COALESCE(NULLIF(TRIM(c.nombre), ""), NULLIF(TRIM(d.cliente), ""), CONCAT("Cliente #", d.cliente_id)) AS cliente,
         d.fecha_vencimiento,
         d.dias_vencido,
         d.saldo_pendiente
      FROM cartera_documentos d
-     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
      ORDER BY d.saldo_pendiente DESC
      LIMIT 12'
 );
@@ -137,18 +138,17 @@ $documentoRows = $documentoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $paretoStmt = $pdo->prepare(
     'SELECT
-        c.id,
-        c.nombre,
+        d.cliente_id AS id,
+        COALESCE(NULLIF(TRIM(c.nombre), ""), NULLIF(TRIM(d.cliente), ""), CONCAT("Cliente #", d.cliente_id)) AS nombre,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS saldo_vencido
-     FROM clientes c
-     INNER JOIN cartera_documentos d ON d.cliente_id = c.id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
-     GROUP BY c.id, c.nombre
+     FROM cartera_documentos d
+     LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     GROUP BY d.cliente_id, nombre
      HAVING saldo_vencido > 0
      ORDER BY saldo_vencido DESC
      LIMIT 15'
 );
-$paretoStmt->execute($scope['params']);
+$paretoStmt->execute($baseParams);
 $paretoRows = $paretoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $compromisosStmt = $pdo->prepare(
@@ -159,7 +159,7 @@ $compromisosStmt = $pdo->prepare(
         COALESCE(SUM(CASE WHEN bg.estado_compromiso = "pendiente" THEN bg.valor_compromiso ELSE 0 END), 0) AS valor_pendiente
      FROM bitacora_gestion bg
      INNER JOIN cartera_documentos d ON d.id = bg.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
+     LEFT JOIN clientes c ON c.id = d.cliente_id
      WHERE d.estado_documento = "activo"' . $scope['sql']
 );
 $compromisosStmt->execute($scope['params']);
@@ -174,7 +174,7 @@ $actividadStmt = $pdo->prepare(
         c.nombre AS cliente
      FROM bitacora_gestion bg
      INNER JOIN cartera_documentos d ON d.id = bg.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
+     LEFT JOIN clientes c ON c.id = d.cliente_id
      WHERE d.estado_documento = "activo"' . $scope['sql'] . '
      ORDER BY bg.created_at DESC
      LIMIT 10'
@@ -230,7 +230,7 @@ foreach ($paretoRows as $row) {
 $globalDocs = (int)($globalKpi['total_documentos'] ?? 0);
 $globalSaldo = (float)($globalKpi['total_cartera'] ?? 0);
 $globalClientes = (int)($globalKpi['total_clientes'] ?? 0);
-$scopeWarning = $globalDocs > 0 && $totalDocumentos === 0;
+$scopeWarning = !$isAdmin && $globalDocs > 0 && $totalDocumentos === 0;
 $sinCarteraActiva = $globalDocs === 0;
 
 ob_start();
