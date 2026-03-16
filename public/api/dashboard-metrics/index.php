@@ -63,9 +63,9 @@ $canalExpr = "COALESCE(NULLIF(TRIM(d.canal), ''), NULLIF(TRIM(c.canal), ''), 'Si
 $empleadoExpr = "COALESCE(NULLIF(TRIM(c.empleado_ventas), ''), 'Sin dato')";
 $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), ''), c.cuenta, CONCAT('Cliente #', c.id))";
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
-$monthExpr = "DATE_FORMAT(COALESCE(d.fecha_contabilizacion, d.created_at), '%Y-%m')";
+$monthExpr = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m')";
 
-$periodOptions = $pdo->query("SELECT DISTINCT d.periodo FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 AND d.periodo IS NOT NULL AND TRIM(d.periodo) <> '' ORDER BY d.periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.fecha_contabilizacion IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
 $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : $defaultPeriod;
 
@@ -81,11 +81,10 @@ if ($selectedPeriod !== '') {
 
 $dateBoundsSql = "SELECT MIN($fechaExpr) AS min_fecha, MAX($fechaExpr) AS max_fecha
     FROM cartera_documentos d
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
-    WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1";
+    WHERE d.estado_documento = 'activo'";
 $dateBoundsParams = [];
 if ($selectedPeriod !== '') {
-    $dateBoundsSql .= ' AND d.periodo = ?';
+    $dateBoundsSql .= " AND DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?";
     $dateBoundsParams[] = $selectedPeriod;
 }
 $dateBoundsStmt = $pdo->prepare($dateBoundsSql);
@@ -96,11 +95,10 @@ $defaultTo = (string)($dateBounds['max_fecha'] ?? '');
 
 $optionBase = " FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
-    WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1";
+    WHERE d.estado_documento = 'activo'";
 $optionParams = [];
 if ($selectedPeriod !== '') {
-    $optionBase .= ' AND d.periodo = ?';
+    $optionBase .= ' AND DATE_FORMAT(d.fecha_contabilizacion, "%Y-%m") = ?';
     $optionParams[] = $selectedPeriod;
 }
 $regionalStmt = $pdo->prepare("SELECT DISTINCT $regionalExpr v" . $optionBase . ' ORDER BY v');
@@ -115,7 +113,7 @@ $empleadoOptions = $empleadoStmt->fetchAll(PDO::FETCH_COLUMN);
 $clienteStmt = $pdo->prepare("SELECT DISTINCT $clienteExpr v" . $optionBase . ' ORDER BY v');
 $clienteStmt->execute($optionParams);
 $clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_COLUMN);
-$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d INNER JOIN cargas_cartera cc ON cc.id = d.id_carga WHERE d.periodo = ? AND d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1 AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
+$uenOptionsStmt = $pdo->prepare("SELECT DISTINCT d.uens AS uen FROM cartera_documentos d WHERE DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ? AND d.estado_documento = 'activo' AND d.uens IS NOT NULL AND TRIM(d.uens) <> '' ORDER BY d.uens");
 $uenOptionsStmt->execute([$selectedPeriod]);
 $uenOptions = $uenOptionsStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
@@ -157,10 +155,10 @@ $filters = [
 ];
 
 $scope = portfolio_client_scope_sql('c');
-$where = ["d.estado_documento = 'activo'", "cc.estado = 'activa'", "cc.activo = 1"];
+$where = ["d.estado_documento = 'activo'"];
 $params = $scope['params'];
 if ($scope['sql'] !== '') { $where[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $where[] = 'd.periodo = ?'; $params[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $where[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?"; $params[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $where[] = "$fechaExpr >= ?"; $params[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $where[] = "$fechaExpr <= ?"; $params[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $where[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $params[] = $filters['regional']; }
@@ -188,7 +186,6 @@ $kpiSql = "SELECT
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END),0) docs_vencidos
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql";
 $stmt = $pdo->prepare($kpiSql);
 $stmt->execute($params);
@@ -214,7 +211,6 @@ $indiceSeveridad = $carteraTotal > 0
 $topClientSql = "SELECT $clienteExpr cliente, COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql
     GROUP BY c.id, cliente
     ORDER BY saldo DESC";
@@ -246,7 +242,6 @@ $agingSql = "SELECT
     COALESCE(SUM(d.bucket_361_plus),0) b361_plus
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql";
 $agingStmt = $pdo->prepare($agingSql);
 $agingStmt->execute($params);
@@ -267,10 +262,10 @@ foreach ($agingDefs as $def) {
     $aging[] = ['bucket' => $def['label'], 'value' => $value, 'pct' => $carteraTotal > 0 ? ($value / $carteraTotal) * 100 : 0];
 }
 
-$trendWhere = ["d.estado_documento = 'activo'", "cc.estado = 'activa'", "cc.activo = 1"];
+$trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
-if ($filters['periodo'] !== '') { $trendWhere[] = 'd.periodo = ?'; $trendParams[] = $filters['periodo']; }
+if ($filters['periodo'] !== '') { $trendWhere[] = "DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?"; $trendParams[] = $filters['periodo']; }
 if ($filters['fecha_desde'] !== '') { $trendWhere[] = "$fechaExpr >= ?"; $trendParams[] = $filters['fecha_desde']; }
 if ($filters['fecha_hasta'] !== '') { $trendWhere[] = "$fechaExpr <= ?"; $trendParams[] = $filters['fecha_hasta']; }
 if ($filters['regional'] !== '') { $trendWhere[] = "LOWER(TRIM($regionalExpr)) = LOWER(TRIM(?))"; $trendParams[] = $filters['regional']; }
@@ -286,7 +281,6 @@ $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
 $trendSql = "SELECT $monthExpr AS periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $trendWhereSql
     GROUP BY periodo
     ORDER BY periodo ASC";
@@ -307,7 +301,6 @@ $canalSql = "SELECT $canalExpr canal,
     COALESCE(SUM(d.saldo_pendiente),0) cartera_total
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql
     GROUP BY canal
     ORDER BY cartera_vencida DESC";
@@ -320,7 +313,6 @@ $empleadoSql = "SELECT $empleadoExpr empleado,
     COALESCE(SUM(d.saldo_pendiente),0) cartera_total
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql
     GROUP BY empleado
     ORDER BY cartera_vencida DESC";
@@ -332,7 +324,6 @@ $uenMoraSql = "SELECT COALESCE(NULLIF(TRIM(d.uens),''),'Sin UEN') uen,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql
     GROUP BY uen
     ORDER BY cartera_vencida DESC";
@@ -344,7 +335,6 @@ $negSql = "SELECT COALESCE(NULLIF(TRIM(d.tipo_documento_financiero),''),'factura
     COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
     INNER JOIN clientes c ON c.id = d.cliente_id
-    INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
     $whereSql AND d.saldo_pendiente < 0
     GROUP BY tipo
     ORDER BY saldo ASC";
@@ -393,8 +383,7 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
       COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
       FROM cartera_documentos d
       INNER JOIN clientes c ON c.id = d.cliente_id
-      INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
-      WHERE d.estado_documento = 'activo' AND cc.estado = 'activa' AND cc.activo = 1" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? ' AND d.periodo = ?' : '') . " AND $fechaExpr BETWEEN ? AND ?";
+      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
     $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
     $cmpStmt->execute($cmpParams);
