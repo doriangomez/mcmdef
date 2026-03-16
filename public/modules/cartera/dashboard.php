@@ -11,6 +11,33 @@ $scope = portfolio_client_scope_sql('c');
 $baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
 $baseParams = $scope['params'];
 
+
+$globalKpiStmt = $pdo->query(
+    'SELECT
+        COUNT(*) AS total_documentos,
+        COUNT(DISTINCT d.cliente_id) AS total_clientes,
+        COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera
+     FROM cartera_documentos d
+     WHERE d.estado_documento = "activo"'
+);
+$globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$assignedClientsCount = null;
+if (!portfolio_is_admin()) {
+    $assignedStmt = $pdo->prepare('SELECT COUNT(*) FROM clientes WHERE responsable_usuario_id = ?');
+    $assignedStmt->execute([(int)(current_user()['id'] ?? 0)]);
+    $assignedClientsCount = (int)$assignedStmt->fetchColumn();
+}
+
+$lastLoadStmt = $pdo->query(
+    'SELECT fecha_carga, periodo_detectado, nombre_archivo
+     FROM cargas_cartera
+     WHERE estado = "activa" AND activo = 1
+     ORDER BY fecha_carga DESC
+     LIMIT 1'
+);
+$lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
 $kpiStmt = $pdo->prepare(
     'SELECT
         COUNT(*) AS total_documentos,
@@ -200,6 +227,12 @@ foreach ($paretoRows as $row) {
     $paretoAcumulado[] = $totalVencido > 0 ? round(($acumulado / $totalVencido) * 100, 2) : 0;
 }
 
+$globalDocs = (int)($globalKpi['total_documentos'] ?? 0);
+$globalSaldo = (float)($globalKpi['total_cartera'] ?? 0);
+$globalClientes = (int)($globalKpi['total_clientes'] ?? 0);
+$scopeWarning = $globalDocs > 0 && $totalDocumentos === 0;
+$sinCarteraActiva = $globalDocs === 0;
+
 ob_start();
 ?>
 <section class="card cartera-dashboard-head">
@@ -218,6 +251,20 @@ ob_start();
   <button class="gd-view-btn is-active" data-view="ejecutivo" role="tab" aria-selected="true">Vista ejecutiva</button>
   <button class="gd-view-btn" data-view="operativo" role="tab" aria-selected="false">Vista operativa</button>
 </div>
+
+<section class="card" style="margin-bottom:16px;">
+  <h3 style="margin-top:0;">Estado de datos cargados</h3>
+  <p style="margin:0 0 8px; color:#334155;">Documentos activos (global): <strong><?= number_format($globalDocs, 0, ',', '.') ?></strong> · Clientes con cartera (global): <strong><?= number_format($globalClientes, 0, ',', '.') ?></strong> · Saldo global: <strong>$<?= number_format($globalSaldo, 0, ',', '.') ?></strong>.</p>
+  <p style="margin:0; color:#334155;">Alcance de usuario actual: <strong><?= number_format($totalDocumentos, 0, ',', '.') ?></strong> documentos visibles<?php if ($assignedClientsCount !== null): ?> · <strong><?= number_format($assignedClientsCount, 0, ',', '.') ?></strong> clientes asignados<?php endif; ?>.</p>
+  <?php if ($lastLoad): ?>
+    <p style="margin:8px 0 0; color:#334155;">Última carga activa: <strong><?= htmlspecialchars((string)$lastLoad['fecha_carga']) ?></strong><?php if (!empty($lastLoad['periodo_detectado'])): ?> · Periodo: <strong><?= htmlspecialchars((string)$lastLoad['periodo_detectado']) ?></strong><?php endif; ?> · Archivo: <strong><?= htmlspecialchars((string)$lastLoad['nombre_archivo']) ?></strong>.</p>
+  <?php endif; ?>
+  <?php if ($scopeWarning): ?>
+    <p style="margin:10px 0 0; color:#b45309; font-weight:600;">Hay cartera activa en base de datos, pero tu usuario no tiene clientes en alcance para este módulo. Se requiere asignar clientes al responsable para visualizar datos.</p>
+  <?php elseif ($sinCarteraActiva): ?>
+    <p style="margin:10px 0 0; color:#b45309; font-weight:600;">No hay cartera activa disponible. Se necesita una carga de cartera activa para poblar el dashboard.</p>
+  <?php endif; ?>
+</section>
 
 <section class="gd-view-panel is-active" data-view="ejecutivo">
   <section class="gd-kpi-grid gd-kpi-grid-wide">
