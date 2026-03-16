@@ -4,167 +4,30 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
-require_once __DIR__ . '/../../../app/services/UenService.php';
 
 require_role(['admin', 'analista']);
 
 $scope = portfolio_client_scope_sql('c');
-
-function dashboard_distinct_values(PDO $pdo, string $fieldSql, string $alias, string $baseWhereSql, array $baseParams): array
-{
-    $sql = 'SELECT DISTINCT ' . $fieldSql . ' AS ' . $alias . '\n'
-        . 'FROM cartera_documentos d\n'
-        . 'INNER JOIN clientes c ON c.id = d.cliente_id\n'
-        . $baseWhereSql . '\n'
-        . 'ORDER BY ' . $alias;
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($baseParams);
-    $values = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $value) {
-        $trimmed = trim((string)$value);
-        if ($trimmed !== '') {
-            $values[] = $trimmed;
-        }
-    }
-    return array_values(array_unique($values));
-}
-
-function dashboard_selected_values(string $key): array
-{
-    $raw = $_GET[$key] ?? [];
-    if (!is_array($raw)) {
-        $raw = [$raw];
-    }
-    $selected = [];
-    foreach ($raw as $value) {
-        $trimmed = trim((string)$value);
-        if ($trimmed !== '') {
-            $selected[] = $trimmed;
-        }
-    }
-    return array_values(array_unique($selected));
-}
-
-$allowedUens = uen_user_allowed_values($pdo);
-$scopeWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
-$uensStmt = $pdo->prepare('SELECT DISTINCT TRIM(d.uens) AS uen FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id' . $scopeWhere . ' AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY uen');
-$uensStmt->execute($scope['params']);
-$uensOptions = $uensStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-if (!empty($allowedUens)) {
-    $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
-}
-$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
-if (empty($selectedUens) && !empty($uensOptions)) {
-    $selectedUens = $uensOptions;
-}
-
-$uenFilter = uen_sql_condition('d.uens', $selectedUens);
-$uenSql = $uenFilter['sql'];
-$uenParams = $uenFilter['params'];
-$baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql;
-$baseParams = array_merge($scope['params'], $uenParams);
-
-$periodoOptions = dashboard_distinct_values($pdo, 'TRIM(d.periodo)', 'periodo', $baseWhere . ' AND d.periodo IS NOT NULL AND TRIM(d.periodo) <> ""', $baseParams);
-$canalOptions = dashboard_distinct_values($pdo, 'TRIM(COALESCE(NULLIF(d.canal, ""), c.canal))', 'canal', $baseWhere . ' AND TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)) <> ""', $baseParams);
-$regionalOptions = dashboard_distinct_values($pdo, 'TRIM(COALESCE(NULLIF(d.regional, ""), c.regional))', 'regional', $baseWhere . ' AND TRIM(COALESCE(NULLIF(d.regional, ""), c.regional)) <> ""', $baseParams);
-$empleadoOptions = dashboard_distinct_values($pdo, 'TRIM(c.empleado_ventas)', 'empleado_ventas', $baseWhere . ' AND c.empleado_ventas IS NOT NULL AND TRIM(c.empleado_ventas) <> ""', $baseParams);
-
-$clienteStmt = $pdo->prepare(
-    'SELECT DISTINCT c.id, c.nombre\n'
-    . 'FROM cartera_documentos d\n'
-    . 'INNER JOIN clientes c ON c.id = d.cliente_id\n'
-    . $baseWhere . '\n'
-    . 'ORDER BY c.nombre'
-);
-$clienteStmt->execute($baseParams);
-$clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-$selectedPeriodos = array_values(array_intersect(dashboard_selected_values('periodo'), $periodoOptions));
-$selectedCanales = array_values(array_intersect(dashboard_selected_values('canal'), $canalOptions));
-$selectedRegionales = array_values(array_intersect(dashboard_selected_values('regional'), $regionalOptions));
-$selectedEmpleados = array_values(array_intersect(dashboard_selected_values('empleado_ventas'), $empleadoOptions));
-$clienteIdsDisponibles = array_map(static fn(array $row): string => (string)$row['id'], $clienteOptions);
-$selectedClientes = array_values(array_intersect(dashboard_selected_values('cliente_id'), $clienteIdsDisponibles));
-
-$filtersSql = '';
-$filtersParams = [];
-if (!empty($selectedPeriodos)) {
-    $filtersSql .= ' AND d.periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
-    $filtersParams = array_merge($filtersParams, $selectedPeriodos);
-}
-if (!empty($selectedCanales)) {
-    $filtersSql .= ' AND TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)) IN (' . implode(',', array_fill(0, count($selectedCanales), '?')) . ')';
-    $filtersParams = array_merge($filtersParams, $selectedCanales);
-}
-if (!empty($selectedRegionales)) {
-    $filtersSql .= ' AND TRIM(COALESCE(NULLIF(d.regional, ""), c.regional)) IN (' . implode(',', array_fill(0, count($selectedRegionales), '?')) . ')';
-    $filtersParams = array_merge($filtersParams, $selectedRegionales);
-}
-if (!empty($selectedEmpleados)) {
-    $filtersSql .= ' AND TRIM(c.empleado_ventas) IN (' . implode(',', array_fill(0, count($selectedEmpleados), '?')) . ')';
-    $filtersParams = array_merge($filtersParams, $selectedEmpleados);
-}
-if (!empty($selectedClientes)) {
-    $filtersSql .= ' AND c.id IN (' . implode(',', array_fill(0, count($selectedClientes), '?')) . ')';
-    $filtersParams = array_merge($filtersParams, array_map('intval', $selectedClientes));
-}
-
-$baseWhere .= $filtersSql;
-$baseParams = array_merge($baseParams, $filtersParams);
-
-$docsCountStmt = $pdo->prepare('SELECT COUNT(*) FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere);
-$docsCountStmt->execute($baseParams);
-$docsCount = (int)$docsCountStmt->fetchColumn();
-$noDataForFilters = $docsCount === 0;
-
-$recaudoSql = 'SELECT COUNT(*) AS registros, COALESCE(SUM(importe_aplicado), 0) AS total FROM recaudo_detalle WHERE 1=1';
-$recaudoParams = [];
-if (!empty($selectedPeriodos)) {
-    $recaudoSql .= ' AND periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
-    $recaudoParams = array_merge($recaudoParams, $selectedPeriodos);
-}
-$recaudoIndicadorStmt = $pdo->prepare($recaudoSql);
-$recaudoIndicadorStmt->execute($recaudoParams);
-$recaudoIndicador = $recaudoIndicadorStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-$presupuestoSql = 'SELECT COUNT(*) AS registros, COALESCE(SUM(valor_presupuesto), 0) AS total FROM presupuesto_recaudo WHERE 1=1';
-$presupuestoParams = [];
-if (!empty($selectedPeriodos)) {
-    $presupuestoSql .= ' AND periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
-    $presupuestoParams = array_merge($presupuestoParams, $selectedPeriodos);
-}
-$presupuestoIndicadorStmt = $pdo->prepare($presupuestoSql);
-$presupuestoIndicadorStmt->execute($presupuestoParams);
-$presupuestoIndicador = $presupuestoIndicadorStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
+$baseParams = $scope['params'];
 
 $kpiStmt = $pdo->prepare(
     'SELECT
+        COUNT(*) AS total_documentos,
+        COUNT(DISTINCT d.cliente_id) AS total_clientes,
         COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera,
-        COUNT(DISTINCT CASE WHEN d.dias_vencido > 0 THEN d.cliente_id END) AS clientes_mora
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_vencida,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
 $kpiStmt->execute($baseParams);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-$promesasStmt = $pdo->prepare(
-    'SELECT
-        SUM(CASE WHEN COALESCE(g.estado_compromiso, "pendiente") = "pendiente" THEN 1 ELSE 0 END) AS pendientes,
-        SUM(CASE WHEN g.estado_compromiso = "cumplido" THEN 1 ELSE 0 END) AS cumplidas,
-        SUM(CASE WHEN g.estado_compromiso = "incumplido" THEN 1 ELSE 0 END) AS incumplidas,
-        COALESCE(SUM(CASE WHEN g.estado_compromiso = "cumplido" AND DATE(g.created_at) = CURDATE() THEN COALESCE(g.valor_compromiso, 0) ELSE 0 END), 0) AS recuperado_hoy,
-        COALESCE(SUM(CASE WHEN g.estado_compromiso = "cumplido" AND DATE_FORMAT(g.created_at, "%Y-%m") = DATE_FORMAT(CURDATE(), "%Y-%m") THEN COALESCE(g.valor_compromiso, 0) ELSE 0 END), 0) AS recuperado_mes
-     FROM bitacora_gestion g
-     INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE 1=1' . $scope['sql'] . $uenSql . $filtersSql
-);
-$promesasStmt->execute($baseParams);
-$promesas = $promesasStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
 $moraStmt = $pdo->prepare(
     'SELECT
-        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 0 AND 30 THEN d.saldo_pendiente ELSE 0 END), 0) AS b0_30,
+        COALESCE(SUM(CASE WHEN d.dias_vencido <= 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS vigente,
+        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 1 AND 30 THEN d.saldo_pendiente ELSE 0 END), 0) AS b1_30,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 31 AND 60 THEN d.saldo_pendiente ELSE 0 END), 0) AS b31_60,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 61 AND 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b61_90,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b90_plus
@@ -174,258 +37,235 @@ $moraStmt = $pdo->prepare(
 $moraStmt->execute($baseParams);
 $mora = $moraStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-$recoveryStmt = $pdo->prepare(
-    'SELECT DATE(g.created_at) AS fecha, COALESCE(SUM(g.valor_compromiso), 0) AS total
-     FROM bitacora_gestion g
-     INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE g.estado_compromiso = "cumplido"
-       AND DATE(g.created_at) >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . $uenSql . $filtersSql . '
-     GROUP BY DATE(g.created_at)
-     ORDER BY DATE(g.created_at) ASC'
-);
-$recoveryStmt->execute($baseParams);
-$recoveryRows = $recoveryStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$recoveryMap = [];
-foreach ($recoveryRows as $row) {
-    $recoveryMap[$row['fecha']] = (float)$row['total'];
-}
-
-$recoveryLabels = [];
-$recoveryValues = [];
-for ($i = 29; $i >= 0; $i--) {
-    $date = (new DateTimeImmutable('today'))->sub(new DateInterval('P' . $i . 'D'));
-    $key = $date->format('Y-m-d');
-    $recoveryLabels[] = $date->format('d/m');
-    $recoveryValues[] = $recoveryMap[$key] ?? 0;
-}
-
-$rankingStmt = $pdo->prepare(
+$uenStmt = $pdo->prepare(
     'SELECT
-        u.nombre,
-        COUNT(g.id) AS gestiones_realizadas,
-        SUM(CASE WHEN g.compromiso_pago IS NOT NULL THEN 1 ELSE 0 END) AS promesas_pago,
-        COALESCE(SUM(CASE WHEN g.estado_compromiso = "cumplido" THEN COALESCE(g.valor_compromiso, 0) ELSE 0 END), 0) AS valor_recuperado
-     FROM usuarios u
-     INNER JOIN bitacora_gestion g ON g.usuario_id = u.id
-     INNER JOIN cartera_documentos d ON d.id = g.id_documento
-     INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE u.estado = "activo"' . $scope['sql'] . $uenSql . $filtersSql . '
-     GROUP BY u.id, u.nombre
-     ORDER BY valor_recuperado DESC, gestiones_realizadas DESC
-     LIMIT 10'
+        COALESCE(NULLIF(TRIM(d.uens), ""), "Sin UEN") AS etiqueta,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
+     FROM cartera_documentos d
+     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     GROUP BY etiqueta
+     ORDER BY total DESC
+     LIMIT 12'
 );
-$rankingStmt->execute($baseParams);
-$ranking = $rankingStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$uenStmt->execute($baseParams);
+$uenRows = $uenStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-$criticosStmt = $pdo->prepare(
+$canalStmt = $pdo->prepare(
+    'SELECT
+        COALESCE(NULLIF(TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)), ""), "Sin canal") AS etiqueta,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
+     FROM cartera_documentos d
+     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     GROUP BY etiqueta
+     ORDER BY total DESC
+     LIMIT 12'
+);
+$canalStmt->execute($baseParams);
+$canalRows = $canalStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$vendedorStmt = $pdo->prepare(
+    'SELECT
+        COALESCE(NULLIF(TRIM(c.empleado_ventas), ""), "Sin vendedor") AS etiqueta,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS total
+     FROM cartera_documentos d
+     INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere . '
+     GROUP BY etiqueta
+     ORDER BY total DESC
+     LIMIT 12'
+);
+$vendedorStmt->execute($baseParams);
+$vendedorRows = $vendedorStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$paretoStmt = $pdo->prepare(
     'SELECT
         c.id,
         c.nombre,
-        c.nit,
-        COALESCE(SUM(d.saldo_pendiente), 0) AS saldo_total,
-        COALESCE(MAX(d.dias_vencido), 0) AS mora_maxima,
-        COUNT(*) AS documentos
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS saldo_vencido
      FROM clientes c
      INNER JOIN cartera_documentos d ON d.cliente_id = c.id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql . $filtersSql . '
-     GROUP BY c.id, c.nombre, c.nit
-     ORDER BY mora_maxima DESC, saldo_total DESC
-     LIMIT 12'
+     WHERE d.estado_documento = "activo"' . $scope['sql'] . '
+     GROUP BY c.id, c.nombre
+     HAVING saldo_vencido > 0
+     ORDER BY saldo_vencido DESC
+     LIMIT 15'
 );
-$criticosStmt->execute($baseParams);
-$criticos = $criticosStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$paretoStmt->execute($scope['params']);
+$paretoRows = $paretoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-$chartMora = [
-    (float)($mora['b0_30'] ?? 0),
+$totalVencido = (float)($kpi['cartera_vencida'] ?? 0);
+$topCliente = $paretoRows[0] ?? null;
+$dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
+    ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
+    : 0.0;
+
+$totalCartera = (float)($kpi['total_cartera'] ?? 0);
+$ratioVencido = $totalCartera > 0 ? min(1, $totalVencido / $totalCartera) : 0.0;
+$ratioCritico = $totalCartera > 0 ? min(1, (float)($kpi['cartera_critica'] ?? 0) / $totalCartera) : 0.0;
+$ratioConcentracion = min(1, $dependenciaMayor / 100);
+$scoreSalud = max(0, min(100, 100 - (($ratioVencido * 45) + ($ratioCritico * 35) + ($ratioConcentracion * 20)) * 100));
+
+$chartEdad = [
+    (float)($mora['vigente'] ?? 0),
+    (float)($mora['b1_30'] ?? 0),
     (float)($mora['b31_60'] ?? 0),
     (float)($mora['b61_90'] ?? 0),
     (float)($mora['b90_plus'] ?? 0),
 ];
+
+$uenLabels = array_column($uenRows, 'etiqueta');
+$uenValues = array_map('floatval', array_column($uenRows, 'total'));
+$canalLabels = array_column($canalRows, 'etiqueta');
+$canalValues = array_map('floatval', array_column($canalRows, 'total'));
+$vendedorLabels = array_column($vendedorRows, 'etiqueta');
+$vendedorValues = array_map('floatval', array_column($vendedorRows, 'total'));
+
+$paretoLabels = [];
+$paretoValues = [];
+$paretoAcumulado = [];
+$acumulado = 0.0;
+foreach ($paretoRows as $row) {
+    $valor = (float)$row['saldo_vencido'];
+    $paretoLabels[] = $row['nombre'];
+    $paretoValues[] = $valor;
+    $acumulado += $valor;
+    $paretoAcumulado[] = $totalVencido > 0 ? round(($acumulado / $totalVencido) * 100, 2) : 0;
+}
+
+$docsCount = (int)($kpi['total_documentos'] ?? 0);
 
 ob_start();
 ?>
 <section class="card cartera-dashboard-head">
   <div>
     <h2>Dashboard de Gestión de Cartera</h2>
-    <p class="kpi-subtext">Vista ejecutiva para administradores y gestores. Los gestores solo visualizan su cartera asignada.</p>
+    <p class="kpi-subtext">Visualización temporal simplificada: todos los filtros están desactivados y se usa toda la cartera disponible.</p>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-    <form method="get" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
-      <label>Periodo
-        <select name="periodo[]" multiple size="3">
-          <?php foreach ($periodoOptions as $periodoOption): ?>
-            <option value="<?= htmlspecialchars((string)$periodoOption) ?>" <?= in_array((string)$periodoOption, $selectedPeriodos, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$periodoOption) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>UEN (obligatorio)
-        <select name="uen[]" multiple size="3" required>
-          <?php foreach ($uensOptions as $uenOption): ?>
-            <option value="<?= htmlspecialchars((string)$uenOption) ?>" <?= in_array((string)$uenOption, $selectedUens, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$uenOption) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Canal
-        <select name="canal[]" multiple size="3">
-          <?php foreach ($canalOptions as $canalOption): ?>
-            <option value="<?= htmlspecialchars((string)$canalOption) ?>" <?= in_array((string)$canalOption, $selectedCanales, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$canalOption) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Regional
-        <select name="regional[]" multiple size="3">
-          <?php foreach ($regionalOptions as $regionalOption): ?>
-            <option value="<?= htmlspecialchars((string)$regionalOption) ?>" <?= in_array((string)$regionalOption, $selectedRegionales, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$regionalOption) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Empleado de ventas
-        <select name="empleado_ventas[]" multiple size="3">
-          <?php foreach ($empleadoOptions as $empleadoOption): ?>
-            <option value="<?= htmlspecialchars((string)$empleadoOption) ?>" <?= in_array((string)$empleadoOption, $selectedEmpleados, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$empleadoOption) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Cliente
-        <select name="cliente_id[]" multiple size="3">
-          <?php foreach ($clienteOptions as $clienteOption): ?>
-            <?php $clienteId = (string)$clienteOption['id']; ?>
-            <option value="<?= htmlspecialchars($clienteId) ?>" <?= in_array($clienteId, $selectedClientes, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$clienteOption['nombre']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <button class="btn" type="submit">Aplicar</button>
-      <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/dashboard.php')) ?>">Limpiar</a>
-    </form>
-    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel XLSX)</a>
+    <span class="badge" style="background:#f59e0b; color:#111827;">Filtros temporalmente desactivados</span>
+    <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
   </div>
 </section>
 
-
-<?php if ($noDataForFilters): ?>
-<section class="card"><p style="margin:0;">Sin datos para los filtros seleccionados.</p></section>
+<?php if ($docsCount === 0): ?>
+<section class="card"><p style="margin:0;">No hay registros activos de cartera para visualizar.</p></section>
 <?php endif; ?>
 
 <section class="gd-kpi-grid">
-  <article class="gd-kpi-card"><span>Total recaudo</span><strong><?= (int)($recaudoIndicador['registros'] ?? 0) > 0 ? '$' . number_format((float)($recaudoIndicador['total'] ?? 0), 0, ',', '.') : 'Pendiente carga de recaudo' ?></strong></article>
-  <article class="gd-kpi-card"><span>Total presupuesto</span><strong><?= (int)($presupuestoIndicador['registros'] ?? 0) > 0 ? '$' . number_format((float)($presupuestoIndicador['total'] ?? 0), 0, ',', '.') : 'Pendiente carga de presupuesto' ?></strong></article>
+  <article class="gd-kpi-card"><span>Total recaudo</span><strong>Pendiente carga de recaudo</strong></article>
+  <article class="gd-kpi-card"><span>Total presupuesto</span><strong>Pendiente carga de presupuesto</strong></article>
 </section>
 
 <section class="gd-kpi-grid">
-  <article class="gd-kpi-card"><span>Total cartera</span><strong>$<?= number_format((float)($kpi['total_cartera'] ?? 0), 0, ',', '.') ?></strong></article>
-  <article class="gd-kpi-card"><span>Clientes en mora</span><strong><?= number_format((int)($kpi['clientes_mora'] ?? 0), 0, ',', '.') ?></strong></article>
-  <article class="gd-kpi-card"><span>Promesas pendientes</span><strong><?= number_format((int)($promesas['pendientes'] ?? 0), 0, ',', '.') ?></strong></article>
-  <article class="gd-kpi-card"><span>Promesas incumplidas</span><strong><?= number_format((int)($promesas['incumplidas'] ?? 0), 0, ',', '.') ?></strong></article>
-  <article class="gd-kpi-card"><span>Recuperado hoy</span><strong>$<?= number_format((float)($promesas['recuperado_hoy'] ?? 0), 0, ',', '.') ?></strong></article>
-  <article class="gd-kpi-card"><span>Recuperado mes</span><strong>$<?= number_format((float)($promesas['recuperado_mes'] ?? 0), 0, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Total cartera</span><strong>$<?= number_format($totalCartera, 0, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Cartera vencida</span><strong>$<?= number_format($totalVencido, 0, ',', '.') ?></strong></article>
+  <article class="gd-kpi-card"><span>Dependencia cliente mayor</span><strong><?= number_format($dependenciaMayor, 2, ',', '.') ?>%</strong></article>
+  <article class="gd-kpi-card"><span>Score salud cartera</span><strong><?= number_format($scoreSalud, 1, ',', '.') ?>/100</strong></article>
 </section>
 
 <section class="gd-grid-2">
   <article class="card gd-chart-card">
-    <h3>Distribución de mora</h3>
-    <canvas id="moraChart" height="150"></canvas>
+    <h3>Distribución por edad de cartera</h3>
+    <canvas id="edadChart" height="150"></canvas>
   </article>
   <article class="card gd-chart-card">
-    <h3>Recuperación diaria (últimos 30 días)</h3>
-    <canvas id="recoveryChart" height="150"></canvas>
+    <h3>Pareto de clientes (cartera vencida)</h3>
+    <canvas id="paretoChart" height="150"></canvas>
   </article>
 </section>
 
 <section class="gd-grid-2">
   <article class="card gd-chart-card">
-    <h3>Panel de promesas de pago</h3>
-    <div class="gd-promise-panel">
-      <div><span>Pendientes</span><strong><?= (int)($promesas['pendientes'] ?? 0) ?></strong></div>
-      <div><span>Cumplidas</span><strong><?= (int)($promesas['cumplidas'] ?? 0) ?></strong></div>
-      <div><span>Incumplidas</span><strong><?= (int)($promesas['incumplidas'] ?? 0) ?></strong></div>
-    </div>
+    <h3>Cartera vencida por UEN</h3>
+    <canvas id="uenChart" height="150"></canvas>
   </article>
-
-  <article class="card">
-    <h3>Ranking de gestores</h3>
-    <div class="table-responsive">
-      <table class="table">
-        <tr><th>Gestor</th><th>Gestiones realizadas</th><th>Promesas de pago</th><th>Valor recuperado</th></tr>
-        <?php foreach ($ranking as $row): ?>
-          <tr>
-            <td><?= htmlspecialchars((string)$row['nombre']) ?></td>
-            <td><?= number_format((int)$row['gestiones_realizadas'], 0, ',', '.') ?></td>
-            <td><?= number_format((int)$row['promesas_pago'], 0, ',', '.') ?></td>
-            <td>$<?= number_format((float)$row['valor_recuperado'], 0, ',', '.') ?></td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (empty($ranking)): ?><tr><td colspan="4">Sin información para el alcance seleccionado.</td></tr><?php endif; ?>
-      </table>
-    </div>
+  <article class="card gd-chart-card">
+    <h3>Cartera vencida por canal</h3>
+    <canvas id="canalChart" height="150"></canvas>
   </article>
 </section>
 
-<section class="card">
-  <h3>Clientes críticos (mora/saldo)</h3>
-  <div class="table-responsive">
-    <table class="table">
-      <tr><th>Cliente</th><th>NIT</th><th>Saldo total</th><th>Mora máxima (días)</th><th>Documentos</th></tr>
-      <?php foreach ($criticos as $cliente): ?>
-        <tr>
-          <td><a href="<?= htmlspecialchars(app_url('cartera/cliente.php?id_cliente=' . (int)$cliente['id'])) ?>"><?= htmlspecialchars((string)$cliente['nombre']) ?></a></td>
-          <td><?= htmlspecialchars((string)$cliente['nit']) ?></td>
-          <td>$<?= number_format((float)$cliente['saldo_total'], 0, ',', '.') ?></td>
-          <td><?= (int)$cliente['mora_maxima'] ?></td>
-          <td><?= (int)$cliente['documentos'] ?></td>
-        </tr>
-      <?php endforeach; ?>
-      <?php if (empty($criticos)): ?><tr><td colspan="5">No se encontraron clientes críticos.</td></tr><?php endif; ?>
-    </table>
-  </div>
+<section class="card gd-chart-card">
+  <h3>Cartera vencida por vendedor</h3>
+  <canvas id="vendedorChart" height="110"></canvas>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
   if (!window.Chart) return;
-
   var moneyFormatter = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
-  new Chart(document.getElementById('moraChart'), {
+  var axisMoney = { ticks: { callback: function (value) { return moneyFormatter.format(value || 0); } } };
+
+  new Chart(document.getElementById('edadChart'), {
     type: 'doughnut',
     data: {
-      labels: ['0-30', '31-60', '61-90', '+90'],
+      labels: ['Vigente', '1-30', '31-60', '61-90', '+90'],
       datasets: [{
-        data: <?= json_encode($chartMora, JSON_UNESCAPED_UNICODE) ?>,
-        backgroundColor: ['#22c55e', '#f59e0b', '#f97316', '#ef4444']
+        data: <?= json_encode($chartEdad, JSON_UNESCAPED_UNICODE) ?>,
+        backgroundColor: ['#22c55e', '#fde047', '#f59e0b', '#f97316', '#ef4444']
       }]
     },
-    options: {
-      plugins: {
-        legend: { position: 'bottom' },
-        tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + moneyFormatter.format(ctx.raw || 0); } } }
-      }
-    }
+    options: { plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + moneyFormatter.format(ctx.raw || 0); } } } } }
   });
 
-  new Chart(document.getElementById('recoveryChart'), {
-    type: 'line',
+  new Chart(document.getElementById('uenChart'), {
+    type: 'bar',
     data: {
-      labels: <?= json_encode($recoveryLabels, JSON_UNESCAPED_UNICODE) ?>,
+      labels: <?= json_encode($uenLabels, JSON_UNESCAPED_UNICODE) ?>,
+      datasets: [{ label: 'Cartera vencida', data: <?= json_encode($uenValues, JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#2563eb' }]
+    },
+    options: { indexAxis: 'y', scales: { x: axisMoney }, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById('canalChart'), {
+    type: 'bar',
+    data: {
+      labels: <?= json_encode($canalLabels, JSON_UNESCAPED_UNICODE) ?>,
+      datasets: [{ label: 'Cartera vencida', data: <?= json_encode($canalValues, JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#7c3aed' }]
+    },
+    options: { scales: { y: axisMoney }, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById('vendedorChart'), {
+    type: 'bar',
+    data: {
+      labels: <?= json_encode($vendedorLabels, JSON_UNESCAPED_UNICODE) ?>,
+      datasets: [{ label: 'Cartera vencida', data: <?= json_encode($vendedorValues, JSON_UNESCAPED_UNICODE) ?>, backgroundColor: '#0ea5e9' }]
+    },
+    options: { scales: { y: axisMoney }, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById('paretoChart'), {
+    data: {
+      labels: <?= json_encode($paretoLabels, JSON_UNESCAPED_UNICODE) ?>,
       datasets: [{
-        label: 'Recuperado',
-        data: <?= json_encode($recoveryValues, JSON_UNESCAPED_UNICODE) ?>,
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37, 99, 235, 0.2)',
-        fill: true,
-        tension: 0.35,
-        pointRadius: 2
+        type: 'bar',
+        label: 'Saldo vencido',
+        data: <?= json_encode($paretoValues, JSON_UNESCAPED_UNICODE) ?>,
+        backgroundColor: '#f59e0b',
+        yAxisID: 'y'
+      }, {
+        type: 'line',
+        label: '% acumulado',
+        data: <?= json_encode($paretoAcumulado, JSON_UNESCAPED_UNICODE) ?>,
+        borderColor: '#dc2626',
+        backgroundColor: '#dc2626',
+        yAxisID: 'y1',
+        tension: 0.25
       }]
     },
     options: {
       scales: {
-        y: { ticks: { callback: function (value) { return moneyFormatter.format(value); } } }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: function (ctx) { return moneyFormatter.format(ctx.raw || 0); } } }
+        y: axisMoney,
+        y1: {
+          position: 'right',
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          ticks: { callback: function (value) { return value + '%'; } }
+        }
       }
     }
   });
