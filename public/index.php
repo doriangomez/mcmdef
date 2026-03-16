@@ -282,42 +282,46 @@ ob_start();
       .then(async function (response) {
         var data = await response.json();
         console.log('Dashboard response:', data);
+        try {
 
-        if (!data) {
-          kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
-          comparisonBox.textContent = '';
-          fallbackNotice.textContent = '';
-          updatedAtEl.textContent = 'Error de actualización';
-          return;
-        }
+          if (!data) {
+            kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
+            comparisonBox.textContent = '';
+            fallbackNotice.textContent = '';
+            updatedAtEl.textContent = 'Error de actualización';
+            return;
+          }
 
-        safelyHydrateFilters(data);
+          safelyHydrateFilters(data);
 
-        if (data.meta && data.meta.degraded_to_global) {
-          fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
-        } else {
-          fallbackNotice.textContent = '';
-        }
+          if (data.meta && data.meta.degraded_to_global) {
+            fallbackNotice.textContent = 'Vista global aplicada automáticamente: algunos filtros sin valores (ej. UEN) fueron ignorados para evitar un dashboard vacío.';
+          } else {
+            fallbackNotice.textContent = '';
+          }
 
-        document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?>;
+          document.getElementById('dashboardExport').href = <?= json_encode(app_url('api/cartera/analisis-export.php')) ?>;
 
-        if (data && data.kpis) {
-          renderKpis(data.kpis);
-        }
+          if (data && data.kpis) {
+            renderKpis(data.kpis);
+          }
 
-        if (data && data.charts) {
-          renderCharts(data.charts);
-        }
+          if (data && data.charts) {
+            renderCharts(data.charts);
+          }
 
-        updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
+          updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
 
-        if (data.comparison) {
-          comparisonBox.innerHTML = 'Comparación periodo anterior (' + data.comparison.periodo_anterior.desde + ' a ' + data.comparison.periodo_anterior.hasta + '): ' +
-            'Cartera ' + decimal.format(data.comparison.variacion_cartera_pct || 0) + '% | ' +
-            'Mora ' + decimal.format(data.comparison.variacion_mora_pct || 0) + '% | ' +
-            'Exposición crítica ' + decimal.format(data.comparison.variacion_exposicion_pct || 0) + '%';
-        } else {
-          comparisonBox.textContent = '';
+          if (data.comparison) {
+            comparisonBox.innerHTML = 'Comparación periodo anterior (' + data.comparison.periodo_anterior.desde + ' a ' + data.comparison.periodo_anterior.hasta + '): ' +
+              'Cartera ' + decimal.format(data.comparison.variacion_cartera_pct || 0) + '% | ' +
+              'Mora ' + decimal.format(data.comparison.variacion_mora_pct || 0) + '% | ' +
+              'Exposición crítica ' + decimal.format(data.comparison.variacion_exposicion_pct || 0) + '%';
+          } else {
+            comparisonBox.textContent = '';
+          }
+        } catch(e) {
+          console.error('Error renderizando dashboard:', e);
         }
       })
       .catch(function () {
