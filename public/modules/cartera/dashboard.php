@@ -10,17 +10,132 @@ require_role(['admin', 'analista']);
 
 $scope = portfolio_client_scope_sql('c');
 
+function dashboard_distinct_values(PDO $pdo, string $fieldSql, string $alias, string $baseWhereSql, array $baseParams): array
+{
+    $sql = 'SELECT DISTINCT ' . $fieldSql . ' AS ' . $alias . '\n'
+        . 'FROM cartera_documentos d\n'
+        . 'INNER JOIN clientes c ON c.id = d.cliente_id\n'
+        . $baseWhereSql . '\n'
+        . 'ORDER BY ' . $alias;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($baseParams);
+    $values = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $value) {
+        $trimmed = trim((string)$value);
+        if ($trimmed !== '') {
+            $values[] = $trimmed;
+        }
+    }
+    return array_values(array_unique($values));
+}
+
+function dashboard_selected_values(string $key): array
+{
+    $raw = $_GET[$key] ?? [];
+    if (!is_array($raw)) {
+        $raw = [$raw];
+    }
+    $selected = [];
+    foreach ($raw as $value) {
+        $trimmed = trim((string)$value);
+        if ($trimmed !== '') {
+            $selected[] = $trimmed;
+        }
+    }
+    return array_values(array_unique($selected));
+}
+
 $allowedUens = uen_user_allowed_values($pdo);
-$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
-$uenFilter = uen_sql_condition('d.uens', $selectedUens);
-$uenSql = $uenFilter['sql'];
-$uenParams = $uenFilter['params'];
-$uensOptions = $pdo->query("SELECT DISTINCT uens AS uen FROM cartera_documentos WHERE uens IS NOT NULL AND TRIM(uens) <> '' ORDER BY uens")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$scopeWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'];
+$uensStmt = $pdo->prepare('SELECT DISTINCT TRIM(d.uens) AS uen FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id' . $scopeWhere . ' AND d.uens IS NOT NULL AND TRIM(d.uens) <> "" ORDER BY uen');
+$uensStmt->execute($scope['params']);
+$uensOptions = $uensStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 if (!empty($allowedUens)) {
     $uensOptions = array_values(array_intersect($uensOptions, $allowedUens));
 }
+$selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
+if (empty($selectedUens) && !empty($uensOptions)) {
+    $selectedUens = $uensOptions;
+}
 
+$uenFilter = uen_sql_condition('d.uens', $selectedUens);
+$uenSql = $uenFilter['sql'];
+$uenParams = $uenFilter['params'];
 $baseWhere = ' WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql;
+$baseParams = array_merge($scope['params'], $uenParams);
+
+$periodoOptions = dashboard_distinct_values($pdo, 'TRIM(d.periodo)', 'periodo', $baseWhere . ' AND d.periodo IS NOT NULL AND TRIM(d.periodo) <> ""', $baseParams);
+$canalOptions = dashboard_distinct_values($pdo, 'TRIM(COALESCE(NULLIF(d.canal, ""), c.canal))', 'canal', $baseWhere . ' AND TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)) <> ""', $baseParams);
+$regionalOptions = dashboard_distinct_values($pdo, 'TRIM(COALESCE(NULLIF(d.regional, ""), c.regional))', 'regional', $baseWhere . ' AND TRIM(COALESCE(NULLIF(d.regional, ""), c.regional)) <> ""', $baseParams);
+$empleadoOptions = dashboard_distinct_values($pdo, 'TRIM(c.empleado_ventas)', 'empleado_ventas', $baseWhere . ' AND c.empleado_ventas IS NOT NULL AND TRIM(c.empleado_ventas) <> ""', $baseParams);
+
+$clienteStmt = $pdo->prepare(
+    'SELECT DISTINCT c.id, c.nombre\n'
+    . 'FROM cartera_documentos d\n'
+    . 'INNER JOIN clientes c ON c.id = d.cliente_id\n'
+    . $baseWhere . '\n'
+    . 'ORDER BY c.nombre'
+);
+$clienteStmt->execute($baseParams);
+$clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+$selectedPeriodos = array_values(array_intersect(dashboard_selected_values('periodo'), $periodoOptions));
+$selectedCanales = array_values(array_intersect(dashboard_selected_values('canal'), $canalOptions));
+$selectedRegionales = array_values(array_intersect(dashboard_selected_values('regional'), $regionalOptions));
+$selectedEmpleados = array_values(array_intersect(dashboard_selected_values('empleado_ventas'), $empleadoOptions));
+$clienteIdsDisponibles = array_map(static fn(array $row): string => (string)$row['id'], $clienteOptions);
+$selectedClientes = array_values(array_intersect(dashboard_selected_values('cliente_id'), $clienteIdsDisponibles));
+
+$filtersSql = '';
+$filtersParams = [];
+if (!empty($selectedPeriodos)) {
+    $filtersSql .= ' AND d.periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
+    $filtersParams = array_merge($filtersParams, $selectedPeriodos);
+}
+if (!empty($selectedCanales)) {
+    $filtersSql .= ' AND TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)) IN (' . implode(',', array_fill(0, count($selectedCanales), '?')) . ')';
+    $filtersParams = array_merge($filtersParams, $selectedCanales);
+}
+if (!empty($selectedRegionales)) {
+    $filtersSql .= ' AND TRIM(COALESCE(NULLIF(d.regional, ""), c.regional)) IN (' . implode(',', array_fill(0, count($selectedRegionales), '?')) . ')';
+    $filtersParams = array_merge($filtersParams, $selectedRegionales);
+}
+if (!empty($selectedEmpleados)) {
+    $filtersSql .= ' AND TRIM(c.empleado_ventas) IN (' . implode(',', array_fill(0, count($selectedEmpleados), '?')) . ')';
+    $filtersParams = array_merge($filtersParams, $selectedEmpleados);
+}
+if (!empty($selectedClientes)) {
+    $filtersSql .= ' AND c.id IN (' . implode(',', array_fill(0, count($selectedClientes), '?')) . ')';
+    $filtersParams = array_merge($filtersParams, array_map('intval', $selectedClientes));
+}
+
+$baseWhere .= $filtersSql;
+$baseParams = array_merge($baseParams, $filtersParams);
+
+$docsCountStmt = $pdo->prepare('SELECT COUNT(*) FROM cartera_documentos d INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere);
+$docsCountStmt->execute($baseParams);
+$docsCount = (int)$docsCountStmt->fetchColumn();
+$noDataForFilters = $docsCount === 0;
+
+$recaudoSql = 'SELECT COUNT(*) AS registros, COALESCE(SUM(importe_aplicado), 0) AS total FROM recaudo_detalle WHERE 1=1';
+$recaudoParams = [];
+if (!empty($selectedPeriodos)) {
+    $recaudoSql .= ' AND periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
+    $recaudoParams = array_merge($recaudoParams, $selectedPeriodos);
+}
+$recaudoIndicadorStmt = $pdo->prepare($recaudoSql);
+$recaudoIndicadorStmt->execute($recaudoParams);
+$recaudoIndicador = $recaudoIndicadorStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$presupuestoSql = 'SELECT COUNT(*) AS registros, COALESCE(SUM(valor_presupuesto), 0) AS total FROM presupuesto_recaudo WHERE 1=1';
+$presupuestoParams = [];
+if (!empty($selectedPeriodos)) {
+    $presupuestoSql .= ' AND periodo IN (' . implode(',', array_fill(0, count($selectedPeriodos), '?')) . ')';
+    $presupuestoParams = array_merge($presupuestoParams, $selectedPeriodos);
+}
+$presupuestoIndicadorStmt = $pdo->prepare($presupuestoSql);
+$presupuestoIndicadorStmt->execute($presupuestoParams);
+$presupuestoIndicador = $presupuestoIndicadorStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $kpiStmt = $pdo->prepare(
     'SELECT
@@ -29,7 +144,7 @@ $kpiStmt = $pdo->prepare(
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
-$kpiStmt->execute(array_merge($scope['params'], $uenParams));
+$kpiStmt->execute($baseParams);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $promesasStmt = $pdo->prepare(
@@ -42,9 +157,9 @@ $promesasStmt = $pdo->prepare(
      FROM bitacora_gestion g
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE 1=1' . $scope['sql'] . $uenSql
+     WHERE 1=1' . $scope['sql'] . $uenSql . $filtersSql
 );
-$promesasStmt->execute(array_merge($scope['params'], $uenParams));
+$promesasStmt->execute($baseParams);
 $promesas = $promesasStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $moraStmt = $pdo->prepare(
@@ -56,7 +171,7 @@ $moraStmt = $pdo->prepare(
      FROM cartera_documentos d
      INNER JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
-$moraStmt->execute(array_merge($scope['params'], $uenParams));
+$moraStmt->execute($baseParams);
 $mora = $moraStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $recoveryStmt = $pdo->prepare(
@@ -65,11 +180,11 @@ $recoveryStmt = $pdo->prepare(
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
      WHERE g.estado_compromiso = "cumplido"
-       AND DATE(g.created_at) >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . $uenSql . '
+       AND DATE(g.created_at) >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)' . $scope['sql'] . $uenSql . $filtersSql . '
      GROUP BY DATE(g.created_at)
      ORDER BY DATE(g.created_at) ASC'
 );
-$recoveryStmt->execute(array_merge($scope['params'], $uenParams));
+$recoveryStmt->execute($baseParams);
 $recoveryRows = $recoveryStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $recoveryMap = [];
 foreach ($recoveryRows as $row) {
@@ -95,12 +210,12 @@ $rankingStmt = $pdo->prepare(
      INNER JOIN bitacora_gestion g ON g.usuario_id = u.id
      INNER JOIN cartera_documentos d ON d.id = g.id_documento
      INNER JOIN clientes c ON c.id = d.cliente_id
-     WHERE u.estado = "activo"' . $scope['sql'] . $uenSql . '
+     WHERE u.estado = "activo"' . $scope['sql'] . $uenSql . $filtersSql . '
      GROUP BY u.id, u.nombre
      ORDER BY valor_recuperado DESC, gestiones_realizadas DESC
      LIMIT 10'
 );
-$rankingStmt->execute(array_merge($scope['params'], $uenParams));
+$rankingStmt->execute($baseParams);
 $ranking = $rankingStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $criticosStmt = $pdo->prepare(
@@ -113,12 +228,12 @@ $criticosStmt = $pdo->prepare(
         COUNT(*) AS documentos
      FROM clientes c
      INNER JOIN cartera_documentos d ON d.cliente_id = c.id
-     WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql . '
+     WHERE d.estado_documento = "activo"' . $scope['sql'] . $uenSql . $filtersSql . '
      GROUP BY c.id, c.nombre, c.nit
      ORDER BY mora_maxima DESC, saldo_total DESC
      LIMIT 12'
 );
-$criticosStmt->execute(array_merge($scope['params'], $uenParams));
+$criticosStmt->execute($baseParams);
 $criticos = $criticosStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $chartMora = [
@@ -136,7 +251,14 @@ ob_start();
     <p class="kpi-subtext">Vista ejecutiva para administradores y gestores. Los gestores solo visualizan su cartera asignada.</p>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-    <form method="get" style="display:flex; gap:8px; align-items:flex-end;">
+    <form method="get" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+      <label>Periodo
+        <select name="periodo[]" multiple size="3">
+          <?php foreach ($periodoOptions as $periodoOption): ?>
+            <option value="<?= htmlspecialchars((string)$periodoOption) ?>" <?= in_array((string)$periodoOption, $selectedPeriodos, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$periodoOption) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
       <label>UEN (obligatorio)
         <select name="uen[]" multiple size="3" required>
           <?php foreach ($uensOptions as $uenOption): ?>
@@ -144,11 +266,51 @@ ob_start();
           <?php endforeach; ?>
         </select>
       </label>
-      <button class="btn" type="submit">Aplicar UEN</button>
+      <label>Canal
+        <select name="canal[]" multiple size="3">
+          <?php foreach ($canalOptions as $canalOption): ?>
+            <option value="<?= htmlspecialchars((string)$canalOption) ?>" <?= in_array((string)$canalOption, $selectedCanales, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$canalOption) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <label>Regional
+        <select name="regional[]" multiple size="3">
+          <?php foreach ($regionalOptions as $regionalOption): ?>
+            <option value="<?= htmlspecialchars((string)$regionalOption) ?>" <?= in_array((string)$regionalOption, $selectedRegionales, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$regionalOption) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <label>Empleado de ventas
+        <select name="empleado_ventas[]" multiple size="3">
+          <?php foreach ($empleadoOptions as $empleadoOption): ?>
+            <option value="<?= htmlspecialchars((string)$empleadoOption) ?>" <?= in_array((string)$empleadoOption, $selectedEmpleados, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$empleadoOption) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <label>Cliente
+        <select name="cliente_id[]" multiple size="3">
+          <?php foreach ($clienteOptions as $clienteOption): ?>
+            <?php $clienteId = (string)$clienteOption['id']; ?>
+            <option value="<?= htmlspecialchars($clienteId) ?>" <?= in_array($clienteId, $selectedClientes, true) ? 'selected' : '' ?>><?= htmlspecialchars((string)$clienteOption['nombre']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <button class="btn" type="submit">Aplicar</button>
+      <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/dashboard.php')) ?>">Limpiar</a>
     </form>
     <a class="btn" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php?' . http_build_query($_GET))) ?>">Descargar análisis de cartera (Excel XLSX)</a>
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
   </div>
+</section>
+
+
+<?php if ($noDataForFilters): ?>
+<section class="card"><p style="margin:0;">Sin datos para los filtros seleccionados.</p></section>
+<?php endif; ?>
+
+<section class="gd-kpi-grid">
+  <article class="gd-kpi-card"><span>Total recaudo</span><strong><?= (int)($recaudoIndicador['registros'] ?? 0) > 0 ? '$' . number_format((float)($recaudoIndicador['total'] ?? 0), 0, ',', '.') : 'Pendiente carga de recaudo' ?></strong></article>
+  <article class="gd-kpi-card"><span>Total presupuesto</span><strong><?= (int)($presupuestoIndicador['registros'] ?? 0) > 0 ? '$' . number_format((float)($presupuestoIndicador['total'] ?? 0), 0, ',', '.') : 'Pendiente carga de presupuesto' ?></strong></article>
 </section>
 
 <section class="gd-kpi-grid">
