@@ -59,6 +59,43 @@ function recaudo_map_headers_by_name(array $headers): array
     return $fieldMap;
 }
 
+
+function recaudo_table_exists(PDO $pdo, string $tableName): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
+    $stmt->execute([$tableName]);
+    return (int)$stmt->fetchColumn() > 0;
+}
+
+function recaudo_ensure_reconciliation_schema(PDO $pdo): void
+{
+    if (recaudo_table_exists($pdo, 'conciliacion_cartera_recaudo')) {
+        return;
+    }
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        periodo_cartera VARCHAR(7) NULL,
+        periodo_recaudo VARCHAR(7) NULL,
+        cartera_id BIGINT NULL,
+        recaudo_id BIGINT NOT NULL,
+        numero_documento VARCHAR(80) NOT NULL,
+        cliente_cartera VARCHAR(180) NULL,
+        cliente_recaudo VARCHAR(180) NULL,
+        valor_factura DECIMAL(18,2) NOT NULL DEFAULT 0,
+        valor_pagado DECIMAL(18,2) NOT NULL DEFAULT 0,
+        saldo_resultante DECIMAL(18,2) NOT NULL DEFAULT 0,
+        estado_conciliacion ENUM('conciliado_total', 'conciliado_parcial', 'sin_pago', 'pago_sin_factura', 'pago_excedido', 'periodo_diferente', 'tipo_no_coincide') NOT NULL,
+        nivel_confianza INT NOT NULL DEFAULT 100,
+        detalle_validacion TEXT NULL,
+        fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_conciliacion_recaudo_id (recaudo_id),
+        INDEX idx_conciliacion_documento (numero_documento),
+        INDEX idx_conciliacion_estado (estado_conciliacion),
+        INDEX idx_conciliacion_periodo (periodo_cartera, periodo_recaudo)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
 function recaudo_detect_period(array $rows, array $map): ?string
 {
     $counter = [];
@@ -329,6 +366,7 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
 
 function recaudo_run_reconciliation(PDO $pdo, int $cargaId): void
 {
+    recaudo_ensure_reconciliation_schema($pdo);
     $cargaStmt = $pdo->prepare('SELECT periodo FROM cargas_recaudo WHERE id = ? LIMIT 1');
     $cargaStmt->execute([$cargaId]);
     $periodoRecaudo = (string)(($cargaStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');

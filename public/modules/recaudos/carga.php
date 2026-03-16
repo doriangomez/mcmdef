@@ -236,13 +236,22 @@ if ($vendedorFiltro !== '') { $whereConc[] = 'COALESCE(rd.vendedor, "") = ?'; $p
 if ($estadoConciliacionFiltro !== '') { $whereConc[] = 'c.estado_conciliacion = ?'; $paramsConc[] = $estadoConciliacionFiltro; }
 $whereConcSql = $whereConc ? (' WHERE ' . implode(' AND ', $whereConc)) : '';
 
-$concStmt = $pdo->prepare('SELECT c.numero_documento, COALESCE(NULLIF(c.cliente_cartera, ""), c.cliente_recaudo, "") AS cliente, c.valor_factura, c.valor_pagado, c.saldo_resultante, c.estado_conciliacion, c.detalle_validacion FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql . ' ORDER BY c.id DESC LIMIT 300');
-$concStmt->execute($paramsConc);
-$conciliacionRows = $concStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$conciliacionRows = [];
+$kpiConc = ['cartera_total' => 0, 'cartera_conciliada_total' => 0, 'cartera_conciliada_parcial' => 0, 'cartera_sin_pago' => 0, 'pagos_sin_factura' => 0, 'recaudo_aplicado' => 0];
 
-$kpiConcStmt = $pdo->prepare('SELECT COALESCE(SUM(c.valor_factura),0) AS cartera_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_total" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_parcial" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_parcial, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "sin_pago" THEN c.valor_factura ELSE 0 END),0) AS cartera_sin_pago, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "pago_sin_factura" THEN c.valor_pagado ELSE 0 END),0) AS pagos_sin_factura, COALESCE(SUM(c.valor_pagado),0) AS recaudo_aplicado FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql);
-$kpiConcStmt->execute($paramsConc);
-$kpiConc = $kpiConcStmt->fetch(PDO::FETCH_ASSOC) ?: ['cartera_total' => 0, 'cartera_conciliada_total' => 0, 'cartera_conciliada_parcial' => 0, 'cartera_sin_pago' => 0, 'pagos_sin_factura' => 0, 'recaudo_aplicado' => 0];
+try {
+    recaudo_ensure_reconciliation_schema($pdo);
+
+    $concStmt = $pdo->prepare('SELECT c.numero_documento, COALESCE(NULLIF(c.cliente_cartera, ""), c.cliente_recaudo, "") AS cliente, c.valor_factura, c.valor_pagado, c.saldo_resultante, c.estado_conciliacion, c.detalle_validacion FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql . ' ORDER BY c.id DESC LIMIT 300');
+    $concStmt->execute($paramsConc);
+    $conciliacionRows = $concStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $kpiConcStmt = $pdo->prepare('SELECT COALESCE(SUM(c.valor_factura),0) AS cartera_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_total" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_parcial" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_parcial, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "sin_pago" THEN c.valor_factura ELSE 0 END),0) AS cartera_sin_pago, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "pago_sin_factura" THEN c.valor_pagado ELSE 0 END),0) AS pagos_sin_factura, COALESCE(SUM(c.valor_pagado),0) AS recaudo_aplicado FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql);
+    $kpiConcStmt->execute($paramsConc);
+    $kpiConc = $kpiConcStmt->fetch(PDO::FETCH_ASSOC) ?: $kpiConc;
+} catch (Throwable $e) {
+    $warnings[] = build_validation_error(0, 'conciliacion', '', 'No fue posible consultar la tabla de conciliación automáticamente: ' . $e->getMessage());
+}
 $recaudoNoConciliado = max(0, (float)$recaudoPeriodo - (float)$kpiConc['recaudo_aplicado']);
 $porcentajeConciliacion = (float)$kpiConc['cartera_total'] > 0 ? (((float)$kpiConc['cartera_conciliada_total'] + (float)$kpiConc['cartera_conciliada_parcial']) / (float)$kpiConc['cartera_total']) * 100 : 0;
 $diasPeriodo = (int)($_GET['dias_periodo'] ?? 30);
