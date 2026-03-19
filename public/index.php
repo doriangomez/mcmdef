@@ -12,16 +12,42 @@ ob_start();
   </div>
   <div class="hero-controls">
     <form id="filtersForm" class="dashboard-filters" autocomplete="off">
-      <select name="vista" id="filterVista"><option value="ejecutivo" selected>Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select>
-      <select name="periodo" id="filterPeriodo"></select>
-      <input type="date" name="fecha_desde" id="filterFechaDesde" readonly>
-      <input type="date" name="fecha_hasta" id="filterFechaHasta" readonly>
-      <select name="uen[]" id="filterUen" multiple></select>
-      <select name="regional" id="filterRegional"><option value="">Todas las regionales</option></select>
-      <select name="canal" id="filterCanal"><option value="">Todos los canales</option></select>
-      <select name="empleado_ventas" id="filterEmpleado"><option value="">Todos los asesores</option></select>
-      <select name="cliente" id="filterCliente"><option value="">Todos los clientes</option></select>
-      <input type="checkbox" name="comparar_anterior" value="1" id="filterComparar">
+      <label class="filter-field" for="filtroPeriodo">
+        <span>Periodo</span>
+        <select id="filtroPeriodo" name="periodo">
+          <option value="">Cargando periodos...</option>
+        </select>
+      </label>
+      <label class="filter-field" for="filtroRegional">
+        <span>Regional</span>
+        <select id="filtroRegional" disabled>
+          <option value="">Próximamente</option>
+        </select>
+      </label>
+      <label class="filter-field" for="filtroCanal">
+        <span>Canal</span>
+        <select id="filtroCanal" disabled>
+          <option value="">Próximamente</option>
+        </select>
+      </label>
+      <label class="filter-field" for="filtroEmpleado">
+        <span>Empleado</span>
+        <select id="filtroEmpleado" disabled>
+          <option value="">Próximamente</option>
+        </select>
+      </label>
+      <label class="filter-field" for="filtroCliente">
+        <span>Cliente</span>
+        <select id="filtroCliente" disabled>
+          <option value="">Próximamente</option>
+        </select>
+      </label>
+      <label class="filter-field" for="filtroUen">
+        <span>UEN</span>
+        <select id="filtroUen" disabled>
+          <option value="">Próximamente</option>
+        </select>
+      </label>
     </form>
     <div class="filter-actions">
       <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
@@ -50,14 +76,11 @@ ob_start();
 <script>
 (function () {
   var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
-  var uensEndpointUrl = <?= json_encode(app_url('api/uens/')) ?>;
   var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
-  var clearButton = document.getElementById('dashboardClear');
   var updatedAtEl = document.getElementById('dashboardUpdatedAt');
   var kpiGrid = document.getElementById('kpiGrid');
   var comparisonBox = document.getElementById('comparisonBox');
   var fallbackNotice = document.getElementById('dashboardFallbackNotice');
-  var selectAllUensBtn = document.getElementById('selectAllUens');
   var charts = {};
 
   var currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
@@ -93,21 +116,11 @@ ob_start();
     }
   }
 
-  function hydrateSelect(selectId, values, selected) {
+  function hydrateReadonlySelect(selectId) {
     var el = document.getElementById(selectId);
     if (!el) return;
-    if (el.multiple) {
-      el.innerHTML = (values || []).map(function (v) { return '<option value="' + v + '">' + v + '</option>'; }).join('');
-      var selectedValues = Array.isArray(selected) ? selected : [];
-      if (!selectedValues.length && values && values.length) selectedValues = values.slice();
-      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = selectedValues.indexOf(opt.value) !== -1; });
-      return;
-    }
-    var ph = el.getAttribute('data-placeholder');
-    var html = ['<option value="">' + ph + '</option>'];
-    (values || []).forEach(function (v) { html.push('<option value="' + v + '">' + v + '</option>'); });
-    el.innerHTML = html.join('');
-    el.value = selected || '';
+    el.innerHTML = '<option value="">Próximamente</option>';
+    el.disabled = true;
   }
 
   function renderKpis(kpis, emptyMessage) {
@@ -197,97 +210,68 @@ ob_start();
 
 
   function hydratePeriod(options, selected) {
-    var el = document.getElementById('filterPeriodo');
+    var el = document.getElementById('filtroPeriodo');
     if (!el) return;
-    var prev = selected || el.value;
-    el.innerHTML = '';
+
+    var fallbackLabel = 'Todos los periodos';
+    var currentValue = selected || el.value || '';
+    var html = ['<option value="">' + fallbackLabel + '</option>'];
+
     (options || []).forEach(function (value) {
-      var option = document.createElement('option');
-      option.value = value;
-      option.textContent = value;
-      if (value === prev) option.selected = true;
-      el.appendChild(option);
+      html.push('<option value="' + value + '">' + value + '</option>');
     });
+
+    el.innerHTML = html.join('');
+    el.value = currentValue;
   }
 
-  function loadUensByPeriod(periodo, selected) {
-    var el = document.getElementById('filterUen') || document.getElementById('filterUens');
-    if (!periodo) {
-      hydrateSelect('filterUen', [], []);
-      return Promise.resolve([]);
-    }
+  function getFilters() {
+    var periodoEl = document.getElementById('filtroPeriodo');
+    var periodo = periodoEl ? periodoEl.value : '';
+    console.log('Filtro periodo:', periodo);
 
-    return fetch(uensEndpointUrl + '?periodo=' + encodeURIComponent(periodo), { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (payload) {
-        var uens = (payload && payload.uens) || [];
-        var selectedUens = Array.isArray(selected) && selected.length ? selected : uens;
-        hydrateSelect('filterUen', uens, selectedUens);
-        if (uens.length === 0) {
-          el.innerHTML = '';
-          el.required = false;
-        } else {
-          el.required = false;
-        }
-        return uens;
-      });
+    return {
+      periodo: periodo
+    };
   }
 
-  function buildDashboardQuery() {
+  function buildDashboardUrl() {
+    var filtros = getFilters();
     var params = new URLSearchParams();
-    var vistaEl = document.getElementById('filterVista');
-    var periodoEl = document.getElementById('filterPeriodo');
-    var fechaDesdeEl = document.getElementById('filterFechaDesde');
-    var fechaHastaEl = document.getElementById('filterFechaHasta');
-    var regionalEl = document.getElementById('filterRegional');
-    var canalEl = document.getElementById('filterCanal');
-    var empleadoEl = document.getElementById('filterEmpleado');
-    var clienteEl = document.getElementById('filterCliente');
-    var compararEl = document.getElementById('filterComparar');
-    var uenEl = document.getElementById('filterUen') || document.getElementById('filterUens');
 
-    if (vistaEl && vistaEl.value) params.set('vista', vistaEl.value);
-    if (periodoEl && periodoEl.value) params.set('periodo', periodoEl.value);
-    if (fechaDesdeEl && fechaDesdeEl.value) params.set('fecha_desde', fechaDesdeEl.value);
-    if (fechaHastaEl && fechaHastaEl.value) params.set('fecha_hasta', fechaHastaEl.value);
-    if (regionalEl && regionalEl.value) params.set('regional', regionalEl.value);
-    if (canalEl && canalEl.value) params.set('canal', canalEl.value);
-    if (empleadoEl && empleadoEl.value) params.set('empleado_ventas', empleadoEl.value);
-    if (clienteEl && clienteEl.value) params.set('cliente', clienteEl.value);
-    if (compararEl && compararEl.checked) params.set('comparar_anterior', '1');
-
-    if (uenEl && uenEl.options) {
-      Array.prototype.forEach.call(uenEl.options, function (opt) {
-        if (opt.selected && opt.value) params.append('uen', opt.value);
-      });
+    if (filtros.periodo) {
+      params.set('periodo', filtros.periodo);
     }
 
-    return params.toString();
+    var url = endpointUrl + (params.toString() ? '?' + params.toString() : '');
+
+    console.log('Filtros enviados:', filtros);
+    console.log('URL:', url);
+
+    return { filtros: filtros, url: url };
   }
 
   function safelyHydrateFilters(payload) {
-    if (!payload || !payload.filter_options || !payload.meta || !payload.meta.selected_filters) return;
+    if (!payload || !payload.filter_options) return;
 
-    var selected = payload.meta.selected_filters || {};
+    var selected = (payload.meta && payload.meta.selected_filters) || {};
     var options = payload.filter_options || {};
-    hydrateSelect('filterRegional', options.regional, selected.regional);
-    hydrateSelect('filterCanal', options.canal, selected.canal);
-    hydrateSelect('filterEmpleado', options.empleado_ventas, selected.empleado_ventas);
-    hydrateSelect('filterCliente', options.cliente, selected.cliente);
+
     hydratePeriod(options.periodo || [], selected.periodo || '');
-    document.getElementById('filterPeriodo').value = selected.periodo || '';
-    loadUensByPeriod(selected.periodo || '', selected.uen || []);
-    document.getElementById('filterFechaDesde').value = selected.fecha_desde || options.fecha_desde || '';
-    document.getElementById('filterFechaHasta').value = selected.fecha_hasta || options.fecha_hasta || '';
-    document.getElementById('filterComparar').checked = !!selected.comparar_anterior;
-    document.getElementById('filterVista').value = selected.vista || 'ejecutivo';
+    hydrateReadonlySelect('filtroRegional');
+    hydrateReadonlySelect('filtroCanal');
+    hydrateReadonlySelect('filtroEmpleado');
+    hydrateReadonlySelect('filtroCliente');
+    hydrateReadonlySelect('filtroUen');
   }
 
   function requestData() {
-    fetch(endpointUrl + '?' + buildDashboardQuery(), { headers: { 'Accept': 'application/json' } })
+    var request = buildDashboardUrl();
+
+    fetch(request.url, { headers: { 'Accept': 'application/json' } })
       .then(async function (response) {
         var data = await response.json();
-        console.log('Dashboard response:', data);
+        console.log('Response:', data);
         try {
 
           if (!data) {
@@ -338,30 +322,17 @@ ob_start();
       });
   }
 
-  form.addEventListener('submit', function (e) { e.preventDefault(); requestData(); });
-  form.addEventListener('change', function (e) {
-    if (e.target && e.target.id === 'filterPeriodo') {
-      loadUensByPeriod(e.target.value).then(function () { requestData(); });
-      return;
-    }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
     requestData();
   });
-  if (selectAllUensBtn) {
-    selectAllUensBtn.addEventListener('click', function () {
-      var el = document.getElementById('filterUen') || document.getElementById('filterUens');
-      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
+
+  form.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'filtroPeriodo') {
       requestData();
-    });
-  }
-  if (clearButton) {
-    clearButton.addEventListener('click', function () {
-      form.reset();
-      loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
-        Array.prototype.forEach.call((document.getElementById('filterUen') || document.getElementById('filterUens')).options, function (opt) { opt.selected = true; });
-        requestData();
-      });
-    });
-  }
+    }
+  });
+
   requestData();
 })();
 </script>
