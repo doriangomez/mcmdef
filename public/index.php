@@ -18,10 +18,10 @@ ob_start();
           <option value="">Cargando periodos...</option>
         </select>
       </label>
-      <label class="filter-field" for="filtroRegional">
+      <label class="filter-field" for="regional">
         <span>Regional</span>
-        <select id="filtroRegional" disabled>
-          <option value="">Próximamente</option>
+        <select id="regional" name="regional">
+          <option value="">Cargando regionales...</option>
         </select>
       </label>
       <label class="filter-field" for="filtroCanal">
@@ -79,6 +79,7 @@ ob_start();
     var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
     var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
     var periodoSelect = document.querySelector('#filtroPeriodo');
+    var regionalSelect = document.querySelector('#regional');
     var updatedAtEl = document.getElementById('dashboardUpdatedAt');
     var kpiGrid = document.getElementById('kpiGrid');
     var comparisonBox = document.getElementById('comparisonBox');
@@ -229,14 +230,35 @@ ob_start();
     el.value = currentValue;
   }
 
+  function hydrateRegional(options, selected) {
+    var el = document.getElementById('regional');
+    if (!el) return;
+
+    var fallbackLabel = 'Todas las regionales';
+    var currentValue = selected || el.value || '';
+    var html = ['<option value="">' + fallbackLabel + '</option>'];
+
+    (options || []).forEach(function (value) {
+      html.push('<option value="' + value + '">' + value + '</option>');
+    });
+
+    el.innerHTML = html.join('');
+    el.value = currentValue;
+    el.disabled = false;
+  }
+
   function getFilters() {
     var periodoEl = document.getElementById('filtroPeriodo');
+    var regionalEl = document.getElementById('regional');
     var periodo = periodoEl ? periodoEl.value : '';
+    var regional = regionalEl ? regionalEl.value : '';
 
     console.log('Periodo seleccionado:', periodo);
+    console.log('Regional seleccionada:', regional);
 
     return {
-      periodo: periodo
+      periodo: periodo,
+      regional: regional
     };
   }
 
@@ -248,7 +270,11 @@ ob_start();
       url.searchParams.set('periodo', filters.periodo);
     }
 
-    console.log('URL con periodo:', url.toString());
+    if (filters.regional) {
+      url.searchParams.set('regional', filters.regional);
+    }
+
+    console.log('URL con filtros:', url.toString());
 
     return { filtros: filters, url: url.toString() };
   }
@@ -260,7 +286,7 @@ ob_start();
     var options = payload.filter_options || {};
 
     hydratePeriod(options.periodo || [], selected.periodo || '');
-    hydrateReadonlySelect('filtroRegional');
+    hydrateRegional(options.regional || [], selected.regional || '');
     hydrateReadonlySelect('filtroCanal');
     hydrateReadonlySelect('filtroEmpleado');
     hydrateReadonlySelect('filtroCliente');
@@ -332,6 +358,13 @@ ob_start();
     if (periodoSelect) {
       periodoSelect.addEventListener('change', function () {
         console.log('Cambio de periodo detectado:', this.value);
+        requestData();
+      });
+    }
+
+    if (regionalSelect) {
+      regionalSelect.addEventListener('change', function () {
+        console.log('Cambio de regional detectado:', this.value);
         requestData();
       });
     }
