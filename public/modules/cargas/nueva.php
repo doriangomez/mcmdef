@@ -314,7 +314,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $errors[] = build_validation_error(0, 'transacción', '', $exception->getMessage());
+                $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
                 $estadoCarga = 'rechazada';
                 $msg = 'Carga rechazada. No se insertó ningún registro.';
             }

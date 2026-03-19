@@ -80,7 +80,7 @@ function cartera_header_aliases(): array
         'empleado_de_ventas' => ['empleado_de_ventas', 'empleado_ventas', 'asesor', 'asesor_comercial'],
         'regional' => ['regional'],
         'nro_documento' => ['nro_documento', 'numero_documento', 'documento'],
-        'nro_ref_de_cliente' => ['nro_ref_de_cliente', 'nro_ref_cliente', 'referencia_cliente'],
+        'nro_ref_de_cliente' => ['nro_ref_de_cliente', 'nro_ref_cliente', 'referencia_cliente', 'transaccion'],
         'tipo' => ['tipo', 'tipo_documento'],
         'fecha_contabilizacion' => ['fecha_contabilizacion', 'fecha_emision'],
         'fecha_vencimiento' => ['fecha_vencimiento'],
@@ -96,6 +96,67 @@ function cartera_header_aliases(): array
         '181_360_dias' => ['181_360_dias', '181_360'],
         '361_dias' => ['361_dias', '361_plus_dias', '361_plus', 'mas_de_360_dias'],
     ];
+}
+
+function cartera_field_labels(): array
+{
+    return [
+        'cuenta' => 'cuenta',
+        'cliente' => 'cliente',
+        'nit' => 'nit',
+        'direccion' => 'direccion',
+        'contacto' => 'contacto',
+        'telefono' => 'telefono',
+        'canal' => 'canal',
+        'uens' => 'uens',
+        'empleado_de_ventas' => 'empleado_de_ventas',
+        'regional' => 'regional',
+        'nro_documento' => 'nro_documento',
+        'nro_ref_de_cliente' => 'transacción',
+        'tipo' => 'tipo',
+        'moneda' => 'moneda',
+    ];
+}
+
+function cartera_text_field_limits(): array
+{
+    return [
+        'cuenta' => 80,
+        'cliente' => 180,
+        'nit' => 30,
+        'direccion' => 220,
+        'contacto' => 120,
+        'telefono' => 60,
+        'canal' => 80,
+        'uens' => 120,
+        'empleado_de_ventas' => 120,
+        'regional' => 80,
+        'nro_documento' => 80,
+        'nro_ref_de_cliente' => 80,
+        'tipo' => 50,
+        'moneda' => 12,
+    ];
+}
+
+function validate_text_field_lengths(array &$errors, int $excelRow, array $rowData): void
+{
+    $labels = cartera_field_labels();
+
+    foreach (cartera_text_field_limits() as $field => $maxLength) {
+        $value = trim((string)($rowData[$field] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+
+        if (mb_strlen($value, 'UTF-8') > $maxLength) {
+            $errors[] = build_validation_error(
+                $excelRow,
+                $labels[$field] ?? $field,
+                $value,
+                'Supera la longitud máxima permitida de ' . $maxLength . ' caracteres'
+            );
+        }
+    }
 }
 
 function map_headers_by_name(array $headers): array
@@ -339,6 +400,8 @@ function validate_cartera_rows(array $rows): array
                 $errors[] = build_validation_error($excelRow, $field, $rowData[$field], 'Campo crítico vacío');
             }
         }
+
+        validate_text_field_lengths($errors, $excelRow, $rowData);
 
         $fechaCont = normalize_date_value($rowData['fecha_contabilizacion']);
         $fechaVen = normalize_date_value($rowData['fecha_vencimiento']);
