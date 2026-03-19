@@ -32,3 +32,10 @@ function portfolio_document_scope_sql(string $documentAlias = 'd', ?array $user 
         'params' => [(int)($user['id'] ?? 0)],
     ];
 }
+
+function user_portfolio_scope($pdo = null, ?array $user = null, string $documentAlias = 'd', string $clientAlias = 'c'): array
+{
+    unset($pdo, $documentAlias);
+
+    return portfolio_client_scope_sql($clientAlias, $user);
+}

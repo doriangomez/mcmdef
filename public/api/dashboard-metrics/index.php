@@ -14,6 +14,8 @@ if (!is_logged_in()) {
     exit;
 }
 
+$user = current_user();
+
 function qf(string $key): string
 {
     return trim((string)($_GET[$key] ?? ''));
