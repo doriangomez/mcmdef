@@ -131,15 +131,6 @@ if (!empty($allowedUens)) {
 }
 
 $selectedUens = array_values(array_intersect($selectedUens, $uenOptions));
-if (empty($selectedUens) && !empty($uenOptions)) {
-    $selectedUens = $uenOptions;
-}
-
-$uenFilterActive = !empty($selectedUens);
-$degradedFilters = [];
-if (!$uenFilterActive && $selectedPeriod !== '') {
-    $degradedFilters[] = 'uen';
-}
 
 $regionalSet = [];
 foreach ($regionalOptions as $value) { $regionalSet[normalize((string)$value)] = true; }
