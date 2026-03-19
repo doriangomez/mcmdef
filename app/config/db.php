@@ -18,8 +18,8 @@ error_reporting(E_ALL);
 $host = getenv('DB_HOST') ?: '127.0.0.1';
 $port = getenv('DB_PORT') ?: '3306';
 $dbname = getenv('DB_NAME') ?: 'mcm_cartera';
-$user = getenv('DB_USER') ?: 'root';
-$pass = getenv('DB_PASS') ?: '';
+$user = getenv('DB_USER') ?: 'mcmuser';
+$pass = getenv('DB_PASS') ?: 'Password123!';
 
 try {
     $dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset=utf8mb4";
