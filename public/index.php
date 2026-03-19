@@ -228,7 +228,8 @@ ob_start();
   function getFilters() {
     var periodoEl = document.getElementById('filtroPeriodo');
     var periodo = periodoEl ? periodoEl.value : '';
-    console.log('Filtro periodo:', periodo);
+
+    console.log('Periodo seleccionado:', periodo);
 
     return {
       periodo: periodo
@@ -236,12 +237,16 @@ ob_start();
   }
 
   function buildDashboardUrl() {
-    var url = endpointUrl;
+    var filters = getFilters();
+    var url = new URL(endpointUrl, window.location.origin);
 
-    console.log("Llamando endpoint sin filtros");
-    console.log("URL:", url);
+    if (filters.periodo) {
+      url.searchParams.set('periodo', filters.periodo);
+    }
 
-    return { filtros: {}, url: url };
+    console.log('URL con periodo:', url.toString());
+
+    return { filtros: filters, url: url.toString() };
   }
 
   function safelyHydrateFilters(payload) {
