@@ -236,19 +236,12 @@ ob_start();
   }
 
   function buildDashboardUrl() {
-    var filtros = getFilters();
-    var params = new URLSearchParams();
+    var url = endpointUrl;
 
-    if (filtros.periodo) {
-      params.set('periodo', filtros.periodo);
-    }
+    console.log("Llamando endpoint sin filtros");
+    console.log("URL:", url);
 
-    var url = endpointUrl + (params.toString() ? '?' + params.toString() : '');
-
-    console.log('Filtros enviados:', filtros);
-    console.log('URL:', url);
-
-    return { filtros: filtros, url: url };
+    return { filtros: {}, url: url };
   }
 
   function safelyHydrateFilters(payload) {
