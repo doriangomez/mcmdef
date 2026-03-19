@@ -12,42 +12,56 @@ ob_start();
   </div>
   <div class="hero-controls">
     <form id="filtersForm" class="dashboard-filters" autocomplete="off">
-      <label class="filter-field" for="filtroPeriodo">
-        <span>Periodo</span>
-        <select id="filtroPeriodo" name="periodo">
-          <option value="">Cargando periodos...</option>
-        </select>
-      </label>
-      <label class="filter-field" for="regional">
-        <span>Regional</span>
-        <select id="regional" name="regional">
-          <option value="">Cargando regionales...</option>
-        </select>
-      </label>
-      <label class="filter-field" for="filtroCanal">
-        <span>Canal</span>
-        <select id="filtroCanal" disabled>
-          <option value="">Próximamente</option>
-        </select>
-      </label>
-      <label class="filter-field" for="filtroEmpleado">
-        <span>Empleado</span>
-        <select id="filtroEmpleado" disabled>
-          <option value="">Próximamente</option>
-        </select>
-      </label>
-      <label class="filter-field" for="filtroCliente">
-        <span>Cliente</span>
-        <select id="filtroCliente" disabled>
-          <option value="">Próximamente</option>
-        </select>
-      </label>
-      <label class="filter-field" for="filtroUen">
-        <span>UEN</span>
-        <select id="filtroUen" disabled>
-          <option value="">Próximamente</option>
-        </select>
-      </label>
+      <div class="dashboard-filters-row dashboard-filters-row-primary">
+        <label class="filter-field" for="filtroPeriodo">
+          <span>Periodo</span>
+          <select id="filtroPeriodo" name="periodo">
+            <option value="">Cargando periodos...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroUen">
+          <span>UEN</span>
+          <select id="filtroUen" name="uen">
+            <option value="">Cargando UEN...</option>
+          </select>
+        </label>
+      </div>
+      <div class="dashboard-filters-row dashboard-filters-row-secondary">
+        <label class="filter-field" for="regional">
+          <span>Regional</span>
+          <select id="regional" name="regional">
+            <option value="">Cargando regionales...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroCanal">
+          <span>Canal</span>
+          <select id="filtroCanal" name="canal">
+            <option value="">Cargando canales...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroEmpleado">
+          <span>Empleado</span>
+          <select id="filtroEmpleado" name="empleado_ventas">
+            <option value="">Cargando empleados...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroCliente">
+          <span>Cliente</span>
+          <select id="filtroCliente" name="cliente">
+            <option value="">Cargando clientes...</option>
+          </select>
+        </label>
+      </div>
+      <div class="dashboard-filters-row dashboard-filters-row-dates">
+        <label class="filter-field filter-field-date" for="filtroFechaDesde">
+          <span>Fecha desde</span>
+          <input id="filtroFechaDesde" name="fecha_desde" type="date">
+        </label>
+        <label class="filter-field filter-field-date" for="filtroFechaHasta">
+          <span>Fecha hasta</span>
+          <input id="filtroFechaHasta" name="fecha_hasta" type="date">
+        </label>
+      </div>
     </form>
     <div class="filter-actions">
       <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
@@ -122,11 +136,12 @@ ob_start();
     }
   }
 
-  function hydrateReadonlySelect(selectId) {
-    var el = document.getElementById(selectId);
+  function hydrateDateInput(inputId, selected, fallbackValue) {
+    var el = document.getElementById(inputId);
     if (!el) return;
-    el.innerHTML = '<option value="">Próximamente</option>';
-    el.disabled = true;
+
+    var currentValue = selected || el.value || fallbackValue || '';
+    el.value = currentValue;
   }
 
   function renderKpis(kpis, emptyMessage) {
@@ -214,7 +229,6 @@ ob_start();
     }));
   }
 
-
   function hydratePeriod(options, selected) {
     var el = document.getElementById('filtroPeriodo');
     if (!el) return;
@@ -264,6 +278,18 @@ ob_start();
     hydrateSelectableFilter('regional', options, selected, 'Todas las regionales');
   }
 
+  function hydrateCanal(options, selected) {
+    hydrateSelectableFilter('filtroCanal', options, selected, 'Todos los canales');
+  }
+
+  function hydrateEmpleado(options, selected) {
+    hydrateSelectableFilter('filtroEmpleado', options, selected, 'Todos los empleados');
+  }
+
+  function hydrateCliente(options, selected) {
+    hydrateSelectableFilter('filtroCliente', options, selected, 'Todos los clientes');
+  }
+
   function hydrateUen(options, selected) {
     hydrateSelectableFilter('filtroUen', options, selected, 'Todas las UEN');
   }
@@ -277,6 +303,8 @@ ob_start();
     var filters = {
       periodo: getFilterValue('filtroPeriodo'),
       uen: getFilterValue('filtroUen'),
+      fechaDesde: getFilterValue('filtroFechaDesde'),
+      fechaHasta: getFilterValue('filtroFechaHasta'),
       regional: getFilterValue('regional'),
       canal: getFilterValue('filtroCanal'),
       empleado: getFilterValue('filtroEmpleado'),
@@ -286,6 +314,8 @@ ob_start();
     console.log('Filtros activos:', {
       periodo: filters.periodo,
       uen: filters.uen,
+      fechaDesde: filters.fechaDesde,
+      fechaHasta: filters.fechaHasta,
       regional: filters.regional,
       canal: filters.canal,
       empleado: filters.empleado,
@@ -307,6 +337,8 @@ ob_start();
 
     appendFilter(url.searchParams, 'periodo', filters.periodo);
     appendFilter(url.searchParams, 'uen', filters.uen);
+    appendFilter(url.searchParams, 'fecha_desde', filters.fechaDesde);
+    appendFilter(url.searchParams, 'fecha_hasta', filters.fechaHasta);
     appendFilter(url.searchParams, 'regional', filters.regional);
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
@@ -324,11 +356,13 @@ ob_start();
     var options = payload.filter_options || {};
 
     hydratePeriod(options.periodo || [], selected.periodo || '');
+    hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
+    hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
     hydrateRegional(options.regional || [], selected.regional || '');
+    hydrateCanal(options.canal || [], selected.canal || '');
+    hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
+    hydrateCliente(options.cliente || [], selected.cliente || '');
     hydrateUen(options.uen || [], selected.uen || '');
-    hydrateReadonlySelect('filtroCanal');
-    hydrateReadonlySelect('filtroEmpleado');
-    hydrateReadonlySelect('filtroCliente');
   }
 
   function requestData() {
@@ -413,6 +447,15 @@ ob_start();
         requestData();
       });
     }
+
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente'].forEach(function (filterId) {
+      var el = document.getElementById(filterId);
+      if (!el) return;
+      el.addEventListener('change', function () {
+        console.log('Cambio de filtro detectado:', filterId, this.value);
+        requestData();
+      });
+    });
 
     requestData();
   }
