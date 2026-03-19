@@ -80,6 +80,7 @@ ob_start();
     var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
     var periodoSelect = document.querySelector('#filtroPeriodo');
     var regionalSelect = document.querySelector('#regional');
+    var uenSelect = document.querySelector('#filtroUen');
     var updatedAtEl = document.getElementById('dashboardUpdatedAt');
     var kpiGrid = document.getElementById('kpiGrid');
     var comparisonBox = document.getElementById('comparisonBox');
@@ -230,12 +231,19 @@ ob_start();
     el.value = currentValue;
   }
 
-  function hydrateRegional(options, selected) {
-    var el = document.getElementById('regional');
+  function getSelectedOptionValue(selected) {
+    if (Array.isArray(selected)) {
+      return selected[0] || '';
+    }
+
+    return selected || '';
+  }
+
+  function hydrateSelectableFilter(selectId, options, selected, fallbackLabel) {
+    var el = document.getElementById(selectId);
     if (!el) return;
 
-    var fallbackLabel = 'Todas las regionales';
-    var currentValue = selected || el.value || '';
+    var currentValue = getSelectedOptionValue(selected) || el.value || '';
     var html = ['<option value="">' + fallbackLabel + '</option>'];
 
     (options || []).forEach(function (value) {
@@ -244,35 +252,65 @@ ob_start();
 
     el.innerHTML = html.join('');
     el.value = currentValue;
+
+    if (el.value !== currentValue) {
+      el.value = '';
+    }
+
     el.disabled = false;
   }
 
+  function hydrateRegional(options, selected) {
+    hydrateSelectableFilter('regional', options, selected, 'Todas las regionales');
+  }
+
+  function hydrateUen(options, selected) {
+    hydrateSelectableFilter('filtroUen', options, selected, 'Todas las UEN');
+  }
+
+  function getFilterValue(selectId) {
+    var el = document.getElementById(selectId);
+    return el ? String(el.value || '').trim() : '';
+  }
+
   function getFilters() {
-    var periodoEl = document.getElementById('filtroPeriodo');
-    var regionalEl = document.getElementById('regional');
-    var periodo = periodoEl ? periodoEl.value : '';
-    var regional = regionalEl ? regionalEl.value : '';
-
-    console.log('Periodo seleccionado:', periodo);
-    console.log('Regional seleccionada:', regional);
-
-    return {
-      periodo: periodo,
-      regional: regional
+    var filters = {
+      periodo: getFilterValue('filtroPeriodo'),
+      uen: getFilterValue('filtroUen'),
+      regional: getFilterValue('regional'),
+      canal: getFilterValue('filtroCanal'),
+      empleado: getFilterValue('filtroEmpleado'),
+      cliente: getFilterValue('filtroCliente')
     };
+
+    console.log('Filtros activos:', {
+      periodo: filters.periodo,
+      uen: filters.uen,
+      regional: filters.regional,
+      canal: filters.canal,
+      empleado: filters.empleado,
+      cliente: filters.cliente
+    });
+
+    return filters;
+  }
+
+  function appendFilter(searchParams, key, value) {
+    if (value) {
+      searchParams.set(key, value);
+    }
   }
 
   function buildDashboardUrl() {
     var filters = getFilters();
     var url = new URL(endpointUrl, window.location.origin);
 
-    if (filters.periodo) {
-      url.searchParams.set('periodo', filters.periodo);
-    }
-
-    if (filters.regional) {
-      url.searchParams.set('regional', filters.regional);
-    }
+    appendFilter(url.searchParams, 'periodo', filters.periodo);
+    appendFilter(url.searchParams, 'uen', filters.uen);
+    appendFilter(url.searchParams, 'regional', filters.regional);
+    appendFilter(url.searchParams, 'canal', filters.canal);
+    appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
+    appendFilter(url.searchParams, 'cliente', filters.cliente);
 
     console.log('URL con filtros:', url.toString());
 
@@ -287,10 +325,10 @@ ob_start();
 
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateRegional(options.regional || [], selected.regional || '');
+    hydrateUen(options.uen || [], selected.uen || '');
     hydrateReadonlySelect('filtroCanal');
     hydrateReadonlySelect('filtroEmpleado');
     hydrateReadonlySelect('filtroCliente');
-    hydrateReadonlySelect('filtroUen');
   }
 
   function requestData() {
@@ -365,6 +403,13 @@ ob_start();
     if (regionalSelect) {
       regionalSelect.addEventListener('change', function () {
         console.log('Cambio de regional detectado:', this.value);
+        requestData();
+      });
+    }
+
+    if (uenSelect) {
+      uenSelect.addEventListener('change', function () {
+        console.log('Cambio de UEN detectado:', this.value);
         requestData();
       });
     }
