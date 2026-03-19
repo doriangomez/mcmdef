@@ -247,32 +247,49 @@ ob_start();
     el.disabled = false;
   }
 
+  function getFilterValue(selectId) {
+    var el = document.getElementById(selectId);
+    return el ? String(el.value || '').trim() : '';
+  }
+
   function getFilters() {
-    var periodoEl = document.getElementById('filtroPeriodo');
-    var regionalEl = document.getElementById('regional');
-    var periodo = periodoEl ? periodoEl.value : '';
-    var regional = regionalEl ? regionalEl.value : '';
-
-    console.log('Periodo seleccionado:', periodo);
-    console.log('Regional seleccionada:', regional);
-
-    return {
-      periodo: periodo,
-      regional: regional
+    var filters = {
+      periodo: getFilterValue('filtroPeriodo'),
+      uen: getFilterValue('filtroUen'),
+      regional: getFilterValue('regional'),
+      canal: getFilterValue('filtroCanal'),
+      empleado: getFilterValue('filtroEmpleado'),
+      cliente: getFilterValue('filtroCliente')
     };
+
+    console.log('Filtros activos:', {
+      periodo: filters.periodo,
+      uen: filters.uen,
+      regional: filters.regional,
+      canal: filters.canal,
+      empleado: filters.empleado,
+      cliente: filters.cliente
+    });
+
+    return filters;
+  }
+
+  function appendFilter(searchParams, key, value) {
+    if (value) {
+      searchParams.set(key, value);
+    }
   }
 
   function buildDashboardUrl() {
     var filters = getFilters();
     var url = new URL(endpointUrl, window.location.origin);
 
-    if (filters.periodo) {
-      url.searchParams.set('periodo', filters.periodo);
-    }
-
-    if (filters.regional) {
-      url.searchParams.set('regional', filters.regional);
-    }
+    appendFilter(url.searchParams, 'periodo', filters.periodo);
+    appendFilter(url.searchParams, 'uen', filters.uen);
+    appendFilter(url.searchParams, 'regional', filters.regional);
+    appendFilter(url.searchParams, 'canal', filters.canal);
+    appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
+    appendFilter(url.searchParams, 'cliente', filters.cliente);
 
     console.log('URL con filtros:', url.toString());
 
