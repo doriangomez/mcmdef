@@ -100,6 +100,9 @@ ob_start();
     var comparisonBox = document.getElementById('comparisonBox');
     var fallbackNotice = document.getElementById('dashboardFallbackNotice');
     var charts = {};
+    var reloadDebounceMs = 500;
+    var reloadTimeoutId = null;
+    var pendingRequestController = null;
 
     if (!form) return;
 
@@ -368,7 +371,17 @@ ob_start();
   function requestData() {
     var request = buildDashboardUrl();
 
-    fetch(request.url, { headers: { 'Accept': 'application/json' } })
+    if (pendingRequestController) {
+      pendingRequestController.abort();
+    }
+
+    pendingRequestController = new AbortController();
+    var currentRequestController = pendingRequestController;
+
+    fetch(request.url, {
+      headers: { 'Accept': 'application/json' },
+      signal: currentRequestController.signal
+    })
       .then(async function (response) {
         var data = await response.json();
         console.log('Response:', data);
@@ -414,37 +427,57 @@ ob_start();
           console.error('Error renderizando dashboard:', e);
         }
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (error && error.name === 'AbortError') {
+          return;
+        }
+
         kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
         comparisonBox.textContent = '';
         fallbackNotice.textContent = '';
         updatedAtEl.textContent = 'Error de actualización';
+      })
+      .finally(function () {
+        if (pendingRequestController === currentRequestController) {
+          pendingRequestController = null;
+        }
       });
+  }
+
+  function scheduleRequestData() {
+    if (reloadTimeoutId) {
+      clearTimeout(reloadTimeoutId);
+    }
+
+    reloadTimeoutId = window.setTimeout(function () {
+      reloadTimeoutId = null;
+      requestData();
+    }, reloadDebounceMs);
   }
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      requestData();
+      scheduleRequestData();
     });
 
     if (periodoSelect) {
       periodoSelect.addEventListener('change', function () {
         console.log('Cambio de periodo detectado:', this.value);
-        requestData();
+        scheduleRequestData();
       });
     }
 
     if (regionalSelect) {
       regionalSelect.addEventListener('change', function () {
         console.log('Cambio de regional detectado:', this.value);
-        requestData();
+        scheduleRequestData();
       });
     }
 
     if (uenSelect) {
       uenSelect.addEventListener('change', function () {
         console.log('Cambio de UEN detectado:', this.value);
-        requestData();
+        scheduleRequestData();
       });
     }
 
@@ -453,7 +486,7 @@ ob_start();
       if (!el) return;
       el.addEventListener('change', function () {
         console.log('Cambio de filtro detectado:', filterId, this.value);
-        requestData();
+        scheduleRequestData();
       });
     });
 
