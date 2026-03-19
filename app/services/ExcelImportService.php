@@ -132,7 +132,7 @@ function cartera_text_field_limits(): array
         'empleado_de_ventas' => 120,
         'regional' => 80,
         'nro_documento' => 80,
-        'nro_ref_de_cliente' => 80,
+        'nro_ref_de_cliente' => 255,
         'tipo' => 50,
         'moneda' => 12,
     ];

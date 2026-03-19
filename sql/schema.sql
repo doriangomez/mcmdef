@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS cartera_documentos (
     uens VARCHAR(120) NULL,
     regional VARCHAR(80) NULL,
     nro_documento VARCHAR(80) NOT NULL,
-    nro_ref_cliente VARCHAR(80) NULL,
+    nro_ref_cliente VARCHAR(255) NULL,
     tipo VARCHAR(50) NOT NULL,
     documento_uid VARCHAR(180) NOT NULL,
     tipo_documento_financiero ENUM('factura', 'nota_credito', 'recibo', 'ajuste') NOT NULL DEFAULT 'factura',
@@ -126,7 +126,8 @@ ALTER TABLE cartera_documentos
     DROP INDEX IF EXISTS idx_cartera_documento_uid,
     DROP INDEX IF EXISTS idx_cartera_fecha_vencimiento,
     DROP INDEX IF EXISTS idx_cartera_dias_vencido,
-    DROP INDEX IF EXISTS idx_documento;
+    DROP INDEX IF EXISTS idx_documento,
+    MODIFY COLUMN nro_ref_cliente VARCHAR(255) NULL;
 
 CREATE TABLE IF NOT EXISTS bitacora_gestion (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
