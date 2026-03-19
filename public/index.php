@@ -75,13 +75,17 @@ ob_start();
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 (function () {
-  var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
-  var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
-  var updatedAtEl = document.getElementById('dashboardUpdatedAt');
-  var kpiGrid = document.getElementById('kpiGrid');
-  var comparisonBox = document.getElementById('comparisonBox');
-  var fallbackNotice = document.getElementById('dashboardFallbackNotice');
-  var charts = {};
+  function initDashboard() {
+    var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
+    var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
+    var periodoSelect = document.querySelector('#filtroPeriodo');
+    var updatedAtEl = document.getElementById('dashboardUpdatedAt');
+    var kpiGrid = document.getElementById('kpiGrid');
+    var comparisonBox = document.getElementById('comparisonBox');
+    var fallbackNotice = document.getElementById('dashboardFallbackNotice');
+    var charts = {};
+
+    if (!form) return;
 
   var currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var decimal = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -320,18 +324,26 @@ ob_start();
       });
   }
 
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    requestData();
-  });
-
-  form.addEventListener('change', function (e) {
-    if (e.target && e.target.id === 'filtroPeriodo') {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
       requestData();
-    }
-  });
+    });
 
-  requestData();
+    if (periodoSelect) {
+      periodoSelect.addEventListener('change', function () {
+        console.log('Cambio de periodo detectado:', this.value);
+        requestData();
+      });
+    }
+
+    requestData();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDashboard);
+  } else {
+    initDashboard();
+  }
 })();
 </script>
 <?php
