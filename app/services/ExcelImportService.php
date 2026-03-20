@@ -56,6 +56,32 @@ function cartera_expected_required_headers(): array
     ];
 }
 
+function cartera_expected_structural_headers(): array
+{
+    return [
+        'cuenta',
+        'cliente',
+        'nit',
+        'direccion',
+        'contacto',
+        'telefono',
+        'canal',
+        'uens',
+        'empleado_de_ventas',
+        'regional',
+        'nro_documento',
+        'nro_ref_de_cliente',
+        'tipo',
+        'fecha_contabilizacion',
+        'fecha_activacion',
+        'fecha_vencimiento',
+        'valor_documento',
+        'saldo_pendiente',
+        'moneda',
+        'dias_vencido',
+    ];
+}
+
 function normalize_header_name(mixed $value): string
 {
     $raw = trim((string)$value);
@@ -185,6 +211,112 @@ function map_headers_by_name(array $headers): array
     }
 
     return $fieldMap;
+}
+
+function validate_cartera_file_structure(array $rows): array
+{
+    $expected = cartera_expected_headers();
+    $required = cartera_expected_required_headers();
+    $structural = cartera_expected_structural_headers();
+    $aliases = cartera_header_aliases();
+
+    if (empty($rows)) {
+        return [
+            'ok' => false,
+            'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')],
+            'headers' => $expected,
+            'map' => [],
+        ];
+    }
+
+    if (count($rows) < 2) {
+        return [
+            'ok' => false,
+            'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')],
+            'headers' => $expected,
+            'map' => [],
+        ];
+    }
+
+    $headers = is_array($rows[0]) ? $rows[0] : [];
+    $nonEmptyHeaders = array_values(array_filter(
+        array_map(static fn(mixed $header): string => trim((string)$header), $headers),
+        static fn(string $header): bool => $header !== ''
+    ));
+
+    if (empty($nonEmptyHeaders)) {
+        return [
+            'ok' => false,
+            'errors' => [build_validation_error(0, 'encabezado', '', 'La primera fila del archivo está vacía. Debe contener los encabezados de la plantilla de cartera.')],
+            'headers' => $expected,
+            'map' => [],
+        ];
+    }
+
+    $map = map_headers_by_name($headers);
+    $recognizedHeaders = array_keys($map);
+    $missingRequired = array_values(array_diff($required, $recognizedHeaders));
+    $missingStructural = array_values(array_diff($structural, $recognizedHeaders));
+
+    $allowedHeaderNames = ['numero' => true];
+    foreach ($aliases as $fieldAliases) {
+        foreach ($fieldAliases as $alias) {
+            $allowedHeaderNames[normalize_header_name($alias)] = true;
+        }
+    }
+
+    $unexpectedHeaders = [];
+    foreach ($nonEmptyHeaders as $header) {
+        $normalizedHeader = normalize_header_name($header);
+        if ($normalizedHeader === '' || isset($allowedHeaderNames[$normalizedHeader])) {
+            continue;
+        }
+        $unexpectedHeaders[] = $header;
+    }
+
+    $errors = [];
+    if (empty($recognizedHeaders)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', array_slice($nonEmptyHeaders, 0, 6)),
+            'La primera fila no coincide con la plantilla esperada. Verifique que el archivo use los encabezados oficiales de cartera.'
+        );
+    }
+
+    if (!empty($missingRequired)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', $missingRequired),
+            'Faltan columnas obligatorias en la plantilla: ' . implode(', ', $missingRequired)
+        );
+    }
+
+    if (!empty($missingStructural)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', $missingStructural),
+            'La estructura del archivo no coincide con la plantilla de cartera. Faltan columnas de la plantilla: ' . implode(', ', $missingStructural)
+        );
+    }
+
+    if (!empty($unexpectedHeaders)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', $unexpectedHeaders),
+            'La estructura del archivo contiene columnas no reconocidas por la plantilla de cartera: ' . implode(', ', $unexpectedHeaders)
+        );
+    }
+
+    return [
+        'ok' => empty($errors),
+        'errors' => $errors,
+        'headers' => $expected,
+        'map' => $map,
+    ];
 }
 
 function calculate_bucket_values(int $diasVencido, float $saldoPendiente): array
@@ -360,17 +492,19 @@ function classify_financial_document_type(string $tipo): string
 function validate_cartera_rows(array $rows): array
 {
     $expected = cartera_expected_headers();
-
-    if (count($rows) < 2) {
-        return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
+    $structure = validate_cartera_file_structure($rows);
+    if (!($structure['ok'] ?? false)) {
+        return [
+            'ok' => false,
+            'structural_error' => true,
+            'errors' => $structure['errors'] ?? [],
+            'headers' => $expected,
+            'records' => [],
+            'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
+        ];
     }
 
-    if (empty($rows)) {
-        return ['ok' => false, 'structural_error' => true, 'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')], 'headers' => $expected, 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
-    }
-
-    $headers = is_array($rows[0]) ? $rows[0] : [];
-    $map = map_headers_by_name($headers);
+    $map = $structure['map'] ?? [];
 
     $errors = [];
     $records = [];
