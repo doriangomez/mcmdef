@@ -241,18 +241,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 }
             }
 
-            try {
-                $pdo->beginTransaction();
+            if ($hayErrores) {
+                $estadoCarga = 'rechazada';
+                $errorReportToken = bin2hex(random_bytes(16));
+                $_SESSION['import_error_reports'][$errorReportToken] = $errors;
+                $msg = $hayErrorEstructural
+                    ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
+                    : 'Carga rechazada. No se insertó ningún registro.';
+            } else {
+                ensure_client_management_schema($pdo);
 
-                if ($hayErrores) {
-                    $pdo->rollBack();
-                    $estadoCarga = 'rechazada';
-                    $errorReportToken = bin2hex(random_bytes(16));
-                    $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                    $msg = $hayErrorEstructural
-                        ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
-                        : 'Carga rechazada. No se insertó ningún registro.';
-                } else {
+                try {
+                    if (!$pdo->inTransaction()) {
+                        $pdo->beginTransaction();
+                    }
+
                     if ($tieneCamposVersionado) {
                         $insertLoad = $pdo->prepare(
                             'INSERT INTO cargas_cartera
@@ -304,19 +307,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
                     audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_creada', null, 'activa', (int)$_SESSION['user']['id']);
 
-                    $pdo->commit();
+                    if ($pdo->inTransaction()) {
+                        $pdo->commit();
+                    }
                     $estadoCarga = 'exitosa';
                     $_SESSION['flash_carga_ok'] = 'Carga exitosa. Nuevos: ' . $totalInsertados . ', actualizados: ' . $totalActualizados . ', cerrados: ' . $totalCerrados . '. Valor total del corte: $' . number_format($totalSaldoInsertado, 2, ',', '.') . '.';
                     header('Location: ' . app_url('cargas/nueva.php?status=ok'));
                     exit;
+                } catch (Throwable $exception) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
+                    $estadoCarga = 'rechazada';
+                    $msg = 'Carga rechazada. No se insertó ningún registro.';
                 }
-            } catch (Throwable $exception) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-                $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
-                $estadoCarga = 'rechazada';
-                $msg = 'Carga rechazada. No se insertó ningún registro.';
             }
     }
 }
