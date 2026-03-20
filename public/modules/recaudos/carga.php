@@ -337,13 +337,29 @@ ob_start();
 <?php if (is_array($diagnosticToShow)): ?>
 <section class="card">
   <h3>Logs de diagnóstico del cruce</h3>
+  <?php if (!empty($diagnosticToShow['written_at']) && !empty($_POST['upload_type']) && $_POST['upload_type'] === 'recaudo'): ?>
+    <p><strong>Archivo persistido:</strong> <code><?= htmlspecialchars(recaudo_diagnostic_directory()) ?></code> (generado <?= htmlspecialchars((string)$diagnosticToShow['written_at']) ?>)</p>
+  <?php endif; ?>
   <div class="row" style="gap:16px;">
     <div><strong>Filas leídas del archivo:</strong> <?= (int)($diagnosticToShow['rows_read'] ?? 0) ?></div>
     <div><strong>Filas no vacías:</strong> <?= (int)($diagnosticToShow['rows_non_empty'] ?? 0) ?></div>
     <div><strong>Filas válidas:</strong> <?= (int)($diagnosticToShow['rows_valid'] ?? 0) ?></div>
     <div><strong>Docs activos en cartera para el período:</strong> <?= (int)($diagnosticToShow['cartera_active_documents_period'] ?? 0) ?></div>
   </div>
-  <p><strong>Descartadas por documento vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_document'] ?? 0) ?> | <strong>Descartadas por tipo vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_type'] ?? 0) ?></p>
+  <p><strong>Descartadas por documento vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_document'] ?? 0) ?> | <strong>Descartadas por tipo vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_type'] ?? 0) ?> | <strong>Descartadas por otros obligatorios:</strong> <?= (int)($diagnosticToShow['discarded_other_required'] ?? 0) ?></p>
+  <?php if (!empty($diagnosticToShow['match_summary'])): ?>
+    <p><strong>Resumen de coincidencias exactas:</strong> <?= (int)($diagnosticToShow['match_summary']['coincidencias_exactas'] ?? 0) ?> de <?= (int)($diagnosticToShow['match_summary']['detalles_procesados'] ?? 0) ?> detalles procesados (umbral casi-cero: <?= (int)($diagnosticToShow['match_summary']['umbral_casi_cero'] ?? 0) ?>).</p>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['search_filters'])): ?>
+    <h4>Filtro efectivo del cruce</h4>
+    <p><strong>SQL de referencia:</strong> <code><?= htmlspecialchars((string)($diagnosticToShow['search_filters']['dataset_sql'] ?? '')) ?></code></p>
+    <ul>
+      <?php foreach (($diagnosticToShow['search_filters']['dataset_conditions'] ?? []) as $condition => $value): ?>
+        <li><strong><?= htmlspecialchars((string)$condition) ?>:</strong> <code><?= htmlspecialchars(is_scalar($value) || $value === null ? (string)$value : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></code></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
 
   <?php if (!empty($diagnosticToShow['discard_examples'])): ?>
     <h4>Ejemplos de filas descartadas</h4>
@@ -363,7 +379,7 @@ ob_start();
   <?php if (!empty($diagnosticToShow['attempts'])): ?>
     <h4>Primeros 5 intentos de cruce</h4>
     <table class="table">
-      <tr><th>Fila</th><th>Documento archivo</th><th>Documento normalizado</th><th>Tipo archivo</th><th>Tipo homologado</th><th>Resultado</th><th>Motivo</th><th>Cartera</th></tr>
+      <tr><th>Fila</th><th>Documento archivo</th><th>Documento normalizado</th><th>Tipo archivo</th><th>Tipo homologado</th><th>Período</th><th>Resultado</th><th>Motivo</th><th>Cartera / Filtro</th></tr>
       <?php foreach ($diagnosticToShow['attempts'] as $attempt): ?>
         <tr>
           <td><?= (int)($attempt['fila'] ?? 0) ?></td>
@@ -371,13 +387,20 @@ ob_start();
           <td><code><?= htmlspecialchars((string)($attempt['documento_normalizado'] ?? '')) ?></code></td>
           <td><?= htmlspecialchars((string)($attempt['tipo_archivo'] ?? '')) ?></td>
           <td><?= htmlspecialchars((string)($attempt['tipo_normalizado_homologado'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['periodo_recaudo'] ?? '')) ?></td>
           <td><?= htmlspecialchars((string)($attempt['resultado_busqueda'] ?? '')) ?></td>
           <td><?= htmlspecialchars((string)($attempt['motivo'] ?? '')) ?></td>
           <td>
             ID <?= htmlspecialchars((string)($attempt['cartera_documento_id'] ?? 'N/A')) ?><br>
+            doc cartera <code><?= htmlspecialchars((string)($attempt['documento_cartera_guardado'] ?? '')) ?></code> → <code><?= htmlspecialchars((string)($attempt['documento_cartera_normalizado'] ?? '')) ?></code><br>
             tipo <?= htmlspecialchars((string)($attempt['tipo_cartera'] ?? '')) ?><br>
+            tipo homologado <?= htmlspecialchars((string)($attempt['tipo_cartera_homologado'] ?? '')) ?><br>
             estado <?= htmlspecialchars((string)($attempt['estado_documento_cartera'] ?? '')) ?><br>
-            período <?= htmlspecialchars((string)($attempt['periodo_cartera'] ?? '')) ?>
+            período <?= htmlspecialchars((string)($attempt['periodo_cartera'] ?? '')) ?><br>
+            filtro doc/tipo/estado/período:
+            <code><?= htmlspecialchars(json_encode(($attempt['filtro_busqueda']['condiciones'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></code><br>
+            candidatos:
+            <code><?= htmlspecialchars(json_encode(($attempt['resumen_candidatos'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></code>
           </td>
         </tr>
       <?php endforeach; ?>
@@ -396,6 +419,7 @@ ob_start();
   <?php if (!empty($diagnosticToShow['format_comparison'])): ?>
     <h4>Comparación directa de formato</h4>
     <p>Recaudo recibido: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['recaudo_original'] ?? '')) ?></code> → normalizado: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['recaudo_normalizado'] ?? '')) ?></code></p>
+    <p>Tipo recaudo: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['tipo_recaudo_original'] ?? '')) ?></code> → homologado: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['tipo_recaudo_homologado'] ?? '')) ?></code></p>
     <?php if (!empty($diagnosticToShow['format_comparison']['cartera_candidates'])): ?>
       <ul>
         <?php foreach ($diagnosticToShow['format_comparison']['cartera_candidates'] as $candidate): ?>
@@ -424,6 +448,15 @@ ob_start();
         <?php endforeach; ?>
       </ul>
     <?php endif; ?>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['notes'])): ?>
+    <h4>Notas de diagnóstico</h4>
+    <ul>
+      <?php foreach ($diagnosticToShow['notes'] as $note): ?>
+        <li><?= htmlspecialchars((string)$note) ?></li>
+      <?php endforeach; ?>
+    </ul>
   <?php endif; ?>
 </section>
 <?php endif; ?>
@@ -601,7 +634,7 @@ ob_start();
 <?php if (is_array($detalleDiagnostico)): ?>
 <section class="card">
   <h3>Diagnóstico persistido de la carga #<?= $detalleCargaId ?></h3>
-  <p><strong>Filas leídas:</strong> <?= (int)($detalleDiagnostico['rows_read'] ?? 0) ?> | <strong>Filas válidas:</strong> <?= (int)($detalleDiagnostico['rows_valid'] ?? 0) ?> | <strong>Docs activos del período:</strong> <?= (int)($detalleDiagnostico['cartera_active_documents_period'] ?? 0) ?></p>
+  <p><strong>Filas leídas:</strong> <?= (int)($detalleDiagnostico['rows_read'] ?? 0) ?> | <strong>Filas válidas:</strong> <?= (int)($detalleDiagnostico['rows_valid'] ?? 0) ?> | <strong>Docs activos del período:</strong> <?= (int)($detalleDiagnostico['cartera_active_documents_period'] ?? 0) ?> | <strong>Otros obligatorios faltantes:</strong> <?= (int)($detalleDiagnostico['discarded_other_required'] ?? 0) ?></p>
   <?php if (!empty($detalleDiagnostico['results_by_state'])): ?>
     <ul>
       <?php foreach ($detalleDiagnostico['results_by_state'] as $state => $count): ?>
@@ -611,7 +644,7 @@ ob_start();
   <?php endif; ?>
   <?php if (!empty($detalleDiagnostico['attempts'])): ?>
     <table class="table">
-      <tr><th>Fila</th><th>Documento</th><th>Normalizado</th><th>Tipo</th><th>Homologado</th><th>Resultado</th><th>Motivo</th></tr>
+      <tr><th>Fila</th><th>Documento</th><th>Normalizado</th><th>Tipo</th><th>Homologado</th><th>Resultado</th><th>Motivo</th><th>Detalle</th></tr>
       <?php foreach ($detalleDiagnostico['attempts'] as $attempt): ?>
         <tr>
           <td><?= (int)($attempt['fila'] ?? 0) ?></td>
@@ -621,9 +654,17 @@ ob_start();
           <td><?= htmlspecialchars((string)($attempt['tipo_normalizado_homologado'] ?? '')) ?></td>
           <td><?= htmlspecialchars((string)($attempt['resultado_busqueda'] ?? '')) ?></td>
           <td><?= htmlspecialchars((string)($attempt['motivo'] ?? '')) ?></td>
+          <td><code><?= htmlspecialchars(json_encode(['cartera' => $attempt['documento_cartera_guardado'] ?? null, 'cartera_normalizado' => $attempt['documento_cartera_normalizado'] ?? null, 'filtro' => $attempt['filtro_busqueda']['condiciones'] ?? [], 'candidatos' => $attempt['resumen_candidatos'] ?? []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></code></td>
         </tr>
       <?php endforeach; ?>
     </table>
+  <?php endif; ?>
+  <?php if (!empty($detalleDiagnostico['notes'])): ?>
+    <ul>
+      <?php foreach ($detalleDiagnostico['notes'] as $note): ?>
+        <li><?= htmlspecialchars((string)$note) ?></li>
+      <?php endforeach; ?>
+    </ul>
   <?php endif; ?>
 </section>
 <?php endif; ?>
