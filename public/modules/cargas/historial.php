@@ -4,10 +4,21 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
+require_once __DIR__ . '/../../../app/services/CargaDeletionService.php';
 require_role(['admin', 'analista']);
 
 $msg = '';
 $errorMsg = '';
+
+if (isset($_SESSION['flash_carga_delete']) && is_array($_SESSION['flash_carga_delete'])) {
+    $flashDelete = $_SESSION['flash_carga_delete'];
+    if (($flashDelete['type'] ?? '') === 'ok') {
+        $msg = (string)($flashDelete['message'] ?? 'El cargue fue eliminado correctamente.');
+    } elseif (($flashDelete['type'] ?? '') === 'error') {
+        $errorMsg = (string)($flashDelete['message'] ?? 'No fue posible eliminar el cargue.');
+    }
+    unset($_SESSION['flash_carga_delete']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borrar_datos_cargue') {
     if (current_user()['rol'] !== 'admin') {
@@ -47,26 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anula
         $stmt->execute([$cargaId]);
         audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_anulada', 'activa', 'anulada', (int)current_user()['id']);
         $msg = 'Carga anulada correctamente.';
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'eliminar_carga') {
-    $cargaId = (int)($_POST['carga_id'] ?? 0);
-    if ($cargaId > 0 && current_user()['rol'] === 'admin') {
-        $pdo->beginTransaction();
-        try {
-            $pdo->prepare('DELETE FROM cartera_documentos WHERE id_carga = ?')->execute([$cargaId]);
-            $pdo->prepare('DELETE FROM carga_errores WHERE carga_id = ?')->execute([$cargaId]);
-            $pdo->prepare('DELETE FROM cargas_cartera WHERE id = ?')->execute([$cargaId]);
-            audit_log($pdo, 'cargas_cartera', $cargaId, 'carga_eliminada_temporal', 'activa', 'eliminada', (int)current_user()['id']);
-            $pdo->commit();
-            $msg = 'Carga eliminada en modo temporal.';
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $errorMsg = 'No se pudo eliminar la carga: ' . $e->getMessage();
-        }
     }
 }
 
@@ -124,10 +115,9 @@ ob_start(); ?>
           <button class="btn btn-secondary btn-sm" type="submit">Anular carga</button>
         </form>
         <?php if (current_user()['rol'] === 'admin'): ?>
-          <form method="post" class="inline-form" onsubmit="return confirm('¿Eliminar carga en modo temporal?');">
-            <input type="hidden" name="action" value="eliminar_carga">
+          <form method="post" action="<?= htmlspecialchars(app_url('cargas/eliminar.php')) ?>" class="inline-form" onsubmit="return confirm('¿Eliminar este cargue? Esta acción no se puede deshacer.');">
             <input type="hidden" name="carga_id" value="<?= (int)$c['id'] ?>">
-            <button class="btn btn-danger btn-sm" type="submit">Eliminar carga</button>
+            <button class="btn btn-danger btn-sm" type="submit">Eliminar cargue</button>
           </form>
         <?php endif; ?>
         <a href="<?= htmlspecialchars(app_url('cargas/nueva.php')) ?>" class="btn btn-sm">Reprocesar</a>
