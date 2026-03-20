@@ -56,6 +56,32 @@ function cartera_expected_required_headers(): array
     ];
 }
 
+function cartera_expected_structural_headers(): array
+{
+    return [
+        'cuenta',
+        'cliente',
+        'nit',
+        'direccion',
+        'contacto',
+        'telefono',
+        'canal',
+        'uens',
+        'empleado_de_ventas',
+        'regional',
+        'nro_documento',
+        'nro_ref_de_cliente',
+        'tipo',
+        'fecha_contabilizacion',
+        'fecha_activacion',
+        'fecha_vencimiento',
+        'valor_documento',
+        'saldo_pendiente',
+        'moneda',
+        'dias_vencido',
+    ];
+}
+
 function normalize_header_name(mixed $value): string
 {
     $raw = trim((string)$value);
@@ -191,6 +217,8 @@ function validate_cartera_file_structure(array $rows): array
 {
     $expected = cartera_expected_headers();
     $required = cartera_expected_required_headers();
+    $structural = cartera_expected_structural_headers();
+    $aliases = cartera_header_aliases();
 
     if (empty($rows)) {
         return [
@@ -228,6 +256,23 @@ function validate_cartera_file_structure(array $rows): array
     $map = map_headers_by_name($headers);
     $recognizedHeaders = array_keys($map);
     $missingRequired = array_values(array_diff($required, $recognizedHeaders));
+    $missingStructural = array_values(array_diff($structural, $recognizedHeaders));
+
+    $allowedHeaderNames = ['numero' => true];
+    foreach ($aliases as $fieldAliases) {
+        foreach ($fieldAliases as $alias) {
+            $allowedHeaderNames[normalize_header_name($alias)] = true;
+        }
+    }
+
+    $unexpectedHeaders = [];
+    foreach ($nonEmptyHeaders as $header) {
+        $normalizedHeader = normalize_header_name($header);
+        if ($normalizedHeader === '' || isset($allowedHeaderNames[$normalizedHeader])) {
+            continue;
+        }
+        $unexpectedHeaders[] = $header;
+    }
 
     $errors = [];
     if (empty($recognizedHeaders)) {
@@ -245,6 +290,24 @@ function validate_cartera_file_structure(array $rows): array
             'encabezado',
             implode(', ', $missingRequired),
             'Faltan columnas obligatorias en la plantilla: ' . implode(', ', $missingRequired)
+        );
+    }
+
+    if (!empty($missingStructural)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', $missingStructural),
+            'La estructura del archivo no coincide con la plantilla de cartera. Faltan columnas de la plantilla: ' . implode(', ', $missingStructural)
+        );
+    }
+
+    if (!empty($unexpectedHeaders)) {
+        $errors[] = build_validation_error(
+            1,
+            'encabezado',
+            implode(', ', $unexpectedHeaders),
+            'La estructura del archivo contiene columnas no reconocidas por la plantilla de cartera: ' . implode(', ', $unexpectedHeaders)
         );
     }
 
