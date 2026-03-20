@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../../app/services/PeriodoControlService.php';
 require_role(['admin', 'analista']);
 $msg = '';
 $errors = [];
+$validationResult = ['ok' => true, 'structural_error' => false, 'errors' => [], 'records' => [], 'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0]];
 $cargaId = null;
 $allowedExtensions = ['csv', 'xlsx', 'xls'];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0];
@@ -53,6 +54,17 @@ function column_exists(PDO $pdo, string $table, string $column): bool
     $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
     $stmt->execute([$table, $column]);
     return (int)$stmt->fetchColumn() > 0;
+}
+
+function sync_validation_result(array &$validationResult, array $errors, bool $structuralError = false, ?array $baseResult = null): void
+{
+    if ($baseResult !== null) {
+        $validationResult = array_merge($validationResult, $baseResult);
+    }
+
+    $validationResult['errors'] = $errors;
+    $validationResult['ok'] = empty($errors);
+    $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
 }
 
 if (isset($_SESSION['flash_carga_ok'])) {
@@ -139,12 +151,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
         }
     }
 
+    if (!empty($errors)) {
+        $hayErrores = true;
+        $hayErrorEstructural = true;
+        sync_validation_result($validationResult, $errors, true);
+    }
+
     if (empty($errors)) {
         $hash = hash_file('sha256', (string)$file['tmp_name']) ?: '';
         if ($hash === '') {
             $errors[] = build_validation_error(0, 'archivo', (string)($file['name'] ?? ''), 'No fue posible calcular hash SHA-256 del archivo cargado.');
             $hayErrores = true;
             $hayErrorEstructural = true;
+            sync_validation_result($validationResult, $errors, true);
         }
             try {
                 $rows = parse_input_file($file['tmp_name'], $extension);
@@ -153,11 +172,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $rows = [];
                 $hayErrores = true;
                 $hayErrorEstructural = true;
+                sync_validation_result($validationResult, $errors, true);
             }
 
             $validation = validate_cartera_rows($rows);
+            $validationResult = $validation;
             $errors = array_merge($errors, $validation['errors'] ?? []);
             $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
+            sync_validation_result($validationResult, $errors, $hayErrorEstructural, $validation);
             if ($hayErrorEstructural || !empty($errors)) {
                 $hayErrores = true;
             }
@@ -172,6 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     if (!empty($duplicateErrors)) {
                         $errors = array_merge($errors, $duplicateErrors);
                         $hayErrores = true;
+                        sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                     }
 
                     $periodos = [];
@@ -188,12 +211,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                         if ($chronologyError !== null) {
                             $errors[] = build_validation_error(0, 'periodo', $periodoDetectadoCartera, $chronologyError);
                             $hayErrores = true;
+                            sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                         }
                     }
                 } catch (Throwable $exception) {
                     $errors[] = build_validation_error(0, 'base_datos', '', 'No fue posible validar duplicados: ' . $exception->getMessage());
                     $hayErrores = true;
                     $hayErrorEstructural = true;
+                    sync_validation_result($validationResult, $errors, true);
                 }
             }
 
@@ -225,6 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $errors[] = build_validation_error(0, 'periodo', '', 'No fue posible detectar el periodo del archivo desde fecha_contabilizacion.');
                     $hayErrores = true;
                     $hayErrorEstructural = true;
+                    sync_validation_result($validationResult, $errors, true);
                 }
             }
 
@@ -238,6 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo) {
                     $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: el periodo detectado es anterior al último cargado (' . $ultimoPeriodo . '). La carga fue bloqueada.');
                     $hayErrores = true;
+                    sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                 }
             }
 
@@ -245,6 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $estadoCarga = 'rechazada';
                 $errorReportToken = bin2hex(random_bytes(16));
                 $_SESSION['import_error_reports'][$errorReportToken] = $errors;
+                sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                 $msg = $hayErrorEstructural
                     ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
                     : 'Carga rechazada. No se insertó ningún registro.';
@@ -320,17 +348,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     }
                     $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
                     $estadoCarga = 'rechazada';
+                    sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                     $msg = 'Carga rechazada. No se insertó ningún registro.';
                 }
             }
     }
 }
 
+if (!empty($validationResult['errors'] ?? [])) {
+    if ($estadoCarga === '') {
+        $estadoCarga = 'rechazada';
+    }
+    if ($msg === '') {
+        $msg = (bool)($validationResult['structural_error'] ?? false)
+            ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
+            : 'Carga rechazada. No se insertó ningún registro.';
+    }
+}
+
 ob_start();
 ?>
 <h1>Nueva carga de cartera</h1>
-<?php if($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
-<?php if($errors): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($errors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
+<?php if($msg): ?><div class="alert <?= $estadoCarga === 'rechazada' ? 'alert-error' : 'alert-ok' ?>"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+<?php if(!empty($validationResult['errors'] ?? [])): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach(($validationResult['errors'] ?? []) as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if ($ultimaExitosa): ?>
   <div class="card carga-highlight-success">
     <i class="fa-solid fa-circle-check"></i>
