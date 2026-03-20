@@ -919,47 +919,13 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 
 function recaudo_normalize_document_number(string $value): string
 {
-    $normalized = trim($value);
-    if ($normalized === '') {
-        return '';
+    $trimmed = trim($value);
+    if ($trimmed === '') return '';
+    // Convertir float de Excel (47661.0) a entero limpio (47661)
+    if (is_numeric($trimmed)) {
+        return (string)(int)((float)$trimmed);
     }
-
-    $normalized = preg_replace('/\s+/u', '', $normalized) ?? $normalized;
-    $normalized = trim($normalized);
-    if ($normalized === '') {
-        return '';
-    }
-
-    if (preg_match('/^[0-9.,]+$/', $normalized) === 1) {
-        $lastDot = strrpos($normalized, '.');
-        $lastComma = strrpos($normalized, ',');
-        $lastSeparator = max($lastDot === false ? -1 : $lastDot, $lastComma === false ? -1 : $lastComma);
-        $decimalDigits = $lastSeparator >= 0 ? strlen($normalized) - $lastSeparator - 1 : 0;
-
-        if ($lastSeparator >= 0 && $decimalDigits > 0 && $decimalDigits <= 2) {
-            $integerPart = substr($normalized, 0, $lastSeparator);
-            $decimalPart = substr($normalized, $lastSeparator + 1);
-            $integerPart = preg_replace('/[.,]/', '', $integerPart) ?? $integerPart;
-            $normalized = $integerPart . '.' . $decimalPart;
-        } else {
-            $normalized = preg_replace('/[.,]/', '', $normalized) ?? $normalized;
-        }
-    } else {
-        $normalized = preg_replace('/([A-Za-z]+[-_ ]*\d+)[.,]0+$/', '$1', $normalized) ?? $normalized;
-        $normalized = preg_replace('/([A-Za-z0-9])[\s._,-]+(?=[A-Za-z0-9])/', '$1', $normalized) ?? $normalized;
-    }
-
-    if (preg_match('/^-?\d+(?:\.0+)?$/', $normalized) === 1) {
-        return (string)(int)((float)$normalized);
-    }
-
-    $normalized = preg_replace('/\.0+$/', '', $normalized) ?? $normalized;
-    if (preg_match('/^\d+$/', $normalized) === 1) {
-        $normalized = ltrim($normalized, '0');
-        return $normalized !== '' ? $normalized : '0';
-    }
-
-    return $normalized;
+    return $trimmed;
 }
 
 
