@@ -21,6 +21,11 @@ function qf(string $key): string
     return trim((string)($_GET[$key] ?? ''));
 }
 
+function qf_raw(string $key): string
+{
+    return (string)($_GET[$key] ?? '');
+}
+
 function normalize(string $value): string
 {
     return mb_strtolower(trim($value));
@@ -52,7 +57,7 @@ $rawFilters = [
     'comparar_anterior' => qf('comparar_anterior') === '1',
     'regional' => qf('regional'),
     'canal' => qf('canal'),
-    'empleado_ventas' => qf('empleado_ventas'),
+    'empleado_ventas' => qf_raw('empleado_ventas'),
     'cliente' => qf('cliente'),
     'vista' => qf('vista') === 'operativo' ? 'operativo' : 'ejecutivo',
 ];
@@ -62,7 +67,7 @@ $selectedUens = uen_apply_scope(uen_requested_values('uen'), $allowedUens);
 
 $regionalExpr = "COALESCE(NULLIF(TRIM(d.regional), ''), NULLIF(TRIM(c.regional), ''), 'Sin dato')";
 $canalExpr = "COALESCE(NULLIF(TRIM(d.canal), ''), NULLIF(TRIM(c.canal), ''), 'Sin dato')";
-$empleadoExpr = "COALESCE(NULLIF(TRIM(c.empleado_ventas), ''), 'Sin dato')";
+$empleadoExpr = 'd.empleado_ventas';
 $clienteExpr = "COALESCE(NULLIF(TRIM(c.nombre), ''), NULLIF(TRIM(d.cliente), ''), c.cuenta, CONCAT('Cliente #', c.id))";
 $fechaExpr = 'DATE(COALESCE(d.fecha_contabilizacion, d.created_at))';
 $monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
@@ -109,9 +114,9 @@ $regionalOptions = $regionalStmt->fetchAll(PDO::FETCH_COLUMN);
 $canalStmt = $pdo->prepare("SELECT DISTINCT $canalExpr v" . $optionBase . ' ORDER BY v');
 $canalStmt->execute($optionParams);
 $canalOptions = $canalStmt->fetchAll(PDO::FETCH_COLUMN);
-$empleadoStmt = $pdo->prepare("SELECT DISTINCT $empleadoExpr v" . $optionBase . ' ORDER BY v');
+$empleadoStmt = $pdo->prepare("SELECT DISTINCT $empleadoExpr v" . $optionBase . " AND d.empleado_ventas IS NOT NULL AND d.empleado_ventas <> '' ORDER BY v");
 $empleadoStmt->execute($optionParams);
-$empleadoOptions = $empleadoStmt->fetchAll(PDO::FETCH_COLUMN);
+$empleadoOptions = $empleadoStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $clienteStmt = $pdo->prepare("SELECT DISTINCT $clienteExpr v" . $optionBase . ' ORDER BY v');
 $clienteStmt->execute($optionParams);
 $clienteOptions = $clienteStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -137,7 +142,7 @@ foreach ($regionalOptions as $value) { $regionalSet[normalize((string)$value)] =
 $canalSet = [];
 foreach ($canalOptions as $value) { $canalSet[normalize((string)$value)] = true; }
 $empleadoSet = [];
-foreach ($empleadoOptions as $value) { $empleadoSet[normalize((string)$value)] = true; }
+foreach ($empleadoOptions as $value) { $empleadoSet[(string)$value] = true; }
 $clienteSet = [];
 foreach ($clienteOptions as $value) { $clienteSet[normalize((string)$value)] = true; }
 
@@ -158,7 +163,7 @@ if ($rawFilters['canal'] !== '' && isset($canalSet[normalize($rawFilters['canal'
 }
 
 $selectedEmpleado = '';
-if ($rawFilters['empleado_ventas'] !== '' && isset($empleadoSet[normalize($rawFilters['empleado_ventas'])])) {
+if ($rawFilters['empleado_ventas'] !== '' && isset($empleadoSet[$rawFilters['empleado_ventas']])) {
     $selectedEmpleado = $rawFilters['empleado_ventas'];
 }
 
