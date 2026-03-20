@@ -57,7 +57,13 @@ CREATE TABLE IF NOT EXISTS clientes (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     cuenta VARCHAR(80) NOT NULL,
     nombre VARCHAR(180) NOT NULL,
+    nombre_cliente VARCHAR(180) NULL,
     nit VARCHAR(30) NOT NULL,
+    nro_identificacion VARCHAR(30) NULL,
+    fecha_activacion DATE NULL,
+    fecha_creacion DATETIME NULL,
+    estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo',
+    nombre_normalizado VARCHAR(190) NULL,
     direccion VARCHAR(220) NULL,
     contacto VARCHAR(120) NULL,
     telefono VARCHAR(60) NULL,
@@ -71,9 +77,31 @@ CREATE TABLE IF NOT EXISTS clientes (
     KEY idx_cliente_regional (regional),
     KEY idx_cliente_canal (canal),
     KEY idx_cliente_nombre (nombre),
+    KEY idx_cliente_nombre_normalizado (nombre_normalizado),
+    KEY idx_cliente_identificacion (nro_identificacion),
     KEY idx_cliente_responsable (responsable_usuario_id),
     CONSTRAINT fk_cliente_responsable FOREIGN KEY (responsable_usuario_id) REFERENCES usuarios(id)
 );
+
+ALTER TABLE clientes
+    ADD COLUMN IF NOT EXISTS nombre_cliente VARCHAR(180) NULL AFTER nombre,
+    ADD COLUMN IF NOT EXISTS nro_identificacion VARCHAR(30) NULL AFTER nit,
+    ADD COLUMN IF NOT EXISTS fecha_activacion DATE NULL AFTER nro_identificacion,
+    ADD COLUMN IF NOT EXISTS fecha_creacion DATETIME NULL AFTER fecha_activacion,
+    ADD COLUMN IF NOT EXISTS estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo' AFTER fecha_creacion,
+    ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(190) NULL AFTER estado;
+
+ALTER TABLE clientes
+    ADD INDEX IF NOT EXISTS idx_cliente_nombre_normalizado (nombre_normalizado),
+    ADD INDEX IF NOT EXISTS idx_cliente_identificacion (nro_identificacion);
+
+UPDATE clientes
+SET nombre_cliente = COALESCE(NULLIF(nombre_cliente, ''), nombre),
+    nro_identificacion = COALESCE(NULLIF(nro_identificacion, ''), nit),
+    fecha_activacion = COALESCE(fecha_activacion, DATE(created_at), CURDATE()),
+    fecha_creacion = COALESCE(fecha_creacion, created_at, NOW()),
+    estado = COALESCE(NULLIF(estado, ''), 'activo'),
+    nombre_normalizado = COALESCE(NULLIF(nombre_normalizado, ''), LOWER(TRIM(nombre)));
 
 CREATE TABLE IF NOT EXISTS cartera_documentos (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -155,6 +183,24 @@ CREATE TABLE IF NOT EXISTS auditoria_sistema (
     INDEX idx_auditoria_usuario (usuario_id),
     INDEX idx_auditoria_created_at (created_at),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS cliente_historial (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    cliente_id BIGINT NOT NULL,
+    fecha_evento DATETIME NOT NULL,
+    tipo_evento VARCHAR(30) NOT NULL,
+    valor DECIMAL(18,2) NOT NULL DEFAULT 0,
+    descripcion TEXT NOT NULL,
+    documento_id BIGINT NULL,
+    carga_id BIGINT NULL,
+    recaudo_detalle_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_cliente_historial_cliente_fecha (cliente_id, fecha_evento),
+    INDEX idx_cliente_historial_tipo (tipo_evento),
+    CONSTRAINT fk_cliente_historial_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+    CONSTRAINT fk_cliente_historial_documento FOREIGN KEY (documento_id) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_cliente_historial_carga FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
 );
 
 

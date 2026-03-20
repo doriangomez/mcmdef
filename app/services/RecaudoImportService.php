@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/ExcelImportService.php';
+require_once __DIR__ . '/ClientService.php';
 require_once __DIR__ . '/PeriodoControlService.php';
 
 function recaudo_expected_required_headers(): array
@@ -194,7 +195,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
     }
 
     $placeholders = implode(',', array_fill(0, count($documentNumbers), '?'));
-    $stmt = $pdo->prepare("SELECT id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, valor_documento, uens AS uen, canal, regional, dias_vencido FROM cartera_documentos WHERE nro_documento IN ($placeholders) ORDER BY id DESC");
+    $stmt = $pdo->prepare("SELECT id, cliente_id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, valor_documento, uens AS uen, canal, regional, dias_vencido FROM cartera_documentos WHERE nro_documento IN ($placeholders) ORDER BY id DESC");
     $stmt->execute(array_keys($documentNumbers));
     $docsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
@@ -276,6 +277,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'regional' => trim((string)($doc['regional'] ?? '')),
             'bucket' => $doc !== null ? cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)) : 'Sin factura',
             'cartera_documento_id' => $doc !== null ? (int)$doc['id'] : null,
+            'cliente_id' => $doc !== null ? (int)($doc['cliente_id'] ?? 0) : 0,
             'cliente_conciliado' => $clienteMatch ? 1 : 0,
             'tipo_coincide' => $tipoMatch ? 1 : 0,
         ];
@@ -322,6 +324,8 @@ function cartera_bucket_label(int $diasVencido): string
 
 function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
 {
+    ensure_client_management_schema($pdo);
+
     $insertDetalle = $pdo->prepare('INSERT INTO recaudo_detalle (carga_id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, tipo_documento, cliente, vendedor, importe_aplicado, saldo_documento, periodo, uen, canal, regional, bucket, cartera_documento_id, cliente_conciliado, estado_conciliacion, observacion_conciliacion, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
     $updateSaldo = $pdo->prepare('UPDATE cartera_documentos SET saldo_pendiente = GREATEST(saldo_pendiente - ?, 0), estado_documento = CASE WHEN (saldo_pendiente - ?) <= 0 THEN "inactivo" ELSE estado_documento END, estado_documento_detalle = CASE WHEN (saldo_pendiente - ?) <= 0 THEN "pagado_recaudo" ELSE estado_documento_detalle END WHERE id = ?');
 
@@ -355,6 +359,42 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
                 $row['importe_aplicado'],
                 $row['cartera_documento_id'],
             ]);
+        }
+
+        $recaudoDetalleId = (int)$pdo->lastInsertId();
+        $clienteId = (int)($row['cliente_id'] ?? 0);
+        if ($clienteId <= 0 && trim((string)($row['cliente'] ?? '')) !== '') {
+            $clienteId = upsert_master_client($pdo, [
+                'cliente' => trim((string)$row['cliente']),
+                'nit' => '',
+                'cuenta' => '',
+                'direccion' => '',
+                'contacto' => '',
+                'telefono' => '',
+                'canal' => trim((string)($row['canal'] ?? '')),
+                'regional' => trim((string)($row['regional'] ?? '')),
+                'empleado_ventas' => trim((string)($row['vendedor'] ?? '')),
+                'fecha_activacion' => substr((string)($row['fecha_aplicacion'] ?? date('Y-m-d')), 0, 10),
+            ], substr((string)($row['fecha_aplicacion'] ?? date('Y-m-d')), 0, 10));
+        }
+
+        if ($clienteId > 0) {
+            $descripcion = 'Pago aplicado';
+            if (trim((string)($row['documento_aplicado'] ?? '')) !== '') {
+                $descripcion .= ' al documento ' . trim((string)$row['documento_aplicado']);
+            }
+            if (trim((string)($row['nro_recibo'] ?? '')) !== '') {
+                $descripcion .= ' mediante recibo ' . trim((string)$row['nro_recibo']);
+            }
+            register_client_payment(
+                $pdo,
+                $clienteId,
+                (string)($row['fecha_aplicacion'] ?? date('Y-m-d H:i:s')),
+                (float)($row['importe_aplicado'] ?? 0),
+                $descripcion,
+                $row['cartera_documento_id'] !== null ? (int)$row['cartera_documento_id'] : null,
+                $recaudoDetalleId
+            );
         }
     }
 }
