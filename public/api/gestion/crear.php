@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
+require_once __DIR__ . '/../../../app/services/ClientService.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -42,7 +43,7 @@ if (!in_array($estadoCompromiso, ['pendiente', 'cumplido', 'incumplido'], true))
 $scope = portfolio_document_scope_sql('d');
 $docStmt = $pdo->prepare('SELECT d.id FROM cartera_documentos d WHERE d.id = ?' . $scope['sql'] . ' LIMIT 1');
 $docStmt->execute(array_merge([$documentoId], $scope['params']));
-if (!$docStmt->fetch()) {
+if (!$docStmt->fetch(PDO::FETCH_ASSOC)) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'message' => 'Sin permisos sobre el documento']);
     exit;
@@ -58,5 +59,20 @@ $stmt->execute([
     $hasCompromiso && $valorCompromiso !== '' ? $valorCompromiso : null,
     $hasCompromiso ? $estadoCompromiso : null,
 ]);
+
+$clienteLookup = $pdo->prepare('SELECT cliente_id FROM cartera_documentos WHERE id = ? LIMIT 1');
+$clienteLookup->execute([$documentoId]);
+$clienteId = (int)$clienteLookup->fetchColumn();
+if ($clienteId > 0) {
+    register_client_event(
+        $pdo,
+        $clienteId,
+        date('Y-m-d H:i:s'),
+        'gestion',
+        $hasCompromiso && $valorCompromiso !== '' ? (float)$valorCompromiso : 0.0,
+        'Gestión API registrada: ' . $observacion,
+        $documentoId
+    );
+}
 
 echo json_encode(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);

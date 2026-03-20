@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/ClientService.php';
+
 function cartera_expected_headers(): array
 {
     return [
@@ -20,6 +22,7 @@ function cartera_expected_headers(): array
         'nro_ref_de_cliente',
         'tipo',
         'fecha_contabilizacion',
+        'fecha_activacion',
         'fecha_vencimiento',
         'valor_documento',
         'saldo_pendiente',
@@ -83,6 +86,7 @@ function cartera_header_aliases(): array
         'nro_ref_de_cliente' => ['nro_ref_de_cliente', 'nro_ref_cliente', 'referencia_cliente', 'transaccion'],
         'tipo' => ['tipo', 'tipo_documento'],
         'fecha_contabilizacion' => ['fecha_contabilizacion', 'fecha_emision'],
+        'fecha_activacion' => ['fecha_activacion', 'fecha_de_activacion', 'activation_date', 'fecha_ingreso_cliente'],
         'fecha_vencimiento' => ['fecha_vencimiento'],
         'valor_documento' => ['valor_documento', 'valor_original'],
         'saldo_pendiente' => ['saldo_pendiente', 'saldo_actual', 'saldo'],
@@ -404,6 +408,7 @@ function validate_cartera_rows(array $rows): array
         validate_text_field_lengths($errors, $excelRow, $rowData);
 
         $fechaCont = normalize_date_value($rowData['fecha_contabilizacion']);
+        $fechaAct = normalize_date_value($rowData['fecha_activacion']);
         $fechaVen = normalize_date_value($rowData['fecha_vencimiento']);
         if ($fechaVen === null) {
             $errors[] = build_validation_error($excelRow, 'fecha_vencimiento', $rowData['fecha_vencimiento'], 'Fecha inválida. Formato requerido: dd/mm/yyyy');
@@ -498,6 +503,7 @@ function validate_cartera_rows(array $rows): array
             'documento_uid' => build_documento_uid((string)$rowData['tipo'], (string)$rowData['nro_documento']),
             'tipo_documento_financiero' => classify_financial_document_type((string)$rowData['tipo']),
             'fecha_contabilizacion' => $fechaCont,
+            'fecha_activacion' => $fechaAct ?? $fechaCont ?? date('Y-m-d'),
             'fecha_vencimiento' => $fechaVen,
             'valor_documento' => $valorDoc ?? 0.0,
             'saldo_pendiente' => $saldoPend ?? 0.0,
@@ -544,16 +550,7 @@ function persist_carga_errors(PDO $pdo, int $cargaId, array $errors): void
 
 function upsert_cliente(PDO $pdo, array $record): int
 {
-    $stmt = $pdo->prepare(
-        'INSERT INTO clientes (cuenta, nombre, nit, direccion, contacto, telefono, canal, regional, empleado_ventas, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), direccion = VALUES(direccion), contacto = VALUES(contacto), telefono = VALUES(telefono), canal = VALUES(canal), regional = VALUES(regional), empleado_ventas = VALUES(empleado_ventas), updated_at = NOW()'
-    );
-    $stmt->execute([$record['cuenta'], $record['cliente'], $record['nit'], $record['direccion'] ?: null, $record['contacto'] ?: null, $record['telefono'] ?: null, $record['canal'] ?: null, $record['regional'] ?: null, $record['empleado_ventas'] ?: null]);
-
-    $lookup = $pdo->prepare('SELECT id FROM clientes WHERE cuenta = ? LIMIT 1');
-    $lookup->execute([$record['cuenta']]);
-    return (int)$lookup->fetchColumn();
+    return upsert_master_client($pdo, $record);
 }
 
 function build_document_batch_values(array $batch, int $cargaId): array
@@ -598,6 +595,8 @@ function build_document_batch_values(array $batch, int $cargaId): array
 
 function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
 {
+    ensure_client_management_schema($pdo);
+
     $insertedCount = 0;
     $updatedCount = 0;
     $closedCount = 0;
@@ -605,16 +604,38 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
     $batch = [];
 
     $activeByKey = load_active_documents_by_logical_key($pdo);
-    $inactiveLookupStmt = $pdo->prepare('SELECT id FROM cartera_documentos WHERE cuenta = ? AND nro_documento = ? AND tipo = ? ORDER BY id DESC LIMIT 1');
+    $inactiveLookupStmt = $pdo->prepare('SELECT id, cliente_id, saldo_pendiente, nro_documento FROM cartera_documentos WHERE cuenta = ? AND nro_documento = ? AND tipo = ? ORDER BY id DESC LIMIT 1');
     $updateStmt = build_update_document_statement($pdo);
     $idsToClose = [];
+    $loadAggregates = [];
+    $eventDate = date('Y-m-d H:i:s');
 
     foreach ($records as $record) {
         $record['cliente_id'] = upsert_cliente($pdo, $record);
+        if (!isset($loadAggregates[$record['cliente_id']])) {
+            $loadAggregates[$record['cliente_id']] = ['documentos' => 0, 'valor' => 0.0, 'periodos' => []];
+        }
+        $loadAggregates[$record['cliente_id']]['documentos']++;
+        $loadAggregates[$record['cliente_id']]['valor'] += (float)($record['saldo_pendiente'] ?? 0);
+        $periodo = substr((string)($record['fecha_contabilizacion'] ?? ''), 0, 7);
+        if ($periodo !== '') {
+            $loadAggregates[$record['cliente_id']]['periodos'][] = $periodo;
+        }
+
         $key = build_document_logical_key($record);
 
         if (isset($activeByKey[$key])) {
             $entry = $activeByKey[$key];
+            register_client_document_adjustment(
+                $pdo,
+                (int)$record['cliente_id'],
+                (int)$entry['primary_id'],
+                (string)($record['nro_documento'] ?? ''),
+                (float)($entry['saldo_pendiente'] ?? 0),
+                (float)($record['saldo_pendiente'] ?? 0),
+                $cargaId,
+                $eventDate
+            );
             $updatedCount += update_existing_document($updateStmt, $record, $cargaId, (int)$entry['primary_id']);
             if (!empty($entry['duplicate_ids'])) {
                 $idsToClose = array_merge($idsToClose, $entry['duplicate_ids']);
@@ -624,9 +645,19 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
         }
 
         $inactiveLookupStmt->execute([$record['cuenta'], $record['nro_documento'], $record['tipo']]);
-        $inactiveId = $inactiveLookupStmt->fetchColumn();
-        if ($inactiveId !== false) {
-            $updatedCount += update_existing_document($updateStmt, $record, $cargaId, (int)$inactiveId);
+        $inactiveRow = $inactiveLookupStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($inactiveRow !== null) {
+            register_client_document_adjustment(
+                $pdo,
+                (int)$record['cliente_id'],
+                (int)$inactiveRow['id'],
+                (string)($record['nro_documento'] ?? ''),
+                (float)($inactiveRow['saldo_pendiente'] ?? 0),
+                (float)($record['saldo_pendiente'] ?? 0),
+                $cargaId,
+                $eventDate
+            );
+            $updatedCount += update_existing_document($updateStmt, $record, $cargaId, (int)$inactiveRow['id']);
             continue;
         }
 
@@ -652,19 +683,26 @@ function process_cartera_records(PDO $pdo, int $cargaId, array $records): array
         $closedCount = close_documents_by_ids($pdo, $idsToClose, 'recaudado_cerrado_por_no_aparecer_en_corte');
     }
 
+    register_client_load_events($pdo, $cargaId, $eventDate, $loadAggregates);
+
     return ['new_count' => $insertedCount, 'updated_count' => $updatedCount, 'closed_count' => $closedCount];
 }
 
 function load_active_documents_by_logical_key(PDO $pdo): array
 {
-    $stmt = $pdo->query("SELECT id, cuenta, nro_documento, tipo FROM cartera_documentos WHERE estado_documento = 'activo' ORDER BY id DESC");
+    $stmt = $pdo->query("SELECT id, cliente_id, cuenta, nro_documento, tipo, saldo_pendiente FROM cartera_documentos WHERE estado_documento = 'activo' ORDER BY id DESC");
     $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
     $indexed = [];
     foreach ($rows as $row) {
         $key = build_document_logical_key($row);
         if (!isset($indexed[$key])) {
-            $indexed[$key] = ['primary_id' => (int)$row['id'], 'duplicate_ids' => []];
+            $indexed[$key] = [
+                'primary_id' => (int)$row['id'],
+                'cliente_id' => (int)($row['cliente_id'] ?? 0),
+                'saldo_pendiente' => (float)($row['saldo_pendiente'] ?? 0),
+                'duplicate_ids' => [],
+            ];
             continue;
         }
 
@@ -748,10 +786,17 @@ function update_existing_document(PDOStatement $stmt, array $record, int $cargaI
 
 function close_documents_by_ids(PDO $pdo, array $ids, string $detail): int
 {
+    ensure_client_management_schema($pdo);
+
     $ids = array_values(array_unique(array_map('intval', $ids)));
     if (empty($ids)) {
         return 0;
     }
+
+    $fetchPlaceholders = implode(', ', array_fill(0, count($ids), '?'));
+    $fetchStmt = $pdo->prepare('SELECT id, cliente_id, nro_documento, saldo_pendiente, id_carga FROM cartera_documentos WHERE id IN (' . $fetchPlaceholders . ')');
+    $fetchStmt->execute($ids);
+    $docs = $fetchStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     $affected = 0;
     $chunkSize = 1000;
@@ -762,6 +807,20 @@ function close_documents_by_ids(PDO $pdo, array $ids, string $detail): int
         $stmt = $pdo->prepare($sql);
         $stmt->execute(array_merge([$detail], $chunk));
         $affected += $stmt->rowCount();
+    }
+
+    $eventDate = date('Y-m-d H:i:s');
+    foreach ($docs as $doc) {
+        register_client_document_removal(
+            $pdo,
+            (int)($doc['cliente_id'] ?? 0),
+            (int)$doc['id'],
+            (string)($doc['nro_documento'] ?? ''),
+            (float)($doc['saldo_pendiente'] ?? 0),
+            $detail,
+            isset($doc['id_carga']) ? (int)$doc['id_carga'] : null,
+            $eventDate
+        );
     }
 
     return $affected;
