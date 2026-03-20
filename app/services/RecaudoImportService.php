@@ -150,6 +150,103 @@ function recaudo_ensure_reconciliation_schema(PDO $pdo): void
             observacion = COALESCE(NULLIF(observacion, ''), detalle_validacion)");
 }
 
+function recaudo_diagnostic_directory(): string
+{
+    return dirname(__DIR__, 2) . '/logs/recaudo_diagnostico';
+}
+
+function recaudo_diagnostic_ensure_directory(): string
+{
+    $directory = recaudo_diagnostic_directory();
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    return $directory;
+}
+
+function recaudo_diagnostic_file_path(int $cargaId): string
+{
+    return recaudo_diagnostic_ensure_directory() . '/carga_' . $cargaId . '.json';
+}
+
+function recaudo_diagnostic_start(array $rows, ?string $periodoDetectado = null): array
+{
+    return [
+        'periodo_detectado' => $periodoDetectado,
+        'rows_read' => max(count($rows) - 1, 0),
+        'rows_non_empty' => 0,
+        'rows_valid' => 0,
+        'rows_with_error' => 0,
+        'discarded_empty_document' => 0,
+        'discarded_empty_type' => 0,
+        'discard_examples' => [],
+        'attempts' => [],
+        'cartera_active_documents_period' => 0,
+        'results_by_state' => [],
+        'format_comparison' => [],
+        'notes' => [],
+        'written_at' => null,
+    ];
+}
+
+function recaudo_diagnostic_add_discard(array &$diagnostic, int $fila, array $row, string $reason, mixed $rawDocument, mixed $rawType): void
+{
+    $counter = $reason === 'empty_type' ? 'discarded_empty_type' : 'discarded_empty_document';
+    $diagnostic[$counter] = (int)($diagnostic[$counter] ?? 0) + 1;
+
+    if (count($diagnostic['discard_examples']) >= 5) {
+        return;
+    }
+
+    $preview = [];
+    foreach (array_slice($row, 0, 8) as $value) {
+        $preview[] = is_scalar($value) || $value === null ? trim((string)($value ?? '')) : '[valor no escalar]';
+    }
+
+    $diagnostic['discard_examples'][] = [
+        'fila' => $fila,
+        'reason' => $reason,
+        'raw_document' => is_scalar($rawDocument) || $rawDocument === null ? trim((string)($rawDocument ?? '')) : '',
+        'raw_type' => is_scalar($rawType) || $rawType === null ? trim((string)($rawType ?? '')) : '',
+        'row_preview' => $preview,
+    ];
+}
+
+function recaudo_diagnostic_add_attempt(array &$diagnostic, array $attempt): void
+{
+    if (count($diagnostic['attempts']) >= 5) {
+        return;
+    }
+
+    $diagnostic['attempts'][] = $attempt;
+}
+
+function recaudo_diagnostic_write(int $cargaId, array $diagnostic): void
+{
+    $diagnostic['written_at'] = date('c');
+    file_put_contents(
+        recaudo_diagnostic_file_path($cargaId),
+        json_encode($diagnostic, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    );
+}
+
+function recaudo_diagnostic_load(int $cargaId): ?array
+{
+    $path = recaudo_diagnostic_file_path($cargaId);
+    if (!is_file($path)) {
+        return null;
+    }
+
+    $json = file_get_contents($path);
+    if ($json === false || trim($json) === '') {
+        return null;
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
 
 function recaudo_detect_period(array $rows, array $map): ?string
 {
@@ -382,6 +479,8 @@ function recaudo_build_match_context(array $documents, string $periodoRecaudo, s
     $context = [
         'matching_period' => [],
         'matching_period_and_type' => [],
+        'matching_type' => [],
+        'active_matching_type' => [],
         'active_documents' => [],
     ];
 
@@ -390,6 +489,12 @@ function recaudo_build_match_context(array $documents, string $periodoRecaudo, s
         $tipoDoc = recaudo_normalize_cartera_document_type((string)($doc['tipo'] ?? ''));
         if (($doc['estado_documento'] ?? '') === 'activo') {
             $context['active_documents'][] = $doc;
+            if ($tipoRecaudo !== '' && $tipoDoc === $tipoRecaudo) {
+                $context['active_matching_type'][] = $doc;
+            }
+        }
+        if ($tipoRecaudo !== '' && $tipoDoc === $tipoRecaudo) {
+            $context['matching_type'][] = $doc;
         }
         if ($periodoRecaudo !== '' && $periodoDoc === $periodoRecaudo) {
             $context['matching_period'][] = $doc;
@@ -400,6 +505,42 @@ function recaudo_build_match_context(array $documents, string $periodoRecaudo, s
     }
 
     return $context;
+}
+
+function recaudo_diagnose_match(array $documents, array $matchContext, string $periodoRecaudo, string $tipoRecaudo): array
+{
+    if ($documents === []) {
+        return ['status' => 'not_found', 'reason' => 'numero no existe'];
+    }
+
+    foreach ($documents as $doc) {
+        if (($doc['estado_documento'] ?? '') !== 'activo') {
+            continue;
+        }
+
+        $tipoDoc = recaudo_normalize_cartera_document_type((string)($doc['tipo'] ?? ''));
+        if ($tipoRecaudo !== '' && $tipoDoc !== '' && $tipoDoc !== $tipoRecaudo) {
+            continue;
+        }
+
+        if ($periodoRecaudo !== '' && recaudo_documento_periodo($doc) !== $periodoRecaudo) {
+            return ['status' => 'found', 'reason' => 'período diferente'];
+        }
+    }
+
+    if ($tipoRecaudo !== '' && !empty($matchContext['active_documents']) && empty($matchContext['active_matching_type'])) {
+        return ['status' => 'not_found', 'reason' => 'tipo no coincide'];
+    }
+
+    if (!empty($matchContext['matching_type']) && empty($matchContext['active_matching_type'])) {
+        return ['status' => 'not_found', 'reason' => 'está inactivo'];
+    }
+
+    if (!empty($matchContext['active_documents'])) {
+        return ['status' => 'found', 'reason' => 'encontró documento activo por número'];
+    }
+
+    return ['status' => 'not_found', 'reason' => 'está inactivo'];
 }
 
 function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
@@ -433,7 +574,13 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo anterior. Verifique que la cartera correspondiente esté cargada.');
     }
 
-    $docsByNumber = recaudo_index_cartera_documents(recaudo_fetch_cartera_documents($pdo));
+    $docs = recaudo_fetch_cartera_documents($pdo);
+    $docsByNumber = recaudo_index_cartera_documents($docs);
+    $diagnostic = recaudo_diagnostic_start($rows, $periodoDetectado);
+    $diagnostic['cartera_active_documents_period'] = count(array_filter($docs, static function (array $doc) use ($periodoDetectado): bool {
+        return ($doc['estado_documento'] ?? '') === 'activo'
+            && ($periodoDetectado === null || $periodoDetectado === '' || recaudo_documento_periodo($doc) === $periodoDetectado);
+    }));
 
     $validRows = [];
     $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
@@ -451,11 +598,14 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         if (!$hasData) {
             continue;
         }
+        $diagnostic['rows_non_empty']++;
         $summary['total']++;
 
-        $tipoDocumentoTexto = trim((string)($row[$map['tipo_documento_aplicado']] ?? ''));
+        $rawTipoDocumento = $row[$map['tipo_documento_aplicado']] ?? '';
+        $rawDocumento = $row[$map['nro_documento_aplicado']] ?? '';
+        $tipoDocumentoTexto = trim((string)$rawTipoDocumento);
         $tipoDocumento = recaudo_normalize_recaudo_document_type($tipoDocumentoTexto);
-        $nroDocumento = recaudo_normalize_document_number((string)($row[$map['nro_documento_aplicado']] ?? ''));
+        $nroDocumento = recaudo_normalize_document_number((string)$rawDocumento);
         $cliente = trim((string)($row[$map['cliente']] ?? ''));
         $importe = normalize_decimal_value($row[$map['importe_aplicado']] ?? null);
         $fechaAplicacion = normalize_date_value($row[$map['fecha_aplicacion']] ?? null);
@@ -463,24 +613,38 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $periodoRegistro = substr((string)($fechaAplicacion ?? $fechaRecibo ?? ''), 0, 7);
 
         if ($nroDocumento === '') {
+            recaudo_diagnostic_add_discard($diagnostic, $fila, $row, 'empty_document', $rawDocumento, $rawTipoDocumento);
             $errors[] = build_validation_error($fila, 'nro_documento_aplicado', '', 'Documento aplicado vacío.');
             $summary['con_error']++;
+            $diagnostic['rows_with_error']++;
+            continue;
+        }
+        if ($tipoDocumento === '') {
+            recaudo_diagnostic_add_discard($diagnostic, $fila, $row, 'empty_type', $rawDocumento, $rawTipoDocumento);
+            $errors[] = build_validation_error($fila, 'tipo_documento_aplicado', '', 'Tipo de documento aplicado vacío.');
+            $summary['con_error']++;
+            $diagnostic['rows_with_error']++;
             continue;
         }
         if ($importe === null || $importe <= 0) {
             $errors[] = build_validation_error($fila, 'importe_aplicado', (string)($row[$map['importe_aplicado']] ?? ''), 'Importe aplicado inválido.');
             $summary['con_error']++;
+            $diagnostic['rows_with_error']++;
             continue;
         }
         if ($periodoRegistro === '') {
             $errors[] = build_validation_error($fila, 'fecha_aplicacion', '', 'No se pudo identificar periodo del registro.');
             $summary['con_error']++;
+            $diagnostic['rows_with_error']++;
             continue;
         }
 
         $documents = $docsByNumber[$nroDocumento] ?? [];
         $matchContext = recaudo_build_match_context($documents, $periodoRegistro, $tipoDocumento);
-        $applicableDoc = recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoRegistro, true, $tipoDocumento);
+        $matchDiagnosis = recaudo_diagnose_match($documents, $matchContext, $periodoRegistro, $tipoDocumento);
+        $applicableDoc = recaudo_pick_best_document($matchContext['active_matching_type'], $periodoRegistro, true, $tipoDocumento)
+            ?? recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoRegistro, true, $tipoDocumento)
+            ?? recaudo_pick_best_document($matchContext['matching_type'], $periodoRegistro, true, $tipoDocumento);
         $referenceDoc = $applicableDoc
             ?? recaudo_pick_best_document($matchContext['matching_period'], $periodoRegistro)
             ?? recaudo_pick_best_document($matchContext['active_documents'], $periodoRegistro)
@@ -493,6 +657,22 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 
         $summary['validas']++;
         $summary['total_aplicado'] += $importe;
+        $diagnostic['rows_valid']++;
+
+        recaudo_diagnostic_add_attempt($diagnostic, [
+            'fila' => $fila,
+            'documento_archivo' => trim((string)$rawDocumento),
+            'documento_normalizado' => $nroDocumento,
+            'tipo_archivo' => $tipoDocumentoTexto,
+            'tipo_normalizado_homologado' => $tipoDocumento,
+            'resultado_busqueda' => $applicableDoc !== null ? 'encontró' : 'no encontró',
+            'motivo' => $applicableDoc !== null ? 'cruce por número y tipo' : $matchDiagnosis['reason'],
+            'cartera_documento_id' => $applicableDoc !== null ? (int)$applicableDoc['id'] : null,
+            'periodo_recaudo' => $periodoRegistro,
+            'periodo_cartera' => $referenceDoc !== null ? recaudo_documento_periodo($referenceDoc) : null,
+            'estado_documento_cartera' => $referenceDoc['estado_documento'] ?? null,
+            'tipo_cartera' => $referenceDoc['tipo'] ?? null,
+        ]);
 
         $validRows[] = [
             'fila' => $fila,
@@ -530,7 +710,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
     }
 
-    return ['errors' => $errors, 'warnings' => $warnings, 'valid_rows' => $validRows, 'summary' => $summary, 'periodo_detectado' => $periodoDetectado];
+    return ['errors' => $errors, 'warnings' => $warnings, 'valid_rows' => $validRows, 'summary' => $summary, 'periodo_detectado' => $periodoDetectado, 'diagnostic' => $diagnostic];
 }
 
 function recaudo_normalize_document_number(string $value): string
@@ -540,7 +720,12 @@ function recaudo_normalize_document_number(string $value): string
         return '';
     }
 
-    $normalized = str_replace([',', ' '], ['', ''], $normalized);
+    $normalized = str_replace(' ', '', $normalized);
+    if (preg_match('/^-?\d+,\d+$/', $normalized) === 1) {
+        $normalized = str_replace(',', '.', $normalized);
+    } else {
+        $normalized = str_replace(',', '', $normalized);
+    }
     if (preg_match('/^-?\d+(?:\.0+)?$/', $normalized) === 1) {
         return (string)(int)((float)$normalized);
     }
@@ -670,6 +855,11 @@ function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
 
     $docs = recaudo_fetch_cartera_documents($pdo);
     $docsByNumber = recaudo_index_cartera_documents($docs);
+    $diagnostic = recaudo_diagnostic_load($idCargaRecaudo) ?? recaudo_diagnostic_start([]);
+    $diagnostic['cartera_active_documents_period'] = count(array_filter($docs, static function (array $doc) use ($periodoRecaudo): bool {
+        return ($doc['estado_documento'] ?? '') === 'activo'
+            && ($periodoRecaudo === '' || recaudo_documento_periodo($doc) === $periodoRecaudo);
+    }));
 
     $detalleStmt = $pdo->prepare('SELECT id, carga_id, documento_aplicado, tipo_documento, cliente, importe_aplicado, saldo_documento, periodo, vendedor, cartera_documento_id FROM recaudo_detalle WHERE carga_id = ? ORDER BY id ASC');
     $detalleStmt->execute([$idCargaRecaudo]);
@@ -703,6 +893,7 @@ function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
     $updateDetalle = $pdo->prepare('UPDATE recaudo_detalle SET cartera_documento_id = ?, estado_conciliacion = ?, observacion_conciliacion = ? WHERE id = ?');
 
     $matchedActiveDocumentIds = [];
+    $resultStates = [];
 
     foreach ($detalles as $detalle) {
         $documento = recaudo_normalize_document_number((string)($detalle['documento_aplicado'] ?? ''));
@@ -710,7 +901,10 @@ function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
         $tipoRecaudo = recaudo_normalize_recaudo_document_type((string)($detalle['tipo_documento'] ?? ''));
         $documentos = $docsByNumber[$documento] ?? [];
         $matchContext = recaudo_build_match_context($documentos, $periodoDetalle, $tipoRecaudo);
-        $documentoExacto = recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoDetalle, true, $tipoRecaudo);
+        $matchDiagnosis = recaudo_diagnose_match($documentos, $matchContext, $periodoDetalle, $tipoRecaudo);
+        $documentoExacto = recaudo_pick_best_document($matchContext['active_matching_type'], $periodoDetalle, true, $tipoRecaudo)
+            ?? recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoDetalle, true, $tipoRecaudo)
+            ?? recaudo_pick_best_document($matchContext['matching_type'], $periodoDetalle, true, $tipoRecaudo);
         $documentoMismoPeriodo = recaudo_pick_best_document($matchContext['matching_period'], $periodoDetalle);
         $documentoActivo = recaudo_pick_best_document($matchContext['active_documents'], $periodoDetalle);
         $documentoReferencia = $documentoExacto ?? $documentoMismoPeriodo ?? $documentoActivo ?? recaudo_pick_best_document($documentos, $periodoDetalle);
@@ -752,6 +946,24 @@ function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
             $confianza = 75;
             $periodoEncontrado = $documentoConciliado !== null ? recaudo_documento_periodo($documentoConciliado) : '';
             $observacion = 'El documento existe en cartera, pero pertenece a un periodo diferente (cartera: ' . ($periodoEncontrado !== '' ? $periodoEncontrado : 'sin periodo') . ', recaudo: ' . ($periodoDetalle !== '' ? $periodoDetalle : 'sin periodo') . ').';
+        }
+
+        $resultStates[$estado] = ($resultStates[$estado] ?? 0) + 1;
+        if (count($diagnostic['attempts'] ?? []) < 5) {
+            recaudo_diagnostic_add_attempt($diagnostic, [
+                'fila' => (int)($detalle['id'] ?? 0),
+                'documento_archivo' => (string)($detalle['documento_aplicado'] ?? ''),
+                'documento_normalizado' => $documento,
+                'tipo_archivo' => (string)($detalle['tipo_documento'] ?? ''),
+                'tipo_normalizado_homologado' => $tipoRecaudo,
+                'resultado_busqueda' => $documentoConciliado !== null ? 'encontró' : 'no encontró',
+                'motivo' => $documentoConciliado !== null ? $estado : $matchDiagnosis['reason'],
+                'cartera_documento_id' => $documentoConciliado !== null ? (int)$documentoConciliado['id'] : null,
+                'periodo_recaudo' => $periodoDetalle,
+                'periodo_cartera' => $documentoConciliado !== null ? recaudo_documento_periodo($documentoConciliado) : null,
+                'estado_documento_cartera' => $documentoConciliado['estado_documento'] ?? null,
+                'tipo_cartera' => $documentoConciliado['tipo'] ?? null,
+            ]);
         }
 
         if ($documentoConciliado !== null && ($documentoConciliado['estado_documento'] ?? '') === 'activo') {
@@ -831,7 +1043,51 @@ function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
             100,
             $observacion,
         ]);
+        $resultStates['sin_pago'] = ($resultStates['sin_pago'] ?? 0) + 1;
     }
+
+    $diagnostic['results_by_state'] = $resultStates;
+    $successfulStates = ['conciliado_total', 'conciliado_parcial', 'pago_excedido', 'tipo_no_coincide', 'periodo_diferente'];
+    $hasCrossResults = false;
+    foreach ($successfulStates as $state) {
+        if ((int)($resultStates[$state] ?? 0) > 0) {
+            $hasCrossResults = true;
+            break;
+        }
+    }
+
+    if (!$hasCrossResults && !empty($detalles)) {
+        $sampleDetalle = $detalles[0];
+        $sampleNumber = recaudo_normalize_document_number((string)($sampleDetalle['documento_aplicado'] ?? ''));
+        $sameNumberCandidates = $docsByNumber[$sampleNumber] ?? [];
+        $diagnostic['format_comparison'] = [
+            'recaudo_original' => (string)($sampleDetalle['documento_aplicado'] ?? ''),
+            'recaudo_normalizado' => $sampleNumber,
+            'cartera_candidates' => array_map(static function (array $doc): array {
+                return [
+                    'id' => (int)($doc['id'] ?? 0),
+                    'nro_documento_guardado' => (string)($doc['nro_documento'] ?? ''),
+                    'nro_documento_normalizado' => recaudo_normalize_document_number((string)($doc['nro_documento'] ?? '')),
+                    'tipo' => (string)($doc['tipo'] ?? ''),
+                    'tipo_homologado' => recaudo_normalize_cartera_document_type((string)($doc['tipo'] ?? '')),
+                    'estado_documento' => (string)($doc['estado_documento'] ?? ''),
+                    'periodo' => recaudo_documento_periodo($doc),
+                ];
+            }, array_slice($sameNumberCandidates, 0, 5)),
+        ];
+
+        if ($sameNumberCandidates === []) {
+            $likeStmt = $pdo->prepare("SELECT id, nro_documento, tipo, estado_documento, COALESCE(NULLIF(TRIM(periodo), ''), DATE_FORMAT(fecha_contabilizacion, '%Y-%m')) AS periodo_documento
+                FROM cartera_documentos
+                WHERE REPLACE(REPLACE(TRIM(nro_documento), '.', ''), ',', '') LIKE ?
+                ORDER BY id DESC
+                LIMIT 5");
+            $likeStmt->execute(['%' . str_replace('.', '', $sampleNumber) . '%']);
+            $diagnostic['format_comparison']['similar_in_cartera'] = $likeStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        }
+    }
+
+    recaudo_diagnostic_write($idCargaRecaudo, $diagnostic);
 }
 
 function recaudo_run_reconciliation(PDO $pdo, int $cargaId): void

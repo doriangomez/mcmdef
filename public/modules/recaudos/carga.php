@@ -16,6 +16,7 @@ $warnings = [];
 $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
 $periodoDetectado = null;
 $validationResult = null;
+$diagnosticResult = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'eliminar_carga_recaudo') {
     $cargaId = (int)($_POST['carga_id'] ?? 0);
@@ -70,11 +71,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             $summary = $validation['summary'] ?? $summary;
             $validRows = $validation['valid_rows'] ?? [];
             $periodoDetectado = $validation['periodo_detectado'] ?? null;
+            $diagnosticResult = $validation['diagnostic'] ?? null;
             $validationResult = [
                 'periodo_detectado' => $periodoDetectado,
                 'errors' => $errors,
                 'warnings' => $warnings,
                 'summary' => $summary,
+                'diagnostic' => $diagnosticResult,
             ];
 
             if (!empty($errors)) {
@@ -125,8 +128,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                     }
                 }
 
+                if ($diagnosticResult !== null) {
+                    recaudo_diagnostic_write($cargaId, $diagnosticResult);
+                }
                 recaudo_apply_rows($pdo, $cargaId, $validRows);
                 recaudo_run_reconciliation($pdo, $cargaId);
+                $diagnosticResult = recaudo_diagnostic_load($cargaId);
+                $validationResult['diagnostic'] = $diagnosticResult;
                 recaudo_build_aggregates($pdo, $cargaId);
                 recaudo_auto_conciliar($pdo, $cargaId);
                 if ($periodoDetectado !== null) {
@@ -146,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 'errors' => $errors,
                 'warnings' => $warnings,
                 'summary' => $summary,
+                'diagnostic' => $diagnosticResult,
             ];
             $msg = 'No fue posible procesar el recaudo.';
         }
@@ -232,6 +241,7 @@ $historial = $pdo->query('SELECT c.id, c.archivo, c.hash_sha256, c.periodo, c.to
 $detalleCargaId = (int)($_GET['detalle_carga_id'] ?? 0);
 $detalleRegistros = [];
 $detalleErrores = [];
+$detalleDiagnostico = null;
 
 $periodoCarteraFiltro = trim((string)($_GET['periodo_cartera'] ?? ''));
 $periodoRecaudoFiltro = trim((string)($_GET['periodo_recaudo'] ?? ''));
@@ -285,6 +295,7 @@ if ($detalleCargaId > 0) {
     $stmt = $pdo->prepare('SELECT fila, campo, valor, motivo FROM recaudo_validacion_errores WHERE carga_id = ? ORDER BY id ASC LIMIT 300');
     $stmt->execute([$detalleCargaId]);
     $detalleErrores = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $detalleDiagnostico = recaudo_diagnostic_load($detalleCargaId);
 }
 
 ob_start();
@@ -318,6 +329,101 @@ ob_start();
         <li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li>
       <?php endforeach; ?>
     </ul>
+  <?php endif; ?>
+</section>
+<?php endif; ?>
+
+<?php $diagnosticToShow = $validationResult['diagnostic'] ?? null; ?>
+<?php if (is_array($diagnosticToShow)): ?>
+<section class="card">
+  <h3>Logs de diagnóstico del cruce</h3>
+  <div class="row" style="gap:16px;">
+    <div><strong>Filas leídas del archivo:</strong> <?= (int)($diagnosticToShow['rows_read'] ?? 0) ?></div>
+    <div><strong>Filas no vacías:</strong> <?= (int)($diagnosticToShow['rows_non_empty'] ?? 0) ?></div>
+    <div><strong>Filas válidas:</strong> <?= (int)($diagnosticToShow['rows_valid'] ?? 0) ?></div>
+    <div><strong>Docs activos en cartera para el período:</strong> <?= (int)($diagnosticToShow['cartera_active_documents_period'] ?? 0) ?></div>
+  </div>
+  <p><strong>Descartadas por documento vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_document'] ?? 0) ?> | <strong>Descartadas por tipo vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_type'] ?? 0) ?></p>
+
+  <?php if (!empty($diagnosticToShow['discard_examples'])): ?>
+    <h4>Ejemplos de filas descartadas</h4>
+    <ul>
+      <?php foreach ($diagnosticToShow['discard_examples'] as $discard): ?>
+        <li>
+          Fila <?= (int)($discard['fila'] ?? 0) ?> —
+          motivo: <?= htmlspecialchars((string)($discard['reason'] ?? '')) ?>,
+          documento: <code><?= htmlspecialchars((string)($discard['raw_document'] ?? '')) ?></code>,
+          tipo: <code><?= htmlspecialchars((string)($discard['raw_type'] ?? '')) ?></code>,
+          preview: <?= htmlspecialchars(implode(' | ', $discard['row_preview'] ?? [])) ?>
+        </li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['attempts'])): ?>
+    <h4>Primeros 5 intentos de cruce</h4>
+    <table class="table">
+      <tr><th>Fila</th><th>Documento archivo</th><th>Documento normalizado</th><th>Tipo archivo</th><th>Tipo homologado</th><th>Resultado</th><th>Motivo</th><th>Cartera</th></tr>
+      <?php foreach ($diagnosticToShow['attempts'] as $attempt): ?>
+        <tr>
+          <td><?= (int)($attempt['fila'] ?? 0) ?></td>
+          <td><code><?= htmlspecialchars((string)($attempt['documento_archivo'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($attempt['documento_normalizado'] ?? '')) ?></code></td>
+          <td><?= htmlspecialchars((string)($attempt['tipo_archivo'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['tipo_normalizado_homologado'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['resultado_busqueda'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['motivo'] ?? '')) ?></td>
+          <td>
+            ID <?= htmlspecialchars((string)($attempt['cartera_documento_id'] ?? 'N/A')) ?><br>
+            tipo <?= htmlspecialchars((string)($attempt['tipo_cartera'] ?? '')) ?><br>
+            estado <?= htmlspecialchars((string)($attempt['estado_documento_cartera'] ?? '')) ?><br>
+            período <?= htmlspecialchars((string)($attempt['periodo_cartera'] ?? '')) ?>
+          </td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['results_by_state'])): ?>
+    <h4>Resultados por estado</h4>
+    <ul>
+      <?php foreach ($diagnosticToShow['results_by_state'] as $state => $count): ?>
+        <li><strong><?= htmlspecialchars((string)$state) ?>:</strong> <?= (int)$count ?></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['format_comparison'])): ?>
+    <h4>Comparación directa de formato</h4>
+    <p>Recaudo recibido: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['recaudo_original'] ?? '')) ?></code> → normalizado: <code><?= htmlspecialchars((string)($diagnosticToShow['format_comparison']['recaudo_normalizado'] ?? '')) ?></code></p>
+    <?php if (!empty($diagnosticToShow['format_comparison']['cartera_candidates'])): ?>
+      <ul>
+        <?php foreach ($diagnosticToShow['format_comparison']['cartera_candidates'] as $candidate): ?>
+          <li>
+            Cartera #<?= (int)($candidate['id'] ?? 0) ?>:
+            guardado <code><?= htmlspecialchars((string)($candidate['nro_documento_guardado'] ?? '')) ?></code>,
+            normalizado <code><?= htmlspecialchars((string)($candidate['nro_documento_normalizado'] ?? '')) ?></code>,
+            tipo <?= htmlspecialchars((string)($candidate['tipo'] ?? '')) ?> (<?= htmlspecialchars((string)($candidate['tipo_homologado'] ?? '')) ?>),
+            estado <?= htmlspecialchars((string)($candidate['estado_documento'] ?? '')) ?>,
+            período <?= htmlspecialchars((string)($candidate['periodo'] ?? '')) ?>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php endif; ?>
+    <?php if (!empty($diagnosticToShow['format_comparison']['similar_in_cartera'])): ?>
+      <p><strong>Similares encontrados en cartera:</strong></p>
+      <ul>
+        <?php foreach ($diagnosticToShow['format_comparison']['similar_in_cartera'] as $candidate): ?>
+          <li>
+            #<?= (int)($candidate['id'] ?? 0) ?> —
+            <code><?= htmlspecialchars((string)($candidate['nro_documento'] ?? '')) ?></code>,
+            tipo <?= htmlspecialchars((string)($candidate['tipo'] ?? '')) ?>,
+            estado <?= htmlspecialchars((string)($candidate['estado_documento'] ?? '')) ?>,
+            período <?= htmlspecialchars((string)($candidate['periodo_documento'] ?? '')) ?>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php endif; ?>
   <?php endif; ?>
 </section>
 <?php endif; ?>
@@ -489,6 +595,36 @@ ob_start();
       </tr>
     <?php endforeach; ?>
   </table>
+</section>
+<?php endif; ?>
+
+<?php if (is_array($detalleDiagnostico)): ?>
+<section class="card">
+  <h3>Diagnóstico persistido de la carga #<?= $detalleCargaId ?></h3>
+  <p><strong>Filas leídas:</strong> <?= (int)($detalleDiagnostico['rows_read'] ?? 0) ?> | <strong>Filas válidas:</strong> <?= (int)($detalleDiagnostico['rows_valid'] ?? 0) ?> | <strong>Docs activos del período:</strong> <?= (int)($detalleDiagnostico['cartera_active_documents_period'] ?? 0) ?></p>
+  <?php if (!empty($detalleDiagnostico['results_by_state'])): ?>
+    <ul>
+      <?php foreach ($detalleDiagnostico['results_by_state'] as $state => $count): ?>
+        <li><strong><?= htmlspecialchars((string)$state) ?>:</strong> <?= (int)$count ?></li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
+  <?php if (!empty($detalleDiagnostico['attempts'])): ?>
+    <table class="table">
+      <tr><th>Fila</th><th>Documento</th><th>Normalizado</th><th>Tipo</th><th>Homologado</th><th>Resultado</th><th>Motivo</th></tr>
+      <?php foreach ($detalleDiagnostico['attempts'] as $attempt): ?>
+        <tr>
+          <td><?= (int)($attempt['fila'] ?? 0) ?></td>
+          <td><code><?= htmlspecialchars((string)($attempt['documento_archivo'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($attempt['documento_normalizado'] ?? '')) ?></code></td>
+          <td><?= htmlspecialchars((string)($attempt['tipo_archivo'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['tipo_normalizado_homologado'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['resultado_busqueda'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($attempt['motivo'] ?? '')) ?></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+  <?php endif; ?>
 </section>
 <?php endif; ?>
 
