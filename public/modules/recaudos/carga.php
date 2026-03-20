@@ -347,6 +347,82 @@ ob_start();
     <div><strong>Docs activos en cartera para el período:</strong> <?= (int)($diagnosticToShow['cartera_active_documents_period'] ?? 0) ?></div>
   </div>
   <p><strong>Descartadas por documento vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_document'] ?? 0) ?> | <strong>Descartadas por tipo vacío:</strong> <?= (int)($diagnosticToShow['discarded_empty_type'] ?? 0) ?> | <strong>Descartadas por otros obligatorios:</strong> <?= (int)($diagnosticToShow['discarded_other_required'] ?? 0) ?></p>
+  <p><strong>Separadores/totales ignorados silenciosamente:</strong> <?= (int)($diagnosticToShow['ignored_blank_separators'] ?? 0) ?></p>
+
+  <?php if (!empty($diagnosticToShow['raw_row_samples'])): ?>
+    <h4>Primeras 3 filas crudas del archivo</h4>
+    <table class="table">
+      <tr><th>Fila</th><th>Nro. documento aplicado</th><th>Tipo documento aplicado</th><th>Cliente</th><th>Importe aplicado</th></tr>
+      <?php foreach ($diagnosticToShow['raw_row_samples'] as $sample): ?>
+        <tr>
+          <td><?= (int)($sample['fila'] ?? 0) ?></td>
+          <td><code><?= htmlspecialchars((string)($sample['documento_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['tipo_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['cliente_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['importe_raw'] ?? '')) ?></code></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['normalization_checks'])): ?>
+    <h4>Verificación de normalización y homologación</h4>
+    <table class="table">
+      <tr><th>Fila</th><th>Documento crudo</th><th>Documento normalizado</th><th>Tipo crudo</th><th>Tipo homologado</th></tr>
+      <?php foreach ($diagnosticToShow['normalization_checks'] as $sample): ?>
+        <tr>
+          <td><?= (int)($sample['fila'] ?? 0) ?></td>
+          <td><code><?= htmlspecialchars((string)($sample['documento_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['documento_normalizado'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['tipo_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['tipo_homologado'] ?? '')) ?></code></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['cartera_document_samples'])): ?>
+    <h4>Muestra de documentos en cartera</h4>
+    <table class="table">
+      <tr><th>ID</th><th>Documento guardado</th><th>Documento normalizado</th><th>Tipo SAP</th><th>Tipo homologado</th><th>Estado</th><th>Período</th></tr>
+      <?php foreach ($diagnosticToShow['cartera_document_samples'] as $sample): ?>
+        <tr>
+          <td><?= (int)($sample['id'] ?? 0) ?></td>
+          <td><code><?= htmlspecialchars((string)($sample['documento_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['documento_normalizado'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['tipo_raw'] ?? '')) ?></code></td>
+          <td><code><?= htmlspecialchars((string)($sample['tipo_homologado'] ?? '')) ?></code></td>
+          <td><?= htmlspecialchars((string)($sample['estado_documento'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($sample['periodo_documento'] ?? '')) ?></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['manual_search_checks'])): ?>
+    <h4>Consulta manual en cartera para los primeros 3 documentos</h4>
+    <?php foreach ($diagnosticToShow['manual_search_checks'] as $sample): ?>
+      <div style="margin-bottom:16px;">
+        <p><strong>Fila <?= (int)($sample['fila'] ?? 0) ?>:</strong> documento <code><?= htmlspecialchars((string)($sample['documento_recaudo_normalizado'] ?? '')) ?></code>, tipo recaudo <code><?= htmlspecialchars((string)($sample['tipo_recaudo_homologado'] ?? '')) ?></code> → resultado <strong><?= htmlspecialchars((string)($sample['resultado'] ?? '')) ?></strong>, motivo <strong><?= htmlspecialchars((string)($sample['motivo'] ?? '')) ?></strong>.</p>
+        <?php if (!empty($sample['candidatos'])): ?>
+          <table class="table">
+            <tr><th>ID</th><th>Documento</th><th>Normalizado</th><th>Tipo SAP</th><th>Tipo homologado</th><th>Estado</th><th>Período</th></tr>
+            <?php foreach ($sample['candidatos'] as $candidate): ?>
+              <tr>
+                <td><?= (int)($candidate['id'] ?? 0) ?></td>
+                <td><code><?= htmlspecialchars((string)($candidate['documento_raw'] ?? '')) ?></code></td>
+                <td><code><?= htmlspecialchars((string)($candidate['documento_normalizado'] ?? '')) ?></code></td>
+                <td><code><?= htmlspecialchars((string)($candidate['tipo_raw'] ?? '')) ?></code></td>
+                <td><code><?= htmlspecialchars((string)($candidate['tipo_homologado'] ?? '')) ?></code></td>
+                <td><?= htmlspecialchars((string)($candidate['estado_documento'] ?? '')) ?></td>
+                <td><?= htmlspecialchars((string)($candidate['periodo_documento'] ?? '')) ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </table>
+        <?php endif; ?>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
   <?php if (!empty($diagnosticToShow['match_summary'])): ?>
     <p><strong>Resumen de coincidencias exactas:</strong> <?= (int)($diagnosticToShow['match_summary']['coincidencias_exactas'] ?? 0) ?> de <?= (int)($diagnosticToShow['match_summary']['detalles_procesados'] ?? 0) ?> detalles procesados (umbral casi-cero: <?= (int)($diagnosticToShow['match_summary']['umbral_casi_cero'] ?? 0) ?>).</p>
   <?php endif; ?>
@@ -405,6 +481,17 @@ ob_start();
         </tr>
       <?php endforeach; ?>
     </table>
+  <?php endif; ?>
+
+  <?php if (!empty($diagnosticToShow['result_summary'])): ?>
+    <h4>Resumen operativo esperado</h4>
+    <ul>
+      <li><strong>Documentos que cruzaron con cartera:</strong> <?= (int)($diagnosticToShow['result_summary']['documentos_cruzados_con_cartera'] ?? 0) ?></li>
+      <li><strong>Documentos que no encontraron factura:</strong> <?= (int)($diagnosticToShow['result_summary']['documentos_sin_factura'] ?? 0) ?></li>
+      <li><strong>Documentos con tipo no coincidente:</strong> <?= (int)($diagnosticToShow['result_summary']['documentos_tipo_no_coincidente'] ?? 0) ?></li>
+      <li><strong>Documentos de cartera sin pago:</strong> <?= (int)($diagnosticToShow['result_summary']['documentos_cartera_sin_pago'] ?? 0) ?></li>
+      <li><strong>Documentos en período diferente:</strong> <?= (int)($diagnosticToShow['result_summary']['documentos_periodo_diferente'] ?? 0) ?></li>
+    </ul>
   <?php endif; ?>
 
   <?php if (!empty($diagnosticToShow['results_by_state'])): ?>
