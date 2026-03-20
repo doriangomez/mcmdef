@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
                 throw new RuntimeException('La carga de recaudo no existe.');
             }
 
+            $pdo->prepare('DELETE FROM conciliacion_cartera_recaudo WHERE id_carga_recaudo = ? OR recaudo_id = ?')->execute([$cargaId, $cargaId]);
             $pdo->prepare('DELETE FROM recaudo_detalle WHERE carga_id = ?')->execute([$cargaId]);
             $pdo->prepare('DELETE FROM recaudo_validacion_errores WHERE carga_id = ?')->execute([$cargaId]);
             $pdo->prepare('DELETE FROM recaudo_agregados WHERE carga_id = ?')->execute([$cargaId]);
@@ -248,6 +249,7 @@ if ($canalFiltro !== '') { $whereConc[] = 'COALESCE(cd.canal, "") = ?'; $paramsC
 if ($vendedorFiltro !== '') { $whereConc[] = 'COALESCE(rd.vendedor, "") = ?'; $paramsConc[] = $vendedorFiltro; }
 if ($estadoConciliacionFiltro !== '') { $whereConc[] = 'c.estado_conciliacion = ?'; $paramsConc[] = $estadoConciliacionFiltro; }
 $whereConcSql = $whereConc ? (' WHERE ' . implode(' AND ', $whereConc)) : '';
+$whereConcSqlAgg = str_replace('c.', 'c2.', $whereConcSql);
 
 $conciliacionRows = [];
 $kpiConc = ['cartera_total' => 0, 'cartera_conciliada_total' => 0, 'cartera_conciliada_parcial' => 0, 'cartera_sin_pago' => 0, 'pagos_sin_factura' => 0, 'recaudo_aplicado' => 0];
@@ -255,11 +257,11 @@ $kpiConc = ['cartera_total' => 0, 'cartera_conciliada_total' => 0, 'cartera_conc
 try {
     recaudo_ensure_reconciliation_schema($pdo);
 
-    $concStmt = $pdo->prepare('SELECT c.numero_documento, COALESCE(NULLIF(c.cliente_cartera, ""), c.cliente_recaudo, "") AS cliente, c.valor_factura, c.valor_pagado, c.saldo_resultante, c.estado_conciliacion, c.detalle_validacion FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql . ' ORDER BY c.id DESC LIMIT 300');
+    $concStmt = $pdo->prepare('SELECT c.numero_documento, COALESCE(NULLIF(c.cliente_cartera, ""), c.cliente_recaudo, "") AS cliente, COALESCE(c.saldo_pendiente_cartera, c.valor_factura, 0) AS valor_factura, COALESCE(c.importe_aplicado, c.valor_pagado, 0) AS valor_pagado, COALESCE(c.diferencia, c.saldo_resultante, 0) AS saldo_resultante, COALESCE(c.estado, c.estado_conciliacion) AS estado_conciliacion, COALESCE(c.observacion, c.detalle_validacion, "") AS detalle_validacion FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = COALESCE(c.id_cartera_documento, c.cartera_id) LEFT JOIN recaudo_detalle rd ON rd.id = c.id_recaudo_detalle' . $whereConcSql . ' ORDER BY c.id DESC LIMIT 300');
     $concStmt->execute($paramsConc);
     $conciliacionRows = $concStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $kpiConcStmt = $pdo->prepare('SELECT COALESCE(SUM(c.valor_factura),0) AS cartera_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_total" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_total, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "conciliado_parcial" THEN c.valor_pagado ELSE 0 END),0) AS cartera_conciliada_parcial, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "sin_pago" THEN c.valor_factura ELSE 0 END),0) AS cartera_sin_pago, COALESCE(SUM(CASE WHEN c.estado_conciliacion = "pago_sin_factura" THEN c.valor_pagado ELSE 0 END),0) AS pagos_sin_factura, COALESCE(SUM(c.valor_pagado),0) AS recaudo_aplicado FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = c.cartera_id LEFT JOIN recaudo_detalle rd ON rd.carga_id = c.recaudo_id AND rd.documento_aplicado = c.numero_documento' . $whereConcSql);
+    $kpiConcStmt = $pdo->prepare('SELECT COALESCE((SELECT SUM(base.saldo_ref) FROM (SELECT COALESCE(c2.id_cartera_documento, c2.cartera_id) AS doc_id, MAX(COALESCE(c2.saldo_pendiente_cartera, c2.valor_factura, 0)) AS saldo_ref FROM conciliacion_cartera_recaudo c2 LEFT JOIN cartera_documentos cd ON cd.id = COALESCE(c2.id_cartera_documento, c2.cartera_id) LEFT JOIN recaudo_detalle rd ON rd.id = c2.id_recaudo_detalle' . $whereConcSqlAgg . ' AND COALESCE(c2.id_cartera_documento, c2.cartera_id) IS NOT NULL GROUP BY COALESCE(c2.id_cartera_documento, c2.cartera_id)) AS base), 0) AS cartera_total, COALESCE(SUM(CASE WHEN COALESCE(c.estado, c.estado_conciliacion) = "conciliado_total" THEN COALESCE(c.importe_aplicado, c.valor_pagado, 0) ELSE 0 END),0) AS cartera_conciliada_total, COALESCE(SUM(CASE WHEN COALESCE(c.estado, c.estado_conciliacion) = "conciliado_parcial" THEN COALESCE(c.importe_aplicado, c.valor_pagado, 0) ELSE 0 END),0) AS cartera_conciliada_parcial, COALESCE(SUM(CASE WHEN COALESCE(c.estado, c.estado_conciliacion) = "sin_pago" THEN COALESCE(c.saldo_pendiente_cartera, c.valor_factura, 0) ELSE 0 END),0) AS cartera_sin_pago, COALESCE(SUM(CASE WHEN COALESCE(c.estado, c.estado_conciliacion) = "pago_sin_factura" THEN COALESCE(c.importe_aplicado, c.valor_pagado, 0) ELSE 0 END),0) AS pagos_sin_factura, COALESCE(SUM(CASE WHEN c.id_recaudo_detalle IS NOT NULL THEN COALESCE(c.importe_aplicado, c.valor_pagado, 0) ELSE 0 END),0) AS recaudo_aplicado FROM conciliacion_cartera_recaudo c LEFT JOIN cartera_documentos cd ON cd.id = COALESCE(c.id_cartera_documento, c.cartera_id) LEFT JOIN recaudo_detalle rd ON rd.id = c.id_recaudo_detalle' . $whereConcSql);
     $kpiConcStmt->execute($paramsConc);
     $kpiConc = $kpiConcStmt->fetch(PDO::FETCH_ASSOC) ?: $kpiConc;
 } catch (Throwable $e) {

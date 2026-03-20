@@ -70,12 +70,17 @@ function recaudo_table_exists(PDO $pdo, string $tableName): bool
 
 function recaudo_ensure_reconciliation_schema(PDO $pdo): void
 {
-    if (recaudo_table_exists($pdo, 'conciliacion_cartera_recaudo')) {
-        return;
-    }
-
     $pdo->exec("CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        id_recaudo_detalle BIGINT NULL,
+        id_cartera_documento BIGINT NULL,
+        id_carga_recaudo BIGINT NOT NULL,
+        estado ENUM('conciliado_total','conciliado_parcial','pago_excedido','sin_pago','pago_sin_factura','tipo_no_coincide','periodo_diferente') NOT NULL,
+        importe_aplicado DECIMAL(18,2) NOT NULL DEFAULT 0,
+        saldo_pendiente_cartera DECIMAL(18,2) NOT NULL DEFAULT 0,
+        diferencia DECIMAL(18,2) NOT NULL DEFAULT 0,
+        fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        observacion TEXT NULL,
         periodo_cartera VARCHAR(7) NULL,
         periodo_recaudo VARCHAR(7) NULL,
         cartera_id BIGINT NULL,
@@ -86,16 +91,65 @@ function recaudo_ensure_reconciliation_schema(PDO $pdo): void
         valor_factura DECIMAL(18,2) NOT NULL DEFAULT 0,
         valor_pagado DECIMAL(18,2) NOT NULL DEFAULT 0,
         saldo_resultante DECIMAL(18,2) NOT NULL DEFAULT 0,
-        estado_conciliacion ENUM('conciliado_total', 'conciliado_parcial', 'sin_pago', 'pago_sin_factura', 'pago_excedido', 'periodo_diferente', 'tipo_no_coincide') NOT NULL,
+        estado_conciliacion ENUM('conciliado_total','conciliado_parcial','sin_pago','pago_sin_factura','pago_excedido','periodo_diferente','tipo_no_coincide') NOT NULL,
         nivel_confianza INT NOT NULL DEFAULT 100,
         detalle_validacion TEXT NULL,
-        fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_conciliacion_carga_recaudo (id_carga_recaudo),
+        INDEX idx_conciliacion_cartera_documento (id_cartera_documento),
+        INDEX idx_conciliacion_estado_nuevo (estado),
         INDEX idx_conciliacion_recaudo_id (recaudo_id),
         INDEX idx_conciliacion_documento (numero_documento),
         INDEX idx_conciliacion_estado (estado_conciliacion),
-        INDEX idx_conciliacion_periodo (periodo_cartera, periodo_recaudo)
+        INDEX idx_conciliacion_periodo (periodo_cartera, periodo_recaudo),
+        CONSTRAINT fk_conciliacion_recaudo FOREIGN KEY (recaudo_id) REFERENCES cargas_recaudo(id),
+        CONSTRAINT fk_conciliacion_cartera FOREIGN KEY (cartera_id) REFERENCES cartera_documentos(id),
+        CONSTRAINT fk_conciliacion_recaudo_detalle FOREIGN KEY (id_recaudo_detalle) REFERENCES recaudo_detalle(id),
+        CONSTRAINT fk_conciliacion_cartera_documento FOREIGN KEY (id_cartera_documento) REFERENCES cartera_documentos(id),
+        CONSTRAINT fk_conciliacion_carga_recaudo FOREIGN KEY (id_carga_recaudo) REFERENCES cargas_recaudo(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("ALTER TABLE conciliacion_cartera_recaudo
+        ADD COLUMN IF NOT EXISTS id_recaudo_detalle BIGINT NULL AFTER id,
+        ADD COLUMN IF NOT EXISTS id_cartera_documento BIGINT NULL AFTER id_recaudo_detalle,
+        ADD COLUMN IF NOT EXISTS id_carga_recaudo BIGINT NULL AFTER id_cartera_documento,
+        ADD COLUMN IF NOT EXISTS estado ENUM('conciliado_total','conciliado_parcial','pago_excedido','sin_pago','pago_sin_factura','tipo_no_coincide','periodo_diferente') NULL AFTER id_carga_recaudo,
+        ADD COLUMN IF NOT EXISTS importe_aplicado DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER estado,
+        ADD COLUMN IF NOT EXISTS saldo_pendiente_cartera DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER importe_aplicado,
+        ADD COLUMN IF NOT EXISTS diferencia DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER saldo_pendiente_cartera,
+        ADD COLUMN IF NOT EXISTS observacion TEXT NULL AFTER fecha_conciliacion,
+        ADD COLUMN IF NOT EXISTS periodo_cartera VARCHAR(7) NULL AFTER observacion,
+        ADD COLUMN IF NOT EXISTS periodo_recaudo VARCHAR(7) NULL AFTER periodo_cartera,
+        ADD COLUMN IF NOT EXISTS cartera_id BIGINT NULL AFTER periodo_recaudo,
+        ADD COLUMN IF NOT EXISTS recaudo_id BIGINT NULL AFTER cartera_id,
+        ADD COLUMN IF NOT EXISTS numero_documento VARCHAR(80) NULL AFTER recaudo_id,
+        ADD COLUMN IF NOT EXISTS cliente_cartera VARCHAR(180) NULL AFTER numero_documento,
+        ADD COLUMN IF NOT EXISTS cliente_recaudo VARCHAR(180) NULL AFTER cliente_cartera,
+        ADD COLUMN IF NOT EXISTS valor_factura DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER cliente_recaudo,
+        ADD COLUMN IF NOT EXISTS valor_pagado DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER valor_factura,
+        ADD COLUMN IF NOT EXISTS saldo_resultante DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER valor_pagado,
+        ADD COLUMN IF NOT EXISTS estado_conciliacion ENUM('conciliado_total','conciliado_parcial','sin_pago','pago_sin_factura','pago_excedido','periodo_diferente','tipo_no_coincide') NULL AFTER saldo_resultante,
+        ADD COLUMN IF NOT EXISTS nivel_confianza INT NOT NULL DEFAULT 100 AFTER estado_conciliacion,
+        ADD COLUMN IF NOT EXISTS detalle_validacion TEXT NULL AFTER nivel_confianza");
+
+    $pdo->exec("ALTER TABLE conciliacion_cartera_recaudo
+        ADD INDEX IF NOT EXISTS idx_conciliacion_carga_recaudo (id_carga_recaudo),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_cartera_documento (id_cartera_documento),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_estado_nuevo (estado),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_recaudo_id (recaudo_id),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_documento (numero_documento),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_estado (estado_conciliacion),
+        ADD INDEX IF NOT EXISTS idx_conciliacion_periodo (periodo_cartera, periodo_recaudo)");
+
+    $pdo->exec("UPDATE conciliacion_cartera_recaudo
+        SET id_carga_recaudo = COALESCE(id_carga_recaudo, recaudo_id),
+            id_cartera_documento = COALESCE(id_cartera_documento, cartera_id),
+            estado = COALESCE(estado, estado_conciliacion),
+            importe_aplicado = CASE WHEN COALESCE(importe_aplicado, 0) = 0 AND COALESCE(valor_pagado, 0) <> 0 THEN valor_pagado ELSE COALESCE(importe_aplicado, 0) END,
+            saldo_pendiente_cartera = CASE WHEN COALESCE(saldo_pendiente_cartera, 0) = 0 AND COALESCE(valor_factura, 0) <> 0 THEN valor_factura ELSE COALESCE(saldo_pendiente_cartera, 0) END,
+            diferencia = CASE WHEN COALESCE(diferencia, 0) = 0 AND (COALESCE(valor_pagado, 0) <> 0 OR COALESCE(valor_factura, 0) <> 0) THEN COALESCE(valor_pagado, 0) - COALESCE(valor_factura, 0) ELSE COALESCE(diferencia, 0) END,
+            observacion = COALESCE(NULLIF(observacion, ''), detalle_validacion)");
 }
+
 
 function recaudo_detect_period(array $rows, array $map): ?string
 {
@@ -151,6 +205,203 @@ function cartera_ultimo_periodo_cargado(PDO $pdo): ?string
     return $periodo !== '' ? $periodo : null;
 }
 
+function recaudo_tipo_homologacion(): array
+{
+    return [
+        'factura' => ['FVNAL1', 'FVNAL2', 'FVNAL3', 'FVEXP1', 'FVEXP2'],
+        'nota debito' => ['NDNAL', 'NDEXP'],
+        'nota credito' => ['NCNAL', 'NCEXP'],
+        'asientos contables' => ['AC'],
+        'recibo de caja' => ['RC'],
+        'saldo inicial' => ['SI'],
+    ];
+}
+
+function recaudo_normalize_compare_text(?string $value): string
+{
+    $value = trim((string)$value);
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = mb_strtolower($value, 'UTF-8');
+    $normalized = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $normalized) ?: $normalized;
+    $normalized = preg_replace('/[^a-z0-9]+/i', ' ', $normalized);
+    $normalized = preg_replace('/\s+/u', ' ', (string)$normalized);
+
+    return trim((string)$normalized);
+}
+
+function recaudo_normalize_recaudo_document_type(?string $tipo): string
+{
+    $normalized = recaudo_normalize_compare_text($tipo);
+    if ($normalized === '') {
+        return '';
+    }
+
+    if (str_contains($normalized, 'factura')) {
+        return 'factura';
+    }
+    if (str_contains($normalized, 'nota') && str_contains($normalized, 'debito')) {
+        return 'nota debito';
+    }
+    if (str_contains($normalized, 'nota') && str_contains($normalized, 'credito')) {
+        return 'nota credito';
+    }
+    if (str_contains($normalized, 'asiento')) {
+        return 'asientos contables';
+    }
+    if (str_contains($normalized, 'recibo') && str_contains($normalized, 'caja')) {
+        return 'recibo de caja';
+    }
+    if (str_contains($normalized, 'saldo') && str_contains($normalized, 'inicial')) {
+        return 'saldo inicial';
+    }
+
+    return $normalized;
+}
+
+function recaudo_normalize_cartera_document_type(?string $tipo): string
+{
+    $normalized = mb_strtoupper(trim((string)$tipo), 'UTF-8');
+    foreach (recaudo_tipo_homologacion() as $homologado => $tiposSap) {
+        if (in_array($normalized, $tiposSap, true)) {
+            return $homologado;
+        }
+    }
+
+    return recaudo_normalize_recaudo_document_type($normalized);
+}
+
+function recaudo_documento_periodo(array $doc): string
+{
+    foreach (['periodo_documento', 'periodo', 'periodo_carga', 'periodo_detectado'] as $field) {
+        $value = trim((string)($doc[$field] ?? ''));
+        if ($value !== '') {
+            return substr($value, 0, 7);
+        }
+    }
+
+    $fecha = trim((string)($doc['fecha_contabilizacion'] ?? ''));
+    return $fecha !== '' ? substr($fecha, 0, 7) : '';
+}
+
+function recaudo_fetch_cartera_documents(PDO $pdo): array
+{
+    $stmt = $pdo->query("SELECT
+            d.id,
+            d.id_carga,
+            d.cliente_id,
+            d.nro_documento,
+            d.tipo,
+            d.documento_uid,
+            d.cliente,
+            d.saldo_pendiente,
+            d.valor_documento,
+            d.uens AS uen,
+            d.canal,
+            d.regional,
+            d.dias_vencido,
+            d.estado_documento,
+            d.fecha_contabilizacion,
+            COALESCE(NULLIF(TRIM(d.periodo), ''), NULLIF(TRIM(cc.periodo_detectado), ''), DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m')) AS periodo_documento
+        FROM cartera_documentos d
+        INNER JOIN cargas_cartera cc ON cc.id = d.id_carga
+        WHERE cc.estado = 'activa' AND cc.activo = 1
+        ORDER BY d.id DESC");
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function recaudo_index_cartera_documents(array $docs): array
+{
+    $byNumber = [];
+    foreach ($docs as $doc) {
+        $number = recaudo_normalize_document_number((string)($doc['nro_documento'] ?? ''));
+        if ($number === '') {
+            continue;
+        }
+        if (!isset($byNumber[$number])) {
+            $byNumber[$number] = [];
+        }
+        $byNumber[$number][] = $doc;
+    }
+
+    return $byNumber;
+}
+
+function recaudo_pick_best_document(array $documents, string $periodoRecaudo = '', bool $requireTypeMatch = false, string $tipoRecaudo = ''): ?array
+{
+    if ($documents === []) {
+        return null;
+    }
+
+    usort($documents, static function (array $a, array $b) use ($periodoRecaudo, $requireTypeMatch, $tipoRecaudo): int {
+        $scoreA = 0;
+        $scoreB = 0;
+
+        $periodoA = recaudo_documento_periodo($a);
+        $periodoB = recaudo_documento_periodo($b);
+        if ($periodoRecaudo !== '') {
+            if ($periodoA === $periodoRecaudo) {
+                $scoreA += 40;
+            }
+            if ($periodoB === $periodoRecaudo) {
+                $scoreB += 40;
+            }
+        }
+
+        if (($a['estado_documento'] ?? '') === 'activo') {
+            $scoreA += 20;
+        }
+        if (($b['estado_documento'] ?? '') === 'activo') {
+            $scoreB += 20;
+        }
+
+        if ($requireTypeMatch && $tipoRecaudo !== '') {
+            if (recaudo_normalize_cartera_document_type((string)($a['tipo'] ?? '')) === $tipoRecaudo) {
+                $scoreA += 30;
+            }
+            if (recaudo_normalize_cartera_document_type((string)($b['tipo'] ?? '')) === $tipoRecaudo) {
+                $scoreB += 30;
+            }
+        }
+
+        if ($scoreA === $scoreB) {
+            return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+        }
+
+        return $scoreB <=> $scoreA;
+    });
+
+    return $documents[0] ?? null;
+}
+
+function recaudo_build_match_context(array $documents, string $periodoRecaudo, string $tipoRecaudo): array
+{
+    $context = [
+        'matching_period' => [],
+        'matching_period_and_type' => [],
+        'active_documents' => [],
+    ];
+
+    foreach ($documents as $doc) {
+        $periodoDoc = recaudo_documento_periodo($doc);
+        $tipoDoc = recaudo_normalize_cartera_document_type((string)($doc['tipo'] ?? ''));
+        if (($doc['estado_documento'] ?? '') === 'activo') {
+            $context['active_documents'][] = $doc;
+        }
+        if ($periodoRecaudo !== '' && $periodoDoc === $periodoRecaudo) {
+            $context['matching_period'][] = $doc;
+            if ($tipoRecaudo !== '' && $tipoDoc === $tipoRecaudo) {
+                $context['matching_period_and_type'][] = $doc;
+            }
+        }
+    }
+
+    return $context;
+}
+
 function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 {
     if (count($rows) < 2) {
@@ -182,30 +433,7 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         $warnings[] = build_validation_error(0, 'periodo', $periodoDetectado, 'El recaudo corresponde a un periodo anterior. Verifique que la cartera correspondiente esté cargada.');
     }
 
-    $documentNumbers = [];
-    for ($i = 1, $len = count($rows); $i < $len; $i++) {
-        $doc = recaudo_normalize_document_number((string)($rows[$i][$map['nro_documento_aplicado']] ?? ''));
-        if ($doc !== '') {
-            $documentNumbers[$doc] = true;
-        }
-    }
-
-    if (empty($documentNumbers)) {
-        return ['errors' => [build_validation_error(0, 'nro_documento_aplicado', '', 'No se encontraron documentos para conciliar.')], 'warnings' => $warnings];
-    }
-
-    $placeholders = implode(',', array_fill(0, count($documentNumbers), '?'));
-    $stmt = $pdo->prepare("SELECT id, cliente_id, nro_documento, tipo, documento_uid, cliente, saldo_pendiente, valor_documento, uens AS uen, canal, regional, dias_vencido FROM cartera_documentos WHERE nro_documento IN ($placeholders) ORDER BY id DESC");
-    $stmt->execute(array_keys($documentNumbers));
-    $docsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-    $docsByNumber = [];
-    foreach ($docsRaw as $doc) {
-        $number = trim((string)($doc['nro_documento'] ?? ''));
-        if ($number !== '' && !isset($docsByNumber[$number])) {
-            $docsByNumber[$number] = $doc;
-        }
-    }
+    $docsByNumber = recaudo_index_cartera_documents(recaudo_fetch_cartera_documents($pdo));
 
     $validRows = [];
     $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 0.0];
@@ -225,7 +453,8 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
         }
         $summary['total']++;
 
-        $tipoDocumento = normalize_document_type(trim((string)($row[$map['tipo_documento_aplicado']] ?? '')));
+        $tipoDocumentoTexto = trim((string)($row[$map['tipo_documento_aplicado']] ?? ''));
+        $tipoDocumento = recaudo_normalize_recaudo_document_type($tipoDocumentoTexto);
         $nroDocumento = recaudo_normalize_document_number((string)($row[$map['nro_documento_aplicado']] ?? ''));
         $cliente = trim((string)($row[$map['cliente']] ?? ''));
         $importe = normalize_decimal_value($row[$map['importe_aplicado']] ?? null);
@@ -249,10 +478,17 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             continue;
         }
 
-        $doc = $docsByNumber[$nroDocumento] ?? null;
-        $clienteCartera = trim((string)($doc['cliente'] ?? ''));
-        $clienteMatch = ($doc === null || $cliente === '' || mb_strtolower($cliente) === mb_strtolower($clienteCartera));
-        $tipoCartera = normalize_document_type(trim((string)($doc['tipo'] ?? '')));
+        $documents = $docsByNumber[$nroDocumento] ?? [];
+        $matchContext = recaudo_build_match_context($documents, $periodoRegistro, $tipoDocumento);
+        $applicableDoc = recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoRegistro, true, $tipoDocumento);
+        $referenceDoc = $applicableDoc
+            ?? recaudo_pick_best_document($matchContext['matching_period'], $periodoRegistro)
+            ?? recaudo_pick_best_document($matchContext['active_documents'], $periodoRegistro)
+            ?? recaudo_pick_best_document($documents, $periodoRegistro);
+
+        $clienteCartera = trim((string)($referenceDoc['cliente'] ?? ''));
+        $clienteMatch = ($referenceDoc === null || $cliente === '' || mb_strtolower($cliente) === mb_strtolower($clienteCartera));
+        $tipoCartera = recaudo_normalize_cartera_document_type((string)($referenceDoc['tipo'] ?? ''));
         $tipoMatch = ($tipoDocumento === '' || $tipoCartera === '' || $tipoDocumento === $tipoCartera);
 
         $summary['validas']++;
@@ -268,25 +504,29 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
             'fecha_aplicacion' => $fechaAplicacion ?? $fechaRecibo,
             'cliente' => $cliente,
             'vendedor' => trim((string)($row[$map['vendedor']] ?? '')),
-            'tipo_documento' => trim((string)($row[$map['tipo_documento_aplicado'] ?? -1] ?? '')),
+            'tipo_documento' => $tipoDocumentoTexto,
             'documento_aplicado' => $nroDocumento,
             'importe_aplicado' => $importe,
-            'saldo_documento' => (float)($doc['saldo_pendiente'] ?? 0),
-            'uen' => trim((string)($doc['uen'] ?? '')),
-            'canal' => trim((string)($doc['canal'] ?? '')),
-            'regional' => trim((string)($doc['regional'] ?? '')),
-            'bucket' => $doc !== null ? cartera_bucket_label((int)($doc['dias_vencido'] ?? 0)) : 'Sin factura',
-            'cartera_documento_id' => $doc !== null ? (int)$doc['id'] : null,
-            'cliente_id' => $doc !== null ? (int)($doc['cliente_id'] ?? 0) : 0,
+            'saldo_documento' => (float)($referenceDoc['saldo_pendiente'] ?? 0),
+            'uen' => trim((string)($referenceDoc['uen'] ?? '')),
+            'canal' => trim((string)($referenceDoc['canal'] ?? '')),
+            'regional' => trim((string)($referenceDoc['regional'] ?? '')),
+            'bucket' => $referenceDoc !== null ? cartera_bucket_label((int)($referenceDoc['dias_vencido'] ?? 0)) : 'Sin factura',
+            'cartera_documento_id' => $applicableDoc !== null ? (int)$applicableDoc['id'] : null,
+            'cartera_documento_referencia_id' => $referenceDoc !== null ? (int)$referenceDoc['id'] : null,
+            'cliente_id' => $applicableDoc !== null ? (int)($applicableDoc['cliente_id'] ?? 0) : (int)($referenceDoc['cliente_id'] ?? 0),
             'cliente_conciliado' => $clienteMatch ? 1 : 0,
             'tipo_coincide' => $tipoMatch ? 1 : 0,
         ];
 
-        if ($doc !== null && !$clienteMatch) {
+        if ($referenceDoc !== null && !$clienteMatch) {
             $warnings[] = build_validation_error($fila, 'cliente', $cliente, 'Cliente en recaudo no coincide con cliente en cartera (validación recomendada).');
         }
-        if (!$tipoMatch) {
-            $warnings[] = build_validation_error($fila, 'tipo_documento_aplicado', $tipoDocumento, 'Tipo de documento no coincide con cartera, se usará como validación secundaria.');
+        if ($referenceDoc !== null && !$tipoMatch) {
+            $warnings[] = build_validation_error($fila, 'tipo_documento_aplicado', $tipoDocumentoTexto, 'Tipo de documento no coincide con cartera, el recaudo se cargará sin aplicar saldo automáticamente.');
+        }
+        if ($referenceDoc !== null && $applicableDoc === null && recaudo_documento_periodo($referenceDoc) !== $periodoRegistro) {
+            $warnings[] = build_validation_error($fila, 'periodo', $periodoRegistro, 'El documento existe en cartera, pero en un periodo diferente.');
         }
     }
 
@@ -295,9 +535,24 @@ function recaudo_validate_and_prepare(PDO $pdo, array $rows): array
 
 function recaudo_normalize_document_number(string $value): string
 {
-    $normalized = preg_replace('/[\s\-\.]+/u', '', trim($value));
-    return $normalized !== null ? $normalized : trim($value);
+    $normalized = trim($value);
+    if ($normalized === '') {
+        return '';
+    }
+
+    $normalized = str_replace([',', ' '], ['', ''], $normalized);
+    if (preg_match('/^-?\d+(?:\.0+)?$/', $normalized) === 1) {
+        return (string)(int)((float)$normalized);
+    }
+
+    $digitsOnly = preg_replace('/\s+/u', '', $normalized);
+    if ($digitsOnly === null) {
+        return $normalized;
+    }
+
+    return preg_replace('/\.0+$/', '', $digitsOnly) ?? $digitsOnly;
 }
+
 
 function cartera_bucket_label(int $diasVencido): string
 {
@@ -399,101 +654,189 @@ function recaudo_apply_rows(PDO $pdo, int $cargaId, array $rows): void
     }
 }
 
-function recaudo_run_reconciliation(PDO $pdo, int $cargaId): void
+function procesarConciliacion(int $idCargaRecaudo, ?PDO $pdo = null): void
 {
+    if ($pdo === null) {
+        throw new InvalidArgumentException('Se requiere una conexión PDO para procesar la conciliación.');
+    }
+
     recaudo_ensure_reconciliation_schema($pdo);
+
     $cargaStmt = $pdo->prepare('SELECT periodo FROM cargas_recaudo WHERE id = ? LIMIT 1');
-    $cargaStmt->execute([$cargaId]);
+    $cargaStmt->execute([$idCargaRecaudo]);
     $periodoRecaudo = (string)(($cargaStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
 
-    $periodoCarteraStmt = $pdo->query("SELECT DATE_FORMAT(MAX(d.fecha_contabilizacion), '%Y-%m') AS periodo FROM cartera_documentos d INNER JOIN cargas_cartera c ON c.id = d.id_carga WHERE c.estado = 'activa' AND c.activo = 1");
-    $periodoCartera = (string)(($periodoCarteraStmt->fetch(PDO::FETCH_ASSOC) ?: [])['periodo'] ?? '');
+    $pdo->prepare('DELETE FROM conciliacion_cartera_recaudo WHERE id_carga_recaudo = ? OR recaudo_id = ?')->execute([$idCargaRecaudo, $idCargaRecaudo]);
 
-    $pdo->prepare('DELETE FROM conciliacion_cartera_recaudo WHERE recaudo_id = ?')->execute([$cargaId]);
+    $docs = recaudo_fetch_cartera_documents($pdo);
+    $docsByNumber = recaudo_index_cartera_documents($docs);
 
-    $sql = "SELECT c.id AS cartera_id, c.nro_documento AS numero_documento, c.cliente, c.valor_documento, c.tipo, c.saldo_pendiente,
-                COALESCE(SUM(r.importe_aplicado),0) AS total_pagado,
-                MAX(r.tipo_documento) AS tipo_recaudo,
-                MAX(r.cliente) AS cliente_recaudo
-            FROM cartera_documentos c
-            INNER JOIN cargas_cartera cc ON cc.id = c.id_carga AND cc.estado = 'activa' AND cc.activo = 1
-            LEFT JOIN recaudo_detalle r ON r.carga_id = ? AND r.documento_aplicado = c.nro_documento
-            GROUP BY c.id, c.nro_documento, c.cliente, c.valor_documento, c.tipo, c.saldo_pendiente";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$cargaId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $detalleStmt = $pdo->prepare('SELECT id, carga_id, documento_aplicado, tipo_documento, cliente, importe_aplicado, saldo_documento, periodo, vendedor, cartera_documento_id FROM recaudo_detalle WHERE carga_id = ? ORDER BY id ASC');
+    $detalleStmt->execute([$idCargaRecaudo]);
+    $detalles = $detalleStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $insert = $pdo->prepare('INSERT INTO conciliacion_cartera_recaudo (periodo_cartera, periodo_recaudo, cartera_id, recaudo_id, numero_documento, cliente_cartera, cliente_recaudo, valor_factura, valor_pagado, saldo_resultante, estado_conciliacion, nivel_confianza, detalle_validacion, fecha_conciliacion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+    $insert = $pdo->prepare('INSERT INTO conciliacion_cartera_recaudo (
+        id_recaudo_detalle,
+        id_cartera_documento,
+        id_carga_recaudo,
+        estado,
+        importe_aplicado,
+        saldo_pendiente_cartera,
+        diferencia,
+        fecha_conciliacion,
+        observacion,
+        periodo_cartera,
+        periodo_recaudo,
+        cartera_id,
+        recaudo_id,
+        numero_documento,
+        cliente_cartera,
+        cliente_recaudo,
+        valor_factura,
+        valor_pagado,
+        saldo_resultante,
+        estado_conciliacion,
+        nivel_confianza,
+        detalle_validacion
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
-    foreach ($rows as $row) {
-        $valorFactura = (float)($row['valor_documento'] ?? 0);
-        $valorPagado = (float)($row['total_pagado'] ?? 0);
-        $saldo = $valorFactura - $valorPagado;
-        $estado = 'sin_pago';
-        if ($valorPagado > $valorFactura) {
-            $estado = 'pago_excedido';
-        } elseif (abs($saldo) < 0.01 && $valorPagado > 0) {
-            $estado = 'conciliado_total';
-        } elseif ($valorPagado > 0 && $valorPagado < $valorFactura) {
-            $estado = 'conciliado_parcial';
-        }
+    $updateDetalle = $pdo->prepare('UPDATE recaudo_detalle SET cartera_documento_id = ?, estado_conciliacion = ?, observacion_conciliacion = ? WHERE id = ?');
 
-        $tipoCartera = normalize_document_type((string)($row['tipo'] ?? ''));
-        $tipoRecaudo = normalize_document_type((string)($row['tipo_recaudo'] ?? ''));
-        $detalle = [];
-        $confianza = 100;
-        if ($tipoRecaudo !== '' && $tipoCartera !== '' && $tipoCartera !== $tipoRecaudo) {
-            $detalle[] = 'Coincide número de documento, pero tipo diferente entre cartera y recaudo.';
+    $matchedActiveDocumentIds = [];
+
+    foreach ($detalles as $detalle) {
+        $documento = recaudo_normalize_document_number((string)($detalle['documento_aplicado'] ?? ''));
+        $periodoDetalle = trim((string)($detalle['periodo'] ?? ''));
+        $tipoRecaudo = recaudo_normalize_recaudo_document_type((string)($detalle['tipo_documento'] ?? ''));
+        $documentos = $docsByNumber[$documento] ?? [];
+        $matchContext = recaudo_build_match_context($documentos, $periodoDetalle, $tipoRecaudo);
+        $documentoExacto = recaudo_pick_best_document($matchContext['matching_period_and_type'], $periodoDetalle, true, $tipoRecaudo);
+        $documentoMismoPeriodo = recaudo_pick_best_document($matchContext['matching_period'], $periodoDetalle);
+        $documentoActivo = recaudo_pick_best_document($matchContext['active_documents'], $periodoDetalle);
+        $documentoReferencia = $documentoExacto ?? $documentoMismoPeriodo ?? $documentoActivo ?? recaudo_pick_best_document($documentos, $periodoDetalle);
+
+        $saldoReferencia = $documentoExacto !== null
+            ? (float)($detalle['saldo_documento'] ?? $documentoExacto['saldo_pendiente'] ?? 0)
+            : (float)($documentoReferencia['saldo_pendiente'] ?? $detalle['saldo_documento'] ?? 0);
+        $importeAplicado = (float)($detalle['importe_aplicado'] ?? 0);
+        $diferencia = $importeAplicado - $saldoReferencia;
+
+        $estado = 'pago_sin_factura';
+        $observacion = 'No se encontró el documento aplicado en la cartera activa.';
+        $documentoConciliado = null;
+        $confianza = 50;
+        $periodoCartera = $documentoReferencia !== null ? recaudo_documento_periodo($documentoReferencia) : null;
+
+        if ($documentoExacto !== null) {
+            $documentoConciliado = $documentoExacto;
+            $confianza = 100;
+            if (abs($diferencia) <= 1) {
+                $estado = 'conciliado_total';
+                $observacion = 'El importe aplicado cubre el saldo pendiente de cartera dentro de la tolerancia configurada.';
+            } elseif ($importeAplicado < $saldoReferencia) {
+                $estado = 'conciliado_parcial';
+                $observacion = 'El importe aplicado es menor al saldo pendiente del documento en cartera.';
+            } else {
+                $estado = 'pago_excedido';
+                $observacion = 'El importe aplicado supera el saldo pendiente del documento en cartera.';
+            }
+        } elseif ($documentoMismoPeriodo !== null) {
+            $documentoConciliado = $documentoMismoPeriodo;
+            $estado = 'tipo_no_coincide';
             $confianza = 80;
+            $tipoCartera = recaudo_normalize_cartera_document_type((string)($documentoMismoPeriodo['tipo'] ?? ''));
+            $observacion = 'El documento existe en cartera para el mismo periodo, pero el tipo homologado no coincide (cartera: ' . $tipoCartera . ', recaudo: ' . ($tipoRecaudo !== '' ? $tipoRecaudo : 'sin tipo') . ').';
+        } elseif ($documentoActivo !== null || $documentoReferencia !== null) {
+            $documentoConciliado = $documentoActivo ?? $documentoReferencia;
+            $estado = 'periodo_diferente';
+            $confianza = 75;
+            $periodoEncontrado = $documentoConciliado !== null ? recaudo_documento_periodo($documentoConciliado) : '';
+            $observacion = 'El documento existe en cartera, pero pertenece a un periodo diferente (cartera: ' . ($periodoEncontrado !== '' ? $periodoEncontrado : 'sin periodo') . ', recaudo: ' . ($periodoDetalle !== '' ? $periodoDetalle : 'sin periodo') . ').';
         }
-        if ($periodoCartera !== '' && $periodoRecaudo !== '' && $periodoCartera !== $periodoRecaudo) {
-            $detalle[] = 'Periodo cartera y recaudo son diferentes.';
-            $confianza = min($confianza, 85);
+
+        if ($documentoConciliado !== null && ($documentoConciliado['estado_documento'] ?? '') === 'activo') {
+            $matchedActiveDocumentIds[(int)$documentoConciliado['id']] = true;
         }
+
+        $carteraDocumentoId = $documentoConciliado !== null ? (int)$documentoConciliado['id'] : null;
+        $clienteCartera = $documentoConciliado !== null ? (string)($documentoConciliado['cliente'] ?? '') : '';
+        $valorFactura = $documentoConciliado !== null ? (float)($documentoConciliado['valor_documento'] ?? $saldoReferencia) : $saldoReferencia;
+        $saldoResultante = $saldoReferencia - $importeAplicado;
 
         $insert->execute([
-            $periodoCartera !== '' ? $periodoCartera : null,
-            $periodoRecaudo !== '' ? $periodoRecaudo : null,
-            (int)$row['cartera_id'],
-            $cargaId,
-            (string)$row['numero_documento'],
-            (string)$row['cliente'],
-            (string)($row['cliente_recaudo'] ?? ''),
+            (int)$detalle['id'],
+            $carteraDocumentoId,
+            $idCargaRecaudo,
+            $estado,
+            $importeAplicado,
+            $saldoReferencia,
+            $diferencia,
+            $observacion,
+            $periodoCartera,
+            $periodoRecaudo !== '' ? $periodoRecaudo : ($periodoDetalle !== '' ? $periodoDetalle : null),
+            $carteraDocumentoId,
+            $idCargaRecaudo,
+            $documento,
+            $clienteCartera,
+            (string)($detalle['cliente'] ?? ''),
             $valorFactura,
-            $valorPagado,
-            $saldo,
+            $importeAplicado,
+            $saldoResultante,
             $estado,
             $confianza,
-            implode(' ', $detalle),
+            $observacion,
+        ]);
+
+        $updateDetalle->execute([
+            $carteraDocumentoId,
+            $estado,
+            $observacion,
+            (int)$detalle['id'],
         ]);
     }
 
-    $orphans = $pdo->prepare("SELECT documento_aplicado, MAX(cliente) AS cliente_recaudo, SUM(importe_aplicado) AS total_pagado
-        FROM recaudo_detalle
-        WHERE carga_id = ? AND (cartera_documento_id IS NULL OR cartera_documento_id = 0)
-        GROUP BY documento_aplicado");
-    $orphans->execute([$cargaId]);
-    $orphanRows = $orphans->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    foreach ($orphanRows as $row) {
+    foreach ($docs as $doc) {
+        if (($doc['estado_documento'] ?? '') !== 'activo') {
+            continue;
+        }
+        $docId = (int)($doc['id'] ?? 0);
+        if ($docId <= 0 || isset($matchedActiveDocumentIds[$docId])) {
+            continue;
+        }
+
+        $saldoPendiente = (float)($doc['saldo_pendiente'] ?? 0);
+        $periodoDoc = recaudo_documento_periodo($doc);
+        $observacion = 'Documento activo en cartera sin registro de pago dentro del lote de recaudo procesado.';
+
         $insert->execute([
-            $periodoCartera !== '' ? $periodoCartera : null,
-            $periodoRecaudo !== '' ? $periodoRecaudo : null,
             null,
-            $cargaId,
-            (string)$row['documento_aplicado'],
-            '',
-            (string)($row['cliente_recaudo'] ?? ''),
+            $docId,
+            $idCargaRecaudo,
+            'sin_pago',
             0,
-            (float)$row['total_pagado'],
-            0 - (float)$row['total_pagado'],
-            'pago_sin_factura',
-            50,
-            'Pago registrado sin factura encontrada en cartera.',
+            $saldoPendiente,
+            0 - $saldoPendiente,
+            $observacion,
+            $periodoDoc !== '' ? $periodoDoc : null,
+            $periodoRecaudo !== '' ? $periodoRecaudo : null,
+            $docId,
+            $idCargaRecaudo,
+            recaudo_normalize_document_number((string)($doc['nro_documento'] ?? '')),
+            (string)($doc['cliente'] ?? ''),
+            '',
+            (float)($doc['valor_documento'] ?? $saldoPendiente),
+            0,
+            $saldoPendiente,
+            'sin_pago',
+            100,
+            $observacion,
         ]);
     }
+}
 
-    $updateDetalle = $pdo->prepare('UPDATE recaudo_detalle d INNER JOIN conciliacion_cartera_recaudo c ON c.recaudo_id = d.carga_id AND c.numero_documento = d.documento_aplicado AND (c.cartera_id = d.cartera_documento_id OR d.cartera_documento_id IS NULL) SET d.estado_conciliacion = CASE WHEN c.estado_conciliacion = "sin_pago" THEN d.estado_conciliacion ELSE c.estado_conciliacion END, d.observacion_conciliacion = c.detalle_validacion WHERE d.carga_id = ?');
-    $updateDetalle->execute([$cargaId]);
+function recaudo_run_reconciliation(PDO $pdo, int $cargaId): void
+{
+    procesarConciliacion($cargaId, $pdo);
 }
 
 function recaudo_build_aggregates(PDO $pdo, int $cargaId): void
