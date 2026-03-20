@@ -56,12 +56,9 @@ function cartera_expected_required_headers(): array
     ];
 }
 
-function cartera_expected_structural_headers(): array
+function cartera_expected_optional_headers(): array
 {
     return [
-        'cuenta',
-        'cliente',
-        'nit',
         'direccion',
         'contacto',
         'telefono',
@@ -69,16 +66,22 @@ function cartera_expected_structural_headers(): array
         'uens',
         'empleado_de_ventas',
         'regional',
-        'nro_documento',
         'nro_ref_de_cliente',
-        'tipo',
-        'fecha_contabilizacion',
         'fecha_activacion',
-        'fecha_vencimiento',
-        'valor_documento',
-        'saldo_pendiente',
-        'moneda',
         'dias_vencido',
+    ];
+}
+
+function cartera_expected_calculated_headers(): array
+{
+    return [
+        'actual',
+        '1_30_dias',
+        '31_60_dias',
+        '61_90_dias',
+        '91_180_dias',
+        '181_360_dias',
+        '361_dias',
     ];
 }
 
@@ -213,11 +216,33 @@ function map_headers_by_name(array $headers): array
     return $fieldMap;
 }
 
+function is_cartera_calculated_header(mixed $header): bool
+{
+    $normalized = normalize_header_name($header);
+    if ($normalized === '') {
+        return false;
+    }
+
+    foreach (cartera_expected_calculated_headers() as $field) {
+        foreach (cartera_header_aliases()[$field] ?? [] as $alias) {
+            if ($normalized === normalize_header_name($alias)) {
+                return true;
+            }
+        }
+    }
+
+    if ($normalized === 'actual' || $normalized === 'corriente') {
+        return true;
+    }
+
+    return (bool)preg_match('/^(?:\d+_\d+|\d+plus|\d+_plus|mas_de_\d+|\d+_o_mas)(?:_dias)?$/', $normalized);
+}
+
 function validate_cartera_file_structure(array $rows): array
 {
     $expected = cartera_expected_headers();
     $required = cartera_expected_required_headers();
-    $structural = cartera_expected_structural_headers();
+    $optional = cartera_expected_optional_headers();
     $aliases = cartera_header_aliases();
 
     if (empty($rows)) {
@@ -256,11 +281,10 @@ function validate_cartera_file_structure(array $rows): array
     $map = map_headers_by_name($headers);
     $recognizedHeaders = array_keys($map);
     $missingRequired = array_values(array_diff($required, $recognizedHeaders));
-    $missingStructural = array_values(array_diff($structural, $recognizedHeaders));
 
     $allowedHeaderNames = ['numero' => true];
-    foreach ($aliases as $fieldAliases) {
-        foreach ($fieldAliases as $alias) {
+    foreach (array_merge($required, $optional, cartera_expected_calculated_headers()) as $field) {
+        foreach ($aliases[$field] ?? [] as $alias) {
             $allowedHeaderNames[normalize_header_name($alias)] = true;
         }
     }
@@ -268,7 +292,7 @@ function validate_cartera_file_structure(array $rows): array
     $unexpectedHeaders = [];
     foreach ($nonEmptyHeaders as $header) {
         $normalizedHeader = normalize_header_name($header);
-        if ($normalizedHeader === '' || isset($allowedHeaderNames[$normalizedHeader])) {
+        if ($normalizedHeader === '' || isset($allowedHeaderNames[$normalizedHeader]) || is_cartera_calculated_header($header)) {
             continue;
         }
         $unexpectedHeaders[] = $header;
@@ -293,14 +317,6 @@ function validate_cartera_file_structure(array $rows): array
         );
     }
 
-    if (!empty($missingStructural)) {
-        $errors[] = build_validation_error(
-            1,
-            'encabezado',
-            implode(', ', $missingStructural),
-            'La estructura del archivo no coincide con la plantilla de cartera. Faltan columnas de la plantilla: ' . implode(', ', $missingStructural)
-        );
-    }
 
     if (!empty($unexpectedHeaders)) {
         $errors[] = build_validation_error(
