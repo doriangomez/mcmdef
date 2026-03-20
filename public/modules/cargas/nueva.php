@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/ExcelImportService.php';
+require_once __DIR__ . '/../../../app/services/RecaudoImportService.php';
 require_once __DIR__ . '/../../../app/libraries/SimpleXLSX.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
 require_once __DIR__ . '/../../../app/services/PeriodoControlService.php';
@@ -252,19 +253,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 sync_validation_result($validationResult, $errors, true);
             }
 
-            $validation = validate_cartera_rows($rows);
-            $validationResult = $validation;
-            $templateMismatchDetected = (bool)($validation['template_mismatch'] ?? false);
-            $errors = array_merge($errors, $validation['errors'] ?? []);
-            $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
-            if ($templateMismatchDetected) {
-                $errors = [build_validation_error(0, 'archivo', '', 'El archivo cargado no corresponde a la plantilla de cartera.')];
-                $validationResult['errors'] = $errors;
+            $otherModuleDetection = detect_non_cartera_upload_module($rows);
+            if ($otherModuleDetection !== null) {
+                $otherModuleMessage = (string)($otherModuleDetection['message'] ?? 'El archivo cargado no corresponde a cartera. Verifique que está utilizando el módulo correcto.');
+                $errors = [build_validation_error(0, 'archivo', '', $otherModuleMessage)];
+                $validationResult = finalize_validation_result([
+                    'ok' => false,
+                    'structural_error' => true,
+                    'template_mismatch' => false,
+                    'errors' => [],
+                    'records' => [],
+                    'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
+                ], $errors, true, $otherModuleMessage);
                 $hayErrores = true;
                 $hayErrorEstructural = true;
-                $msg = 'El archivo cargado no corresponde a la plantilla de cartera.';
-            } elseif ($hayErrorEstructural || !empty($errors)) {
-                $hayErrores = true;
+                $msg = $otherModuleMessage;
+            } else {
+                $validation = validate_cartera_rows($rows);
+                $validationResult = $validation;
+                $templateMismatchDetected = (bool)($validation['template_mismatch'] ?? false);
+                $errors = array_merge($errors, $validation['errors'] ?? []);
+                $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
+                if ($templateMismatchDetected) {
+                    $errors = [build_validation_error(0, 'archivo', '', 'El archivo cargado no corresponde a la plantilla de cartera.')];
+                    $validationResult['errors'] = $errors;
+                    $hayErrores = true;
+                    $hayErrorEstructural = true;
+                    $msg = 'El archivo cargado no corresponde a la plantilla de cartera.';
+                } elseif ($hayErrorEstructural || !empty($errors)) {
+                    $hayErrores = true;
+                }
             }
 
             if (!$hayErrorEstructural && empty($errors)) {
