@@ -248,6 +248,7 @@ function validate_cartera_file_structure(array $rows): array
     if (empty($rows)) {
         return [
             'ok' => false,
+            'template_mismatch' => false,
             'errors' => [build_validation_error(0, 'archivo', '', 'Archivo vacío')],
             'headers' => $expected,
             'map' => [],
@@ -257,6 +258,7 @@ function validate_cartera_file_structure(array $rows): array
     if (count($rows) < 2) {
         return [
             'ok' => false,
+            'template_mismatch' => false,
             'errors' => [build_validation_error(0, 'archivo', '', 'El archivo debe incluir al menos encabezado y una fila de datos')],
             'headers' => $expected,
             'map' => [],
@@ -272,6 +274,7 @@ function validate_cartera_file_structure(array $rows): array
     if (empty($nonEmptyHeaders)) {
         return [
             'ok' => false,
+            'template_mismatch' => false,
             'errors' => [build_validation_error(0, 'encabezado', '', 'La primera fila del archivo está vacía. Debe contener los encabezados de la plantilla de cartera.')],
             'headers' => $expected,
             'map' => [],
@@ -298,16 +301,22 @@ function validate_cartera_file_structure(array $rows): array
         $unexpectedHeaders[] = $header;
     }
 
-    $errors = [];
-    if (empty($recognizedHeaders)) {
-        $errors[] = build_validation_error(
-            1,
-            'encabezado',
-            implode(', ', array_slice($nonEmptyHeaders, 0, 6)),
-            'La primera fila no coincide con la plantilla esperada. Verifique que el archivo use los encabezados oficiales de cartera.'
-        );
+    $recognizedRequired = array_values(array_intersect($required, $recognizedHeaders));
+    $templateMismatch = empty($recognizedHeaders)
+        || (count($recognizedRequired) < 4 && !empty($unexpectedHeaders))
+        || (count($recognizedHeaders) < 5 && count($nonEmptyHeaders) >= 5);
+
+    if ($templateMismatch) {
+        return [
+            'ok' => false,
+            'template_mismatch' => true,
+            'errors' => [build_validation_error(0, 'archivo', '', 'El archivo cargado no corresponde a la plantilla de cartera.')],
+            'headers' => $expected,
+            'map' => [],
+        ];
     }
 
+    $errors = [];
     if (!empty($missingRequired)) {
         $errors[] = build_validation_error(
             1,
@@ -316,7 +325,6 @@ function validate_cartera_file_structure(array $rows): array
             'Faltan columnas obligatorias en la plantilla: ' . implode(', ', $missingRequired)
         );
     }
-
 
     if (!empty($unexpectedHeaders)) {
         $errors[] = build_validation_error(
@@ -329,6 +337,7 @@ function validate_cartera_file_structure(array $rows): array
 
     return [
         'ok' => empty($errors),
+        'template_mismatch' => false,
         'errors' => $errors,
         'headers' => $expected,
         'map' => $map,
@@ -513,6 +522,7 @@ function validate_cartera_rows(array $rows): array
         return [
             'ok' => false,
             'structural_error' => true,
+            'template_mismatch' => (bool)($structure['template_mismatch'] ?? false),
             'errors' => $structure['errors'] ?? [],
             'headers' => $expected,
             'records' => [],
@@ -680,6 +690,7 @@ function validate_cartera_rows(array $rows): array
     return [
         'ok' => empty($errors),
         'structural_error' => false,
+        'template_mismatch' => false,
         'errors' => $errors,
         'headers' => $expected,
         'records' => $records,
