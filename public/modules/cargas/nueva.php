@@ -79,6 +79,20 @@ function ensure_validation_feedback(array &$validationResult, array $errors, boo
     );
 }
 
+function reject_non_cartera_upload(array &$validationResult, array &$errors, string &$msg): void
+{
+    $msg = 'El archivo cargado no corresponde a la plantilla de cartera.';
+    $errors = [build_validation_error(0, 'archivo', '', $msg)];
+    $validationResult = finalize_validation_result([
+        'ok' => false,
+        'structural_error' => true,
+        'template_mismatch' => true,
+        'errors' => [],
+        'records' => [],
+        'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
+    ], $errors, true, $msg);
+}
+
 function finalize_validation_result(
     array $validationResult,
     array $errors,
@@ -253,35 +267,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 sync_validation_result($validationResult, $errors, true);
             }
 
-            $otherModuleDetection = detect_non_cartera_upload_module($rows);
-            if ($otherModuleDetection !== null) {
-                $otherModuleMessage = (string)($otherModuleDetection['message'] ?? 'El archivo cargado no corresponde a cartera. Verifique que está utilizando el módulo correcto.');
-                $errors = [build_validation_error(0, 'archivo', '', $otherModuleMessage)];
-                $validationResult = finalize_validation_result([
-                    'ok' => false,
-                    'structural_error' => true,
-                    'template_mismatch' => false,
-                    'errors' => [],
-                    'records' => [],
-                    'totals' => ['saldo' => 0.0, 'buckets' => 0.0, 'documentos' => 0],
-                ], $errors, true, $otherModuleMessage);
+            $initialStructureValidation = validate_cartera_file_structure($rows);
+            if (!($initialStructureValidation['ok'] ?? false)) {
+                reject_non_cartera_upload($validationResult, $errors, $msg);
+                $templateMismatchDetected = true;
                 $hayErrores = true;
                 $hayErrorEstructural = true;
-                $msg = $otherModuleMessage;
             } else {
-                $validation = validate_cartera_rows($rows);
-                $validationResult = $validation;
-                $templateMismatchDetected = (bool)($validation['template_mismatch'] ?? false);
-                $errors = array_merge($errors, $validation['errors'] ?? []);
-                $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
-                if ($templateMismatchDetected) {
-                    $errors = [build_validation_error(0, 'archivo', '', 'El archivo cargado no corresponde a la plantilla de cartera.')];
-                    $validationResult['errors'] = $errors;
+                $otherModuleDetection = detect_non_cartera_upload_module($rows);
+                if ($otherModuleDetection !== null) {
+                    reject_non_cartera_upload($validationResult, $errors, $msg);
+                    $templateMismatchDetected = true;
                     $hayErrores = true;
                     $hayErrorEstructural = true;
-                    $msg = 'El archivo cargado no corresponde a la plantilla de cartera.';
-                } elseif ($hayErrorEstructural || !empty($errors)) {
-                    $hayErrores = true;
+                } else {
+                    $validation = validate_cartera_rows($rows);
+                    $validationResult = $validation;
+                    $templateMismatchDetected = (bool)($validation['template_mismatch'] ?? false);
+                    $errors = array_merge($errors, $validation['errors'] ?? []);
+                    $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
+                    if ($templateMismatchDetected) {
+                        reject_non_cartera_upload($validationResult, $errors, $msg);
+                        $hayErrores = true;
+                        $hayErrorEstructural = true;
+                    } elseif ($hayErrorEstructural || !empty($errors)) {
+                        $hayErrores = true;
+                    }
                 }
             }
 
