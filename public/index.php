@@ -12,16 +12,61 @@ ob_start();
   </div>
   <div class="hero-controls">
     <form id="filtersForm" class="dashboard-filters" autocomplete="off">
-      <select name="vista" id="filterVista"><option value="ejecutivo" selected>Dashboard ejecutivo</option><option value="operativo">Dashboard operativo</option></select>
-      <select name="periodo" id="filterPeriodo"></select>
-      <input type="date" name="fecha_desde" id="filterFechaDesde" readonly>
-      <input type="date" name="fecha_hasta" id="filterFechaHasta" readonly>
-      <select name="uen[]" id="filterUen" multiple></select>
-      <select name="regional" id="filterRegional"><option value="">Todas las regionales</option></select>
-      <select name="canal" id="filterCanal"><option value="">Todos los canales</option></select>
-      <select name="empleado_ventas" id="filterEmpleado"><option value="">Todos los asesores</option></select>
-      <select name="cliente" id="filterCliente"><option value="">Todos los clientes</option></select>
-      <input type="checkbox" name="comparar_anterior" value="1" id="filterComparar">
+      <div class="dashboard-filters-row dashboard-filters-row-primary">
+        <label class="filter-field" for="filtroPeriodo">
+          <span>Periodo</span>
+          <select id="filtroPeriodo" name="periodo">
+            <option value="">Cargando periodos...</option>
+          </select>
+        </label>
+        <div class="dashboard-filters-collapsible">
+          <button type="button" class="dashboard-filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="additionalFilters">
+            Filtros
+          </button>
+          <div class="dashboard-filters-extra" id="additionalFilters" hidden>
+            <div class="dashboard-filters-row dashboard-filters-row-secondary">
+              <label class="filter-field" for="filtroUen">
+                <span>UEN</span>
+                <select id="filtroUen" name="uen">
+                  <option value="">Cargando UEN...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="regional">
+                <span>Regional</span>
+                <select id="regional" name="regional">
+                  <option value="">Cargando regionales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCanal">
+                <span>Canal</span>
+                <select id="filtroCanal" name="canal">
+                  <option value="">Cargando canales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroEmpleado">
+                <span>Empleado</span>
+                <select id="filtroEmpleado" name="empleado_ventas">
+                  <option value="">Cargando empleados...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCliente">
+                <span>Cliente</span>
+                <select id="filtroCliente" name="cliente">
+                  <option value="">Cargando clientes...</option>
+                </select>
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaDesde">
+                <span>Fecha desde</span>
+                <input id="filtroFechaDesde" name="fecha_desde" type="date">
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaHasta">
+                <span>Fecha hasta</span>
+                <input id="filtroFechaHasta" name="fecha_hasta" type="date">
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
     </form>
     <div class="filter-actions">
       <a class="btn" id="dashboardExport" href="<?= htmlspecialchars(app_url('api/cartera/analisis-export.php')) ?>">Descargar análisis de cartera (Excel XLSX)</a>
@@ -49,16 +94,22 @@ ob_start();
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 (function () {
-  var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
-  var uensEndpointUrl = <?= json_encode(app_url('api/uens/')) ?>;
-  var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
-  var clearButton = document.getElementById('dashboardClear');
-  var updatedAtEl = document.getElementById('dashboardUpdatedAt');
-  var kpiGrid = document.getElementById('kpiGrid');
-  var comparisonBox = document.getElementById('comparisonBox');
-  var fallbackNotice = document.getElementById('dashboardFallbackNotice');
-  var selectAllUensBtn = document.getElementById('selectAllUens');
-  var charts = {};
+  function initDashboard() {
+    var endpointUrl = <?= json_encode(app_url('api/dashboard-metrics/')) ?>;
+    var form = document.getElementById('filtersForm') || document.getElementById('dashboardFilters');
+    var periodoSelect = document.querySelector('#filtroPeriodo');
+    var regionalSelect = document.querySelector('#regional');
+    var uenSelect = document.querySelector('#filtroUen');
+    var updatedAtEl = document.getElementById('dashboardUpdatedAt');
+    var kpiGrid = document.getElementById('kpiGrid');
+    var comparisonBox = document.getElementById('comparisonBox');
+    var fallbackNotice = document.getElementById('dashboardFallbackNotice');
+    var charts = {};
+    var reloadDebounceMs = 500;
+    var reloadTimeoutId = null;
+    var pendingRequestController = null;
+
+    if (!form) return;
 
   var currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var decimal = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -69,6 +120,15 @@ ob_start();
     if (unit === 'percent') return decimal.format(n) + '%';
     if (unit === 'days') return decimal.format(n) + ' días';
     return decimal.format(n);
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function noDataOptions(height) {
@@ -93,21 +153,12 @@ ob_start();
     }
   }
 
-  function hydrateSelect(selectId, values, selected) {
-    var el = document.getElementById(selectId);
+  function hydrateDateInput(inputId, selected, fallbackValue) {
+    var el = document.getElementById(inputId);
     if (!el) return;
-    if (el.multiple) {
-      el.innerHTML = (values || []).map(function (v) { return '<option value="' + v + '">' + v + '</option>'; }).join('');
-      var selectedValues = Array.isArray(selected) ? selected : [];
-      if (!selectedValues.length && values && values.length) selectedValues = values.slice();
-      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = selectedValues.indexOf(opt.value) !== -1; });
-      return;
-    }
-    var ph = el.getAttribute('data-placeholder');
-    var html = ['<option value="">' + ph + '</option>'];
-    (values || []).forEach(function (v) { html.push('<option value="' + v + '">' + v + '</option>'); });
-    el.innerHTML = html.join('');
-    el.value = selected || '';
+
+    var currentValue = selected || el.value || fallbackValue || '';
+    el.value = currentValue;
   }
 
   function renderKpis(kpis, emptyMessage) {
@@ -117,20 +168,37 @@ ob_start();
     }
     kpiGrid.innerHTML = kpis.map(function (kpi) {
       var foot = kpi.message || kpi.tooltip || '';
-      return '<article class="kpi-premium-card kpi-status-' + (kpi.status || 'neutral') + '" title="' + (kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + kpi.title + '</p><span class="kpi-premium-icon"><i class="' + (kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value">' + f(kpi.value, kpi.unit) + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + foot + '</span></div></article>';
+      var emptyState = Boolean(kpi.empty_state);
+      var cardClasses = 'kpi-premium-card kpi-status-' + (kpi.status || 'neutral') + (emptyState ? ' kpi-premium-card-empty' : '');
+      var valueHtml = emptyState ? escapeHtml(kpi.empty_value_label || 'Sin datos') : escapeHtml(f(kpi.value, kpi.unit));
+      var infoIcon = emptyState && kpi.empty_tooltip
+        ? '<span class="kpi-inline-info" tabindex="0" title="' + escapeHtml(kpi.empty_tooltip) + '" aria-label="' + escapeHtml(kpi.empty_tooltip) + '"><i class="fa-solid fa-circle-info"></i></span>'
+        : '';
+      return '<article class="' + cardClasses + '" title="' + escapeHtml(kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + escapeHtml(kpi.title) + '</p><span class="kpi-premium-icon"><i class="' + escapeHtml(kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value' + (emptyState ? ' is-empty' : '') + '">' + valueHtml + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + escapeHtml(foot) + '</span>' + infoIcon + '</div></article>';
     }).join('');
   }
 
   function renderCharts(data) {
     var aging = data.aging || [];
+    var agingNegative = data.aging_negative || { bucket: 'Saldo negativo', value: 0, pct: 0 };
+    var agingCategories = aging.map(function (r) { return r.bucket; }).concat([agingNegative.bucket || 'Saldo negativo']);
+    var agingSeriesValues = aging.map(function (r) { return r.value; }).concat([0]);
+    var agingPctValues = aging.map(function (r) { return Math.max(0, r.pct || 0); }).concat([0]);
+    var agingNegativeSeries = aging.map(function () { return 0; }).concat([agingNegative.value || 0]);
     upsert('aging', 'agingChart', Object.assign(noDataOptions(280), {
       chart: { type: 'bar', height: 280 },
       series: [
-        { name: 'Saldo', data: aging.map(function (r) { return r.value; }) },
-        { name: '%', data: aging.map(function (r) { return r.pct; }) }
+        { name: 'Saldo', data: agingSeriesValues, color: '#2563EB' },
+        { name: 'Saldo negativo', data: agingNegativeSeries, color: '#F97316' },
+        { name: '%', data: agingPctValues, type: 'line', color: '#0F172A' }
       ],
-      xaxis: { categories: aging.map(function (r) { return r.bucket; }) },
-      yaxis: [{ labels: { formatter: function (v) { return currency.format(v); } } }, { opposite: true, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }],
+      xaxis: { categories: agingCategories },
+      yaxis: [
+        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, min: 0, forceNiceScale: true, labels: { formatter: function (v) { return decimal.format(Math.max(0, v)) + '%'; } } }
+      ],
+      stroke: { width: [0, 0, 3] },
+      dataLabels: { enabled: false },
       tooltip: { shared: true, intersect: false }
     }));
 
@@ -183,111 +251,183 @@ ob_start();
     }));
 
     var dep = data.dependencia_mayor || { cliente: 'Sin dato', pct: 0, saldo: 0 };
-    document.getElementById('dependenciaClienteMayor').innerHTML = '<div style="padding:16px"><h4 style="margin:0 0 8px">' + dep.cliente + '</h4><p style="margin:0;font-size:22px;font-weight:700">' + decimal.format(dep.pct || 0) + '%</p><p style="margin:4px 0 0">' + currency.format(dep.saldo || 0) + '</p></div>';
+    document.getElementById('dependenciaClienteMayor').innerHTML = '<div style="padding:16px"><h4 style="margin:0 0 8px">' + escapeHtml(dep.cliente) + '</h4><p style="margin:0;font-size:22px;font-weight:700">' + decimal.format(dep.pct || 0) + '%</p><p style="margin:4px 0 0">' + currency.format(dep.saldo || 0) + '</p></div>';
 
-    var score = (data.score && data.score.value) || 0;
-    upsert('score', 'scoreChart', Object.assign(noDataOptions(300), {
+    var scoreData = data.score || {};
+    var score = scoreData.value || 0;
+    var scoreContainer = document.getElementById('scoreChart');
+    if (scoreContainer) {
+      if (charts.score) {
+        charts.score.destroy();
+        delete charts.score;
+      }
+      scoreContainer.innerHTML = '<div class="score-chart-layout"><div id="scoreChartViz" class="score-chart-viz"></div><div class="score-drivers"><p class="score-drivers-title">' + (score > 80 ? 'Fortalezas principales' : 'Factores que afectan el score') + '</p><ul class="score-driver-list">' + ((scoreData.drivers || []).map(function (driver) {
+        var isStrength = driver.kind === 'strength';
+        return '<li class="score-driver-item ' + (isStrength ? 'is-strength' : 'is-risk') + '"><span class="score-driver-icon">' + (isStrength ? '✓' : '⚠') + '</span><span>' + escapeHtml(driver.label || '') + '</span></li>';
+      }).join('') || '<li class="score-driver-item"><span>No hay factores disponibles.</span></li>') + '</ul></div></div>';
+    }
+    upsert('score', 'scoreChartViz', Object.assign(noDataOptions(220), {
       chart: { type: 'radialBar', height: 300 },
       series: [score],
-      labels: [(data.score && data.score.label) || 'Score General'],
+      labels: [scoreData.label || 'Score General'],
       plotOptions: { radialBar: { dataLabels: { value: { formatter: function (v) { return decimal.format(v); } } } } },
-      tooltip: { enabled: true, y: { formatter: function () { return (data.score && data.score.tooltip) || ''; } } }
+      tooltip: { enabled: true, y: { formatter: function () { return scoreData.tooltip || ''; } } }
     }));
   }
 
-
   function hydratePeriod(options, selected) {
-    var el = document.getElementById('filterPeriodo');
+    var el = document.getElementById('filtroPeriodo');
     if (!el) return;
-    var prev = selected || el.value;
-    el.innerHTML = '';
+
+    var fallbackLabel = 'Todos los periodos';
+    var currentValue = selected || el.value || '';
+    var html = ['<option value="">' + fallbackLabel + '</option>'];
+
     (options || []).forEach(function (value) {
-      var option = document.createElement('option');
-      option.value = value;
-      option.textContent = value;
-      if (value === prev) option.selected = true;
-      el.appendChild(option);
+      html.push('<option value="' + value + '">' + value + '</option>');
     });
+
+    el.innerHTML = html.join('');
+    el.value = currentValue;
   }
 
-  function loadUensByPeriod(periodo, selected) {
-    var el = document.getElementById('filterUen') || document.getElementById('filterUens');
-    if (!periodo) {
-      hydrateSelect('filterUen', [], []);
-      return Promise.resolve([]);
+  function getSelectedOptionValue(selected) {
+    if (Array.isArray(selected)) {
+      return selected[0] || '';
     }
 
-    return fetch(uensEndpointUrl + '?periodo=' + encodeURIComponent(periodo), { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (payload) {
-        var uens = (payload && payload.uens) || [];
-        var selectedUens = Array.isArray(selected) && selected.length ? selected : uens;
-        hydrateSelect('filterUen', uens, selectedUens);
-        if (uens.length === 0) {
-          el.innerHTML = '';
-          el.required = false;
-        } else {
-          el.required = false;
-        }
-        return uens;
-      });
+    return selected || '';
   }
 
-  function buildDashboardQuery() {
-    var params = new URLSearchParams();
-    var vistaEl = document.getElementById('filterVista');
-    var periodoEl = document.getElementById('filterPeriodo');
-    var fechaDesdeEl = document.getElementById('filterFechaDesde');
-    var fechaHastaEl = document.getElementById('filterFechaHasta');
-    var regionalEl = document.getElementById('filterRegional');
-    var canalEl = document.getElementById('filterCanal');
-    var empleadoEl = document.getElementById('filterEmpleado');
-    var clienteEl = document.getElementById('filterCliente');
-    var compararEl = document.getElementById('filterComparar');
-    var uenEl = document.getElementById('filterUen') || document.getElementById('filterUens');
+  function hydrateSelectableFilter(selectId, options, selected, fallbackLabel) {
+    var el = document.getElementById(selectId);
+    if (!el) return;
 
-    if (vistaEl && vistaEl.value) params.set('vista', vistaEl.value);
-    if (periodoEl && periodoEl.value) params.set('periodo', periodoEl.value);
-    if (fechaDesdeEl && fechaDesdeEl.value) params.set('fecha_desde', fechaDesdeEl.value);
-    if (fechaHastaEl && fechaHastaEl.value) params.set('fecha_hasta', fechaHastaEl.value);
-    if (regionalEl && regionalEl.value) params.set('regional', regionalEl.value);
-    if (canalEl && canalEl.value) params.set('canal', canalEl.value);
-    if (empleadoEl && empleadoEl.value) params.set('empleado_ventas', empleadoEl.value);
-    if (clienteEl && clienteEl.value) params.set('cliente', clienteEl.value);
-    if (compararEl && compararEl.checked) params.set('comparar_anterior', '1');
+    var currentValue = getSelectedOptionValue(selected) || el.value || '';
+    var html = ['<option value="">' + fallbackLabel + '</option>'];
 
-    if (uenEl && uenEl.options) {
-      Array.prototype.forEach.call(uenEl.options, function (opt) {
-        if (opt.selected && opt.value) params.append('uen', opt.value);
-      });
+    (options || []).forEach(function (value) {
+      html.push('<option value="' + value + '">' + value + '</option>');
+    });
+
+    el.innerHTML = html.join('');
+    el.value = currentValue;
+
+    if (el.value !== currentValue) {
+      el.value = '';
     }
 
-    return params.toString();
+    el.disabled = false;
+  }
+
+  function hydrateRegional(options, selected) {
+    hydrateSelectableFilter('regional', options, selected, 'Todas las regionales');
+  }
+
+  function hydrateCanal(options, selected) {
+    hydrateSelectableFilter('filtroCanal', options, selected, 'Todos los canales');
+  }
+
+  function hydrateEmpleado(options, selected) {
+    hydrateSelectableFilter('filtroEmpleado', options, selected, 'Todos los empleados');
+  }
+
+  function hydrateCliente(options, selected) {
+    hydrateSelectableFilter('filtroCliente', options, selected, 'Todos los clientes');
+  }
+
+  function hydrateUen(options, selected) {
+    hydrateSelectableFilter('filtroUen', options, selected, 'Todas las UEN');
+  }
+
+  function getFilterValue(selectId) {
+    var el = document.getElementById(selectId);
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function getFilters() {
+    var filters = {
+      periodo: getFilterValue('filtroPeriodo'),
+      uen: getFilterValue('filtroUen'),
+      fechaDesde: getFilterValue('filtroFechaDesde'),
+      fechaHasta: getFilterValue('filtroFechaHasta'),
+      regional: getFilterValue('regional'),
+      canal: getFilterValue('filtroCanal'),
+      empleado: getFilterValue('filtroEmpleado'),
+      cliente: getFilterValue('filtroCliente')
+    };
+
+    console.log('Filtros activos:', {
+      periodo: filters.periodo,
+      uen: filters.uen,
+      fechaDesde: filters.fechaDesde,
+      fechaHasta: filters.fechaHasta,
+      regional: filters.regional,
+      canal: filters.canal,
+      empleado: filters.empleado,
+      cliente: filters.cliente
+    });
+
+    return filters;
+  }
+
+  function appendFilter(searchParams, key, value) {
+    if (value) {
+      searchParams.set(key, value);
+    }
+  }
+
+  function buildDashboardUrl() {
+    var filters = getFilters();
+    var url = new URL(endpointUrl, window.location.origin);
+
+    appendFilter(url.searchParams, 'periodo', filters.periodo);
+    appendFilter(url.searchParams, 'uen', filters.uen);
+    appendFilter(url.searchParams, 'fecha_desde', filters.fechaDesde);
+    appendFilter(url.searchParams, 'fecha_hasta', filters.fechaHasta);
+    appendFilter(url.searchParams, 'regional', filters.regional);
+    appendFilter(url.searchParams, 'canal', filters.canal);
+    appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
+    appendFilter(url.searchParams, 'cliente', filters.cliente);
+
+    console.log('URL con filtros:', url.toString());
+
+    return { filtros: filters, url: url.toString() };
   }
 
   function safelyHydrateFilters(payload) {
-    if (!payload || !payload.filter_options || !payload.meta || !payload.meta.selected_filters) return;
+    if (!payload || !payload.filter_options) return;
 
-    var selected = payload.meta.selected_filters || {};
+    var selected = (payload.meta && payload.meta.selected_filters) || {};
     var options = payload.filter_options || {};
-    hydrateSelect('filterRegional', options.regional, selected.regional);
-    hydrateSelect('filterCanal', options.canal, selected.canal);
-    hydrateSelect('filterEmpleado', options.empleado_ventas, selected.empleado_ventas);
-    hydrateSelect('filterCliente', options.cliente, selected.cliente);
+
     hydratePeriod(options.periodo || [], selected.periodo || '');
-    document.getElementById('filterPeriodo').value = selected.periodo || '';
-    loadUensByPeriod(selected.periodo || '', selected.uen || []);
-    document.getElementById('filterFechaDesde').value = selected.fecha_desde || options.fecha_desde || '';
-    document.getElementById('filterFechaHasta').value = selected.fecha_hasta || options.fecha_hasta || '';
-    document.getElementById('filterComparar').checked = !!selected.comparar_anterior;
-    document.getElementById('filterVista').value = selected.vista || 'ejecutivo';
+    hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
+    hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
+    hydrateRegional(options.regional || [], selected.regional || '');
+    hydrateCanal(options.canal || [], selected.canal || '');
+    hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
+    hydrateCliente(options.cliente || [], selected.cliente || '');
+    hydrateUen(options.uen || [], selected.uen || '');
   }
 
   function requestData() {
-    fetch(endpointUrl + '?' + buildDashboardQuery(), { headers: { 'Accept': 'application/json' } })
+    var request = buildDashboardUrl();
+
+    if (pendingRequestController) {
+      pendingRequestController.abort();
+    }
+
+    pendingRequestController = new AbortController();
+    var currentRequestController = pendingRequestController;
+
+    fetch(request.url, {
+      headers: { 'Accept': 'application/json' },
+      signal: currentRequestController.signal
+    })
       .then(async function (response) {
         var data = await response.json();
-        console.log('Dashboard response:', data);
+        console.log('Response:', data);
         try {
 
           if (!data) {
@@ -330,39 +470,78 @@ ob_start();
           console.error('Error renderizando dashboard:', e);
         }
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (error && error.name === 'AbortError') {
+          return;
+        }
+
         kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
         comparisonBox.textContent = '';
         fallbackNotice.textContent = '';
         updatedAtEl.textContent = 'Error de actualización';
+      })
+      .finally(function () {
+        if (pendingRequestController === currentRequestController) {
+          pendingRequestController = null;
+        }
       });
   }
 
-  form.addEventListener('submit', function (e) { e.preventDefault(); requestData(); });
-  form.addEventListener('change', function (e) {
-    if (e.target && e.target.id === 'filterPeriodo') {
-      loadUensByPeriod(e.target.value).then(function () { requestData(); });
-      return;
+  function scheduleRequestData() {
+    if (reloadTimeoutId) {
+      clearTimeout(reloadTimeoutId);
     }
-    requestData();
-  });
-  if (selectAllUensBtn) {
-    selectAllUensBtn.addEventListener('click', function () {
-      var el = document.getElementById('filterUen') || document.getElementById('filterUens');
-      Array.prototype.forEach.call(el.options, function (opt) { opt.selected = true; });
+
+    reloadTimeoutId = window.setTimeout(function () {
+      reloadTimeoutId = null;
       requestData();
-    });
+    }, reloadDebounceMs);
   }
-  if (clearButton) {
-    clearButton.addEventListener('click', function () {
-      form.reset();
-      loadUensByPeriod(document.getElementById('filterPeriodo').value).then(function () {
-        Array.prototype.forEach.call((document.getElementById('filterUen') || document.getElementById('filterUens')).options, function (opt) { opt.selected = true; });
-        requestData();
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      scheduleRequestData();
+    });
+
+    if (periodoSelect) {
+      periodoSelect.addEventListener('change', function () {
+        console.log('Cambio de periodo detectado:', this.value);
+        scheduleRequestData();
+      });
+    }
+
+    if (regionalSelect) {
+      regionalSelect.addEventListener('change', function () {
+        console.log('Cambio de regional detectado:', this.value);
+        scheduleRequestData();
+      });
+    }
+
+    if (uenSelect) {
+      uenSelect.addEventListener('change', function () {
+        console.log('Cambio de UEN detectado:', this.value);
+        scheduleRequestData();
+      });
+    }
+
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente'].forEach(function (filterId) {
+      var el = document.getElementById(filterId);
+      if (!el) return;
+      el.addEventListener('change', function () {
+        console.log('Cambio de filtro detectado:', filterId, this.value);
+        scheduleRequestData();
       });
     });
+
+
+    requestData();
   }
-  requestData();
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDashboard);
+  } else {
+    initDashboard();
+  }
 })();
 </script>
 <?php
