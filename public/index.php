@@ -19,53 +19,48 @@ ob_start();
             <option value="">Cargando periodos...</option>
           </select>
         </label>
-        <div class="dashboard-filters-collapsible">
-          <button type="button" class="dashboard-filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="additionalFilters">
-            Filtros
-          </button>
-          <div class="dashboard-filters-extra" id="additionalFilters" hidden>
-            <div class="dashboard-filters-row dashboard-filters-row-secondary">
-              <label class="filter-field" for="filtroUen">
-                <span>UEN</span>
-                <select id="filtroUen" name="uen">
-                  <option value="">Cargando UEN...</option>
-                </select>
-              </label>
-              <label class="filter-field" for="regional">
-                <span>Regional</span>
-                <select id="regional" name="regional">
-                  <option value="">Cargando regionales...</option>
-                </select>
-              </label>
-              <label class="filter-field" for="filtroCanal">
-                <span>Canal</span>
-                <select id="filtroCanal" name="canal">
-                  <option value="">Cargando canales...</option>
-                </select>
-              </label>
-              <label class="filter-field" for="filtroEmpleado">
-                <span>Empleado</span>
-                <select id="filtroEmpleado" name="empleado_ventas">
-                  <option value="">Cargando empleados...</option>
-                </select>
-              </label>
-              <label class="filter-field" for="filtroCliente">
-                <span>Cliente</span>
-                <select id="filtroCliente" name="cliente">
-                  <option value="">Cargando clientes...</option>
-                </select>
-              </label>
-              <label class="filter-field filter-field-date" for="filtroFechaDesde">
-                <span>Fecha desde</span>
-                <input id="filtroFechaDesde" name="fecha_desde" type="date">
-              </label>
-              <label class="filter-field filter-field-date" for="filtroFechaHasta">
-                <span>Fecha hasta</span>
-                <input id="filtroFechaHasta" name="fecha_hasta" type="date">
-              </label>
-            </div>
-          </div>
-        </div>
+        <label class="filter-field" for="filtroUen">
+          <span>UEN</span>
+          <select id="filtroUen" name="uen">
+            <option value="">Cargando UEN...</option>
+          </select>
+        </label>
+      </div>
+      <div class="dashboard-filters-row dashboard-filters-row-secondary">
+        <label class="filter-field" for="regional">
+          <span>Regional</span>
+          <select id="regional" name="regional">
+            <option value="">Cargando regionales...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroCanal">
+          <span>Canal</span>
+          <select id="filtroCanal" name="canal">
+            <option value="">Cargando canales...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroEmpleado">
+          <span>Empleado</span>
+          <select id="filtroEmpleado" name="empleado_ventas">
+            <option value="">Cargando empleados...</option>
+          </select>
+        </label>
+        <label class="filter-field" for="filtroCliente">
+          <span>Cliente</span>
+          <select id="filtroCliente" name="cliente">
+            <option value="">Cargando clientes...</option>
+          </select>
+        </label>
+      </div>
+      <div class="dashboard-filters-row dashboard-filters-row-dates">
+        <label class="filter-field filter-field-date" for="filtroFechaDesde">
+          <span>Fecha desde</span>
+          <input id="filtroFechaDesde" name="fecha_desde" type="date">
+        </label>
+        <label class="filter-field filter-field-date" for="filtroFechaHasta">
+          <span>Fecha hasta</span>
+          <input id="filtroFechaHasta" name="fecha_hasta" type="date">
+        </label>
       </div>
     </form>
     <div class="filter-actions">
@@ -104,21 +99,10 @@ ob_start();
     var kpiGrid = document.getElementById('kpiGrid');
     var comparisonBox = document.getElementById('comparisonBox');
     var fallbackNotice = document.getElementById('dashboardFallbackNotice');
-    var filtersToggle = document.getElementById('filtersToggle');
-    var additionalFilters = document.getElementById('additionalFilters');
     var charts = {};
     var reloadDebounceMs = 500;
     var reloadTimeoutId = null;
     var pendingRequestController = null;
-    var filterDefaults = {
-      uen: '',
-      fecha_desde: '',
-      fecha_hasta: '',
-      regional: '',
-      canal: '',
-      empleado_ventas: '',
-      cliente: ''
-    };
 
     if (!form) return;
 
@@ -351,54 +335,6 @@ ob_start();
     hydrateSelectableFilter('filtroUen', options, selected, 'Todas las UEN');
   }
 
-  function updateFilterDefaults(payload) {
-    if (!payload || !payload.filter_options) return;
-
-    filterDefaults = {
-      uen: '',
-      fecha_desde: String((payload.filter_options && payload.filter_options.fecha_desde) || ''),
-      fecha_hasta: String((payload.filter_options && payload.filter_options.fecha_hasta) || ''),
-      regional: '',
-      canal: '',
-      empleado_ventas: '',
-      cliente: ''
-    };
-  }
-
-  function getActiveFilterCount() {
-    var filters = getFilters();
-    var current = {
-      uen: filters.uen,
-      fecha_desde: filters.fechaDesde,
-      fecha_hasta: filters.fechaHasta,
-      regional: filters.regional,
-      canal: filters.canal,
-      empleado_ventas: filters.empleado,
-      cliente: filters.cliente
-    };
-
-    return Object.keys(current).reduce(function (count, key) {
-      var value = String(current[key] || '').trim();
-      var defaultValue = String(filterDefaults[key] || '').trim();
-      return count + (value !== '' && value !== defaultValue ? 1 : 0);
-    }, 0);
-  }
-
-  function setFiltersExpanded(expanded) {
-    if (!filtersToggle || !additionalFilters) return;
-    filtersToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    additionalFilters.hidden = !expanded;
-    filtersToggle.classList.toggle('is-expanded', expanded);
-  }
-
-  function updateFiltersToggleLabel() {
-    if (!filtersToggle) return;
-    var activeCount = getActiveFilterCount();
-    filtersToggle.innerHTML = activeCount > 0
-      ? 'Filtros aplicados (' + activeCount + ') <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>'
-      : 'Filtros <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
-  }
-
   function getFilterValue(selectId) {
     var el = document.getElementById(selectId);
     return el ? String(el.value || '').trim() : '';
@@ -459,7 +395,6 @@ ob_start();
 
     var selected = (payload.meta && payload.meta.selected_filters) || {};
     var options = payload.filter_options || {};
-    updateFilterDefaults(payload);
 
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
@@ -469,7 +404,6 @@ ob_start();
     hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
     hydrateCliente(options.cliente || [], selected.cliente || '');
     hydrateUen(options.uen || [], selected.uen || '');
-    updateFiltersToggleLabel();
   }
 
   function requestData() {
@@ -564,13 +498,6 @@ ob_start();
       scheduleRequestData();
     });
 
-    if (filtersToggle) {
-      filtersToggle.addEventListener('click', function () {
-        var expanded = filtersToggle.getAttribute('aria-expanded') === 'true';
-        setFiltersExpanded(!expanded);
-      });
-    }
-
     if (periodoSelect) {
       periodoSelect.addEventListener('change', function () {
         console.log('Cambio de periodo detectado:', this.value);
@@ -581,7 +508,6 @@ ob_start();
     if (regionalSelect) {
       regionalSelect.addEventListener('change', function () {
         console.log('Cambio de regional detectado:', this.value);
-        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     }
@@ -589,7 +515,6 @@ ob_start();
     if (uenSelect) {
       uenSelect.addEventListener('change', function () {
         console.log('Cambio de UEN detectado:', this.value);
-        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     }
@@ -599,13 +524,10 @@ ob_start();
       if (!el) return;
       el.addEventListener('change', function () {
         console.log('Cambio de filtro detectado:', filterId, this.value);
-        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     });
 
-    setFiltersExpanded(true);
-    updateFiltersToggleLabel();
 
     requestData();
   }
