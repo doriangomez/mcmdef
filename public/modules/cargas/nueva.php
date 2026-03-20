@@ -67,6 +67,52 @@ function sync_validation_result(array &$validationResult, array $errors, bool $s
     $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
 }
 
+function finalize_validation_result(
+    array $validationResult,
+    array $errors,
+    bool $structuralError = false,
+    string $fallbackMessage = 'El archivo cargado no coincide con la plantilla esperada. Verifique la estructura e intente nuevamente.'
+): array {
+    $mergedErrors = [];
+    foreach ([$validationResult['errors'] ?? [], $errors] as $errorGroup) {
+        if (!is_array($errorGroup)) {
+            continue;
+        }
+        foreach ($errorGroup as $error) {
+            if (!is_array($error)) {
+                continue;
+            }
+
+            $signature = json_encode([
+                'fila' => (int)($error['fila'] ?? 0),
+                'campo' => (string)($error['campo'] ?? ''),
+                'valor' => (string)($error['valor'] ?? ''),
+                'motivo' => (string)($error['motivo'] ?? ''),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+            if ($signature === false || isset($mergedErrors[$signature])) {
+                continue;
+            }
+
+            $mergedErrors[$signature] = $error;
+        }
+    }
+
+    if (empty($mergedErrors) && ($structuralError || (($validationResult['ok'] ?? true) === false))) {
+        $fallbackError = build_validation_error(0, 'archivo', '', $fallbackMessage);
+        $signature = json_encode($fallbackError, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($signature !== false) {
+            $mergedErrors[$signature] = $fallbackError;
+        }
+    }
+
+    $validationResult['errors'] = array_values($mergedErrors);
+    $validationResult['ok'] = empty($validationResult['errors']);
+    $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
+
+    return $validationResult;
+}
+
 if (isset($_SESSION['flash_carga_ok'])) {
     $msg = (string)$_SESSION['flash_carga_ok'];
     unset($_SESSION['flash_carga_ok']);
@@ -179,7 +225,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             $validationResult = $validation;
             $errors = array_merge($errors, $validation['errors'] ?? []);
             $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
-            sync_validation_result($validationResult, $errors, $hayErrorEstructural, $validation);
             if ($hayErrorEstructural || !empty($errors)) {
                 $hayErrores = true;
             }
@@ -270,9 +315,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
             if ($hayErrores) {
                 $estadoCarga = 'rechazada';
+                $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
+                $errors = $validationResult['errors'] ?? [];
                 $errorReportToken = bin2hex(random_bytes(16));
                 $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                sync_validation_result($validationResult, $errors, $hayErrorEstructural);
                 $msg = $hayErrorEstructural
                     ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
                     : 'Carga rechazada. No se insertó ningún registro.';
@@ -348,14 +394,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     }
                     $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
                     $estadoCarga = 'rechazada';
-                    sync_validation_result($validationResult, $errors, $hayErrorEstructural);
+                    $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
+                    $errors = $validationResult['errors'] ?? [];
                     $msg = 'Carga rechazada. No se insertó ningún registro.';
                 }
             }
     }
 }
 
-if (!empty($validationResult['errors'] ?? [])) {
+$validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural || $hayErrores);
+$validationErrors = $validationResult['errors'] ?? [];
+
+if (!empty($validationErrors)) {
     if ($estadoCarga === '') {
         $estadoCarga = 'rechazada';
     }
@@ -370,7 +420,7 @@ ob_start();
 ?>
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert <?= $estadoCarga === 'rechazada' ? 'alert-error' : 'alert-ok' ?>"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
-<?php if(!empty($validationResult['errors'] ?? [])): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach(($validationResult['errors'] ?? []) as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
+<?php if(!empty($validationErrors)): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($validationErrors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if ($ultimaExitosa): ?>
   <div class="card carga-highlight-success">
     <i class="fa-solid fa-circle-check"></i>
