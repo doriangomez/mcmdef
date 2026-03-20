@@ -232,7 +232,7 @@ $kpiSql = "SELECT
     COUNT(*) total_docs,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END),0) docs_vencidos
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql";
 $stmt = $pdo->prepare($kpiSql);
 $stmt->execute($params);
@@ -257,7 +257,7 @@ $indiceSeveridad = $carteraTotal > 0
 
 $topClientSql = "SELECT $clienteExpr cliente, COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql
     GROUP BY c.id, cliente
     ORDER BY saldo DESC";
@@ -288,7 +288,7 @@ $agingSql = "SELECT
     COALESCE(SUM(d.bucket_181_360),0) b181_360,
     COALESCE(SUM(d.bucket_361_plus),0) b361_plus
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql";
 $agingStmt = $pdo->prepare($agingSql);
 $agingStmt->execute($params);
@@ -322,7 +322,7 @@ $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
 
 $trendSql = "SELECT $monthExpr AS periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
     ORDER BY periodo ASC";
@@ -342,7 +342,7 @@ $canalSql = "SELECT $canalExpr canal,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
     COALESCE(SUM(d.saldo_pendiente),0) cartera_total
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql
     GROUP BY canal
     ORDER BY cartera_vencida DESC";
@@ -354,7 +354,7 @@ $empleadoSql = "SELECT $empleadoExpr empleado,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
     COALESCE(SUM(d.saldo_pendiente),0) cartera_total
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql
     GROUP BY empleado
     ORDER BY cartera_vencida DESC";
@@ -365,7 +365,7 @@ $empRows = $stmtEmp->fetchAll(PDO::FETCH_ASSOC);
 $uenMoraSql = "SELECT COALESCE(NULLIF(TRIM(d.uens),''),'Sin UEN') uen,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql
     GROUP BY uen
     ORDER BY cartera_vencida DESC";
@@ -376,7 +376,7 @@ $uenMoraRows = $stmtUen->fetchAll(PDO::FETCH_ASSOC);
 $negSql = "SELECT COALESCE(NULLIF(TRIM(d.tipo_documento_financiero),''),'factura') tipo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo
     FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql AND d.saldo_pendiente < 0
     GROUP BY tipo
     ORDER BY saldo ASC";
@@ -458,7 +458,7 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
       COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
       COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
       FROM cartera_documentos d
-      INNER JOIN clientes c ON c.id = d.cliente_id
+      LEFT JOIN clientes c ON c.id = d.cliente_id
       WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND $monthExpr = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
     $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
