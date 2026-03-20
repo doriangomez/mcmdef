@@ -411,24 +411,12 @@ try {
         $recaudoStmt->execute([$filters['periodo']]);
         $recaudoRows = $recaudoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        $recaudoStatusStmt = $pdo->prepare('SELECT
-            COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN cartera_documento_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS integrados
-            FROM recaudo_detalle
-            WHERE periodo = ?');
+        $recaudoStatusStmt = $pdo->prepare('SELECT COUNT(*) AS total FROM recaudo_detalle WHERE periodo = ?');
         $recaudoStatusStmt->execute([$filters['periodo']]);
-        $recaudoStatus = $recaudoStatusStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'integrados' => 0];
-        $recaudoRowsCount = (int)($recaudoStatus['total'] ?? 0);
-        $integradosCount = (int)($recaudoStatus['integrados'] ?? 0);
+        $recaudoRowsCount = (int)$recaudoStatusStmt->fetchColumn();
         $recaudoState['loaded'] = $recaudoRowsCount > 0;
-        $recaudoState['integrated'] = $integradosCount > 0;
-        if (!$recaudoState['loaded']) {
-            $recaudoState['message'] = 'Pendiente carga de recaudo';
-        } elseif (!$recaudoState['integrated']) {
-            $recaudoState['message'] = 'Pendiente integración de recaudo';
-        } else {
-            $recaudoState['message'] = '';
-        }
+        $recaudoState['integrated'] = $recaudoState['loaded'];
+        $recaudoState['message'] = $recaudoState['loaded'] ? '' : 'Pendiente carga de recaudo';
     }
 
     $recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS recaudo_real FROM recaudo_detalle d INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
