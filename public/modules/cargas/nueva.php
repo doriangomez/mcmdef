@@ -67,6 +67,16 @@ function sync_validation_result(array &$validationResult, array $errors, bool $s
     $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
 }
 
+function ensure_validation_feedback(array &$validationResult, array $errors, bool $structuralError = false, ?string $fallbackMessage = null): void
+{
+    $validationResult = finalize_validation_result(
+        $validationResult,
+        $errors,
+        $structuralError,
+        $fallbackMessage ?? 'El archivo cargado no coincide con la plantilla esperada. Verifique la estructura e intente nuevamente.'
+    );
+}
+
 function finalize_validation_result(
     array $validationResult,
     array $errors,
@@ -343,14 +353,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $msg = $hayErrorEstructural
                     ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
                     : 'Carga rechazada. No se insertó ningún registro.';
-                $_SESSION['flash_carga_error'] = [
-                    'message' => $msg,
-                    'structural_error' => $hayErrorEstructural,
-                    'validation_result' => $validationResult,
-                    'error_report_token' => $errorReportToken,
-                ];
-                header('Location: ' . app_url('cargas/nueva.php?status=error'));
-                exit;
+                $errors = $validationResult['errors'] ?? [];
             } else {
                 ensure_client_management_schema($pdo);
 
@@ -428,14 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $msg = 'Carga rechazada. No se insertó ningún registro.';
                     $errorReportToken = bin2hex(random_bytes(16));
                     $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                    $_SESSION['flash_carga_error'] = [
-                        'message' => $msg,
-                        'structural_error' => $hayErrorEstructural,
-                        'validation_result' => $validationResult,
-                        'error_report_token' => $errorReportToken,
-                    ];
-                    header('Location: ' . app_url('cargas/nueva.php?status=error'));
-                    exit;
+                    $errors = $validationResult['errors'] ?? [];
                 }
             }
     }
@@ -511,7 +507,7 @@ ob_start();
   </div>
   <form method="post" enctype="multipart/form-data" id="uploadCarteraForm" class="form-carga" novalidate>
       <p class="carga-template"><strong>Plantilla esperada (orden exacto):</strong><br>
-        #,cuenta,cliente,nit,direccion,contacto,telefono,canal,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
+        #,cuenta,cliente,nit,direccion,contacto,telefono,canal,uens,empleado_de_ventas,regional,nro_documento,nro_ref_de_cliente,tipo,fecha_contabilizacion,fecha_activacion,fecha_vencimiento,valor_documento,saldo_pendiente,moneda,dias_vencido,actual,1_30_dias,31_60_dias,61_90_dias,91_180_dias,181_360_dias,361_dias
       </p>
       <p class="carga-rules">Reglas aplicadas: upsert por llave lógica (cuenta+nro_documento+tipo), cierre de documentos no reportados en el nuevo corte y procesamiento batch de 1000 registros.</p>
       <div class="carga-form-actions">
