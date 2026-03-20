@@ -14,6 +14,8 @@ if (!is_logged_in()) {
     exit;
 }
 
+$user = current_user();
+
 function qf(string $key): string
 {
     return trim((string)($_GET[$key] ?? ''));
@@ -94,7 +96,7 @@ $defaultFrom = (string)($dateBounds['min_fecha'] ?? '');
 $defaultTo = (string)($dateBounds['max_fecha'] ?? '');
 
 $optionBase = " FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     WHERE d.estado_documento = 'activo'";
 $optionParams = [];
 if ($selectedPeriod !== '') {
@@ -129,15 +131,6 @@ if (!empty($allowedUens)) {
 }
 
 $selectedUens = array_values(array_intersect($selectedUens, $uenOptions));
-if (empty($selectedUens) && !empty($uenOptions)) {
-    $selectedUens = $uenOptions;
-}
-
-$uenFilterActive = !empty($selectedUens);
-$degradedFilters = [];
-if (!$uenFilterActive && $selectedPeriod !== '') {
-    $degradedFilters[] = 'uen';
-}
 
 $regionalSet = [];
 foreach ($regionalOptions as $value) { $regionalSet[normalize((string)$value)] = true; }
@@ -315,6 +308,8 @@ foreach ($agingDefs as $def) {
     $value = (float)($agingRaw[$def['key']] ?? 0);
     $aging[] = ['bucket' => $def['label'], 'value' => $value, 'pct' => $carteraTotal > 0 ? ($value / $carteraTotal) * 100 : 0];
 }
+$negativeAgingValue = abs((float)($m['saldo_negativo'] ?? 0));
+$negativeAgingPct = $carteraTotal > 0 ? ($negativeAgingValue / abs($carteraTotal)) * 100 : 0;
 
 $trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
@@ -416,24 +411,12 @@ try {
         $recaudoStmt->execute([$filters['periodo']]);
         $recaudoRows = $recaudoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        $recaudoStatusStmt = $pdo->prepare('SELECT
-            COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN cartera_documento_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS integrados
-            FROM recaudo_detalle
-            WHERE periodo = ?');
+        $recaudoStatusStmt = $pdo->prepare('SELECT COUNT(*) AS total FROM recaudo_detalle WHERE periodo = ?');
         $recaudoStatusStmt->execute([$filters['periodo']]);
-        $recaudoStatus = $recaudoStatusStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'integrados' => 0];
-        $recaudoRowsCount = (int)($recaudoStatus['total'] ?? 0);
-        $integradosCount = (int)($recaudoStatus['integrados'] ?? 0);
+        $recaudoRowsCount = (int)$recaudoStatusStmt->fetchColumn();
         $recaudoState['loaded'] = $recaudoRowsCount > 0;
-        $recaudoState['integrated'] = $integradosCount > 0;
-        if (!$recaudoState['loaded']) {
-            $recaudoState['message'] = 'Pendiente carga de recaudo';
-        } elseif (!$recaudoState['integrated']) {
-            $recaudoState['message'] = 'Pendiente integración de recaudo';
-        } else {
-            $recaudoState['message'] = '';
-        }
+        $recaudoState['integrated'] = $recaudoState['loaded'];
+        $recaudoState['message'] = $recaudoState['loaded'] ? '' : 'Pendiente carga de recaudo';
     }
 
     $recaudoMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(d.importe_aplicado),0) AS recaudo_real FROM recaudo_detalle d INNER JOIN (SELECT c.periodo, MAX(c.id) AS carga_id FROM cargas_recaudo c WHERE c.estado = 'activa' AND c.activo = 1 GROUP BY c.periodo) x ON x.periodo = d.periodo AND x.carga_id = d.carga_id WHERE d.periodo = ?");
@@ -459,7 +442,8 @@ $budgetStmt->execute([$budgetMonth]);
 $budget = (float)(($budgetStmt->fetch(PDO::FETCH_ASSOC) ?: ['presupuesto' => 0])['presupuesto'] ?? 0);
 $hasBudget = $budget > 0;
 
-$rotationDays = $recaudoTotal > 0 ? ($carteraTotal / $recaudoTotal) * 30 : 0;
+$hasRecaudoData = $recaudoState['loaded'] && $recaudoState['integrated'];
+$rotationDays = $hasRecaudoData && $recaudoTotal > 0 ? ($carteraTotal / $recaudoTotal) * 30 : null;
 
 $comparison = null;
 if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
@@ -493,19 +477,117 @@ $scorePenalty = ($indiceSeveridad * 15) + ($top5ConcentrationPct * 0.30) + ($por
 $score = max(0, min(100, 100 - $scorePenalty));
 $scoreLabel = $score >= 80 ? 'saludable' : ($score >= 60 ? 'riesgo medio' : 'deterioro alto');
 
+$scoreDrivers = [
+    [
+        'key' => 'critical',
+        'kind' => 'risk',
+        'label' => 'Cartera crítica >180 días representa ' . number_format($porcCritica, 1, '.', '') . '%',
+        'value' => $porcCritica,
+        'direction' => 'lower_better',
+    ],
+    [
+        'key' => 'top5',
+        'kind' => 'risk',
+        'label' => 'Concentración en top 5 clientes: ' . number_format($top5ConcentrationPct, 1, '.', '') . '%',
+        'value' => $top5ConcentrationPct,
+        'direction' => 'lower_better',
+    ],
+    [
+        'key' => 'docs_overdue',
+        'kind' => 'risk',
+        'label' => number_format($docsVencidosPct, 1, '.', '') . '% de documentos están vencidos',
+        'value' => $docsVencidosPct,
+        'direction' => 'lower_better',
+    ],
+    [
+        'key' => 'severity',
+        'kind' => 'risk',
+        'label' => 'Índice de severidad de mora: ' . number_format($indiceSeveridad, 2, '.', ''),
+        'value' => $indiceSeveridad,
+        'direction' => 'lower_better',
+    ],
+];
+
+if ($score > 80) {
+    usort($scoreDrivers, static fn(array $a, array $b): int => $a['value'] <=> $b['value']);
+    $scoreDrivers = array_slice($scoreDrivers, 0, 3);
+    foreach ($scoreDrivers as &$driver) {
+        $driver['kind'] = 'strength';
+    }
+    unset($driver);
+} else {
+    usort($scoreDrivers, static fn(array $a, array $b): int => $b['value'] <=> $a['value']);
+    $scoreDrivers = array_slice($scoreDrivers, 0, 3);
+}
+
+$recaudoMissingTooltip = 'No hay recaudos cargados para el período y filtros seleccionados.';
+$recaudoMissingCardMeta = [
+    'status' => 'empty',
+    'empty_state' => true,
+    'empty_tooltip' => $recaudoMissingTooltip,
+];
+
 $kpis = [
     ['title' => 'Cartera Total', 'value' => $carteraTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-sack-dollar', 'tooltip' => 'Suma del saldo pendiente para los filtros aplicados.'],
     ['title' => '% Cartera Crítica (>180 días)', 'value' => $porcCritica, 'unit' => 'percent', 'icon' => 'fa-solid fa-circle-exclamation', 'status' => $porcCritica > 20 ? 'critical' : 'good', 'tooltip' => 'Porcentaje de cartera en mora superior a 180 días.'],
     ['title' => 'Índice de Severidad de Mora', 'value' => $indiceSeveridad, 'unit' => 'ratio', 'icon' => 'fa-solid fa-gauge-high', 'status' => $indiceSeveridad > 1.6 ? 'critical' : 'warning', 'tooltip' => 'Pondera los buckets superiores a 90 días con mayor peso.'],
-    ['title' => 'Rotación de Cartera (días)', 'value' => $rotationDays, 'unit' => 'days', 'icon' => 'fa-solid fa-rotate', 'tooltip' => 'Días promedio de recuperación: cartera promedio / recaudo del periodo.', 'message' => $recaudoState['message']],
+    array_merge([
+        'title' => 'Rotación de Cartera',
+        'value' => $rotationDays,
+        'unit' => 'days',
+        'icon' => 'fa-solid fa-rotate',
+        'tooltip' => 'Días promedio que tarda en recuperarse la cartera. Se calcula como (saldo total / recaudo del período) × 30. Requiere recaudo cargado para calcularse.',
+        'empty_value_label' => 'Sin recaudo en período',
+        'message' => $hasRecaudoData ? '' : 'Sin recaudo en período',
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
     ['title' => '% Concentración Top 5 Clientes', 'value' => $top5ConcentrationPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-users-viewfinder', 'tooltip' => 'Participación de los 5 clientes más expuestos.'],
     ['title' => '% Dependencia Cliente Mayor', 'value' => $dependenciaMayorPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-user-large', 'tooltip' => 'Participación del cliente con mayor saldo.'],
     ['title' => '% Documentos Vencidos', 'value' => $docsVencidosPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-file-circle-xmark', 'tooltip' => 'Proporción de documentos vencidos sobre el total.'],
-    ['title' => 'Recaudo del periodo', 'value' => $recaudoTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-money-bill-trend-up', 'tooltip' => 'Valor total recaudado en el rango seleccionado.', 'message' => $recaudoState['message']],
-    ['title' => '% Recuperación del periodo', 'value' => $recuperacionPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-hand-holding-dollar', 'tooltip' => 'Recaudo del periodo frente a cartera del periodo.', 'message' => $recaudoState['message']],
-    ['title' => 'Presupuesto de recaudo (' . $budgetMonth . ')', 'value' => $budget, 'unit' => 'currency', 'icon' => 'fa-solid fa-bullseye', 'tooltip' => 'Meta de recaudo configurada para el mes.', 'message' => $hasBudget ? '' : 'Pendiente carga de presupuesto'],
-    ['title' => 'Recaudo vs meta (' . $budgetMonth . ')', 'value' => $budget > 0 ? ($recaudoRealMes / $budget) * 100 : 0, 'unit' => 'percent', 'icon' => 'fa-solid fa-chart-column', 'tooltip' => 'Cumplimiento de presupuesto de recaudo mensual.', 'message' => $hasBudget ? '' : 'Pendiente carga de presupuesto'],
-    ['title' => '% Saldo Negativo', 'value' => $saldoNegativoPct, 'unit' => 'percent', 'icon' => 'fa-solid fa-arrow-trend-down', 'tooltip' => 'Proporción de saldos negativos en cartera.'],
+    array_merge([
+        'title' => 'Recaudo del período',
+        'value' => $recaudoTotal,
+        'unit' => 'currency',
+        'icon' => 'fa-solid fa-money-bill-trend-up',
+        'tooltip' => 'Valor total recaudado en el rango seleccionado.',
+        'empty_value_label' => 'Sin datos',
+        'message' => !$hasRecaudoData ? 'Sin datos del período' : '',
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
+    array_merge([
+        'title' => '% Recuperación del período',
+        'value' => $recuperacionPct,
+        'unit' => 'percent',
+        'icon' => 'fa-solid fa-hand-holding-dollar',
+        'tooltip' => 'Recaudo del período frente a cartera del período.',
+        'empty_value_label' => 'Sin datos',
+        'message' => !$hasRecaudoData ? 'Sin datos del período' : '',
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
+    array_merge([
+        'title' => 'Presupuesto de recaudo (' . $budgetMonth . ')',
+        'value' => $budget,
+        'unit' => 'currency',
+        'icon' => 'fa-solid fa-bullseye',
+        'tooltip' => 'Meta de recaudo configurada para el mes.',
+        'empty_value_label' => 'Sin datos',
+        'message' => !$hasRecaudoData ? 'Sin datos del período' : ($hasBudget ? '' : 'Pendiente carga de presupuesto'),
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
+    array_merge([
+        'title' => 'Recaudo vs meta (' . $budgetMonth . ')',
+        'value' => $budget > 0 ? ($recaudoRealMes / $budget) * 100 : 0,
+        'unit' => 'percent',
+        'icon' => 'fa-solid fa-chart-column',
+        'tooltip' => 'Cumplimiento de presupuesto de recaudo mensual.',
+        'empty_value_label' => 'Sin datos',
+        'message' => !$hasRecaudoData ? 'Sin datos del período' : ($hasBudget ? '' : 'Pendiente carga de presupuesto'),
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
+    array_merge([
+        'title' => '% Saldo Negativo',
+        'value' => $saldoNegativoPct,
+        'unit' => 'percent',
+        'icon' => 'fa-solid fa-arrow-trend-down',
+        'tooltip' => 'Proporción de saldos negativos en cartera.',
+        'empty_value_label' => 'Sin datos',
+        'message' => !$hasRecaudoData ? 'Sin datos del período' : '',
+    ], !$hasRecaudoData ? $recaudoMissingCardMeta : []),
 ];
 
 echo json_encode([
@@ -538,11 +620,18 @@ echo json_encode([
         'pareto_top10' => ['rows' => $paretoData],
         'negative_breakdown' => $negativeBreakdown,
         'recaudo_periodos' => $recaudoRows,
+        'recaudo_state' => $recaudoState,
         'dependencia_mayor' => ['cliente' => (string)$maxClientRow['cliente'], 'pct' => $dependenciaMayorPct, 'saldo' => (float)$maxClientRow['saldo']],
         'score' => [
             'value' => $score,
             'label' => $scoreLabel,
             'tooltip' => 'Indicador compuesto basado en severidad, concentración, cartera crítica y proporción de documentos vencidos.',
+            'drivers' => $scoreDrivers,
+        ],
+        'aging_negative' => [
+            'bucket' => 'Saldo negativo',
+            'value' => $negativeAgingValue,
+            'pct' => $negativeAgingPct,
         ],
     ],
     'empty' => $totalDocs === 0,

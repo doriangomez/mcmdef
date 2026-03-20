@@ -52,6 +52,14 @@ function render_layout(string $title, string $content): void
         ],
         [
             'section' => 'Operación',
+            'label' => 'Clientes',
+            'icon' => 'fa-solid fa-address-book',
+            'url' => 'clientes/lista.php',
+            'match' => ['/clientes', '/modules/clientes'],
+            'roles' => ['admin', 'analista', 'visualizador'],
+        ],
+        [
+            'section' => 'Operación',
             'label' => 'Gestión de cartera',
             'icon' => 'fa-solid fa-list-check',
             'url' => 'gestion/dashboard.php',

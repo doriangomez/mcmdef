@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/AuditService.php';
+require_once __DIR__ . '/../../../app/services/ClientService.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 
@@ -111,6 +112,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         $gestionId = (int)$pdo->lastInsertId();
         audit_log($pdo, 'bitacora_gestion', $gestionId, 'gestion_creada', null, 'ok', (int)$_SESSION['user']['id']);
+        if ($clienteId > 0) {
+            register_client_event(
+                $pdo,
+                $clienteId,
+                date('Y-m-d H:i:s'),
+                'gestion',
+                $valorCompromiso !== '' ? (float)$valorCompromiso : 0.0,
+                'Gestión registrada: ' . $observacionNormalizada,
+                $documentoId > 0 ? $documentoId : null
+            );
+        }
         $msg = 'Gestión registrada correctamente.';
         $tipoGestion = '';
         $resultadoGestion = '';
