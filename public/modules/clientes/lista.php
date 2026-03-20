@@ -11,6 +11,9 @@ $filtro = trim((string)($_GET['q'] ?? ''));
 $estado = trim((string)($_GET['estado'] ?? ''));
 $canal = trim((string)($_GET['canal'] ?? ''));
 $regional = trim((string)($_GET['regional'] ?? ''));
+$page = max(1, (int)($_GET['page'] ?? 1));
+$pageSize = 20;
+$offset = ($page - 1) * $pageSize;
 $scope = portfolio_client_scope_sql('c');
 
 $where = ['1=1'];
@@ -37,6 +40,21 @@ if ($regional !== '') {
     $params[] = $regional;
 }
 
+$whereSql = implode(' AND ', $where);
+
+$totalClientesStmt = $pdo->prepare(
+    'SELECT COUNT(*)
+     FROM clientes c
+     WHERE ' . $whereSql
+);
+$totalClientesStmt->execute($params);
+$totalClientes = (int)$totalClientesStmt->fetchColumn();
+$totalPages = max(1, (int)ceil($totalClientes / $pageSize));
+if ($page > $totalPages) {
+    $page = $totalPages;
+    $offset = ($page - 1) * $pageSize;
+}
+
 $sql = 'SELECT
             c.id,
             c.cuenta,
@@ -46,18 +64,32 @@ $sql = 'SELECT
             c.estado,
             c.canal,
             c.regional,
-            COALESCE(SUM(CASE WHEN d.estado_documento = "activo" THEN d.saldo_pendiente ELSE 0 END), 0) AS total_cartera,
+            COALESCE(doc.total_cartera, 0) AS total_cartera,
             GREATEST(
-                COALESCE(MAX(h.fecha_evento), "1900-01-01 00:00:00"),
-                COALESCE(MAX(d.created_at), "1900-01-01 00:00:00"),
+                COALESCE(hist.ultima_actividad_hist, "1900-01-01 00:00:00"),
+                COALESCE(doc.ultima_actividad_doc, "1900-01-01 00:00:00"),
                 COALESCE(c.updated_at, c.created_at, "1900-01-01 00:00:00")
             ) AS ultima_actividad
         FROM clientes c
-        LEFT JOIN cartera_documentos d ON d.cliente_id = c.id
-        LEFT JOIN cliente_historial h ON h.cliente_id = c.id
-        WHERE ' . implode(' AND ', $where) . '
-        GROUP BY c.id, c.cuenta, c.nombre_cliente, c.nombre, c.nro_identificacion, c.nit, c.fecha_activacion, c.estado, c.canal, c.regional
-        ORDER BY total_cartera DESC, ultima_actividad DESC, nombre_cliente ASC';
+        LEFT JOIN (
+            SELECT
+                d.cliente_id,
+                COALESCE(SUM(CASE WHEN d.estado_documento = "activo" THEN d.saldo_pendiente ELSE 0 END), 0) AS total_cartera,
+                GREATEST(
+                    COALESCE(MAX(CASE WHEN d.estado_documento = "activo" THEN d.created_at END), "1900-01-01 00:00:00"),
+                    COALESCE(MAX(d.fecha_contabilizacion), "1900-01-01")
+                ) AS ultima_actividad_doc
+            FROM cartera_documentos d
+            GROUP BY d.cliente_id
+        ) doc ON doc.cliente_id = c.id
+        LEFT JOIN (
+            SELECT h.cliente_id, MAX(h.fecha_evento) AS ultima_actividad_hist
+            FROM cliente_historial h
+            GROUP BY h.cliente_id
+        ) hist ON hist.cliente_id = c.id
+        WHERE ' . $whereSql . '
+        ORDER BY total_cartera DESC, ultima_actividad DESC, nombre_cliente ASC
+        LIMIT ' . $pageSize . ' OFFSET ' . $offset;
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
@@ -66,14 +98,14 @@ $clientes = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $kpiStmt = $pdo->prepare(
     'SELECT
         COUNT(*) AS total_clientes,
-        COALESCE(SUM(t.total_cartera), 0) AS cartera_total
-     FROM (
-        SELECT c.id, COALESCE(SUM(CASE WHEN d.estado_documento = "activo" THEN d.saldo_pendiente ELSE 0 END), 0) AS total_cartera
-        FROM clientes c
-        LEFT JOIN cartera_documentos d ON d.cliente_id = c.id
-        WHERE ' . implode(' AND ', $where) . '
-        GROUP BY c.id
-     ) t'
+        COALESCE(SUM(COALESCE(doc.total_cartera, 0)), 0) AS cartera_total
+     FROM clientes c
+     LEFT JOIN (
+        SELECT d.cliente_id, COALESCE(SUM(CASE WHEN d.estado_documento = "activo" THEN d.saldo_pendiente ELSE 0 END), 0) AS total_cartera
+        FROM cartera_documentos d
+        GROUP BY d.cliente_id
+     ) doc ON doc.cliente_id = c.id
+     WHERE ' . $whereSql
 );
 $kpiStmt->execute($params);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: ['total_clientes' => 0, 'cartera_total' => 0];
@@ -91,7 +123,9 @@ if ($estado !== '') {
 $filterOptionsStmt = $pdo->prepare(
     'SELECT DISTINCT canal, regional
      FROM clientes c
-     WHERE ' . implode(' AND ', $filterOptionsWhere)
+     WHERE ' . implode(' AND ', $filterOptionsWhere) . '
+     ORDER BY canal ASC, regional ASC
+     LIMIT 500'
 );
 $filterOptionsStmt->execute($filterOptionsParams);
 $filterRows = $filterOptionsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -107,6 +141,16 @@ foreach ($filterRows as $row) {
 }
 ksort($canalesDisponibles);
 ksort($regionalesDisponibles);
+
+$queryBase = [
+    'q' => $filtro,
+    'estado' => $estado,
+    'canal' => $canal,
+    'regional' => $regional,
+];
+$buildPageUrl = static function (int $targetPage) use ($queryBase): string {
+    return app_url('clientes/lista.php?' . http_build_query(array_merge($queryBase, ['page' => $targetPage])));
+};
 
 ob_start();
 ?>
@@ -154,6 +198,10 @@ ob_start();
 </form>
 
 <div class="card table-responsive">
+  <div class="card-header">
+    <h3>Listado</h3>
+    <span class="muted">Página <?= $page ?> de <?= $totalPages ?> · <?= count($clientes) ?> registro(s) cargados de <?= $totalClientes ?></span>
+  </div>
   <table class="table">
     <tr>
       <th>Nombre</th>
@@ -180,7 +228,23 @@ ob_start();
         <td><a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(app_url('clientes/detalle.php?id=' . (int)$cliente['id'])) ?>">Ver perfil</a></td>
       </tr>
     <?php endforeach; ?>
+    <?php if (empty($clientes)): ?>
+      <tr><td colspan="8">No se encontraron clientes para los filtros seleccionados.</td></tr>
+    <?php endif; ?>
   </table>
+  <?php if ($totalPages > 1): ?>
+    <div class="row row-wrap" style="margin-top:14px; justify-content:space-between; align-items:center;">
+      <div class="muted">Se cargan <?= $pageSize ?> registros por página para evitar consultas sin límite.</div>
+      <div class="action-links">
+        <?php if ($page > 1): ?>
+          <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($buildPageUrl($page - 1)) ?>">Anterior</a>
+        <?php endif; ?>
+        <?php if ($page < $totalPages): ?>
+          <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($buildPageUrl($page + 1)) ?>">Siguiente</a>
+        <?php endif; ?>
+      </div>
+    </div>
+  <?php endif; ?>
 </div>
 <?php
 $content = ob_get_clean();

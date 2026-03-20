@@ -90,6 +90,29 @@ function ensure_client_management_schema(PDO $pdo): void
             CONSTRAINT fk_cliente_historial_carga FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        if (client_table_exists($pdo, 'cartera_documentos')) {
+            $portfolioIndexes = [
+                'idx_cartera_cliente_id' => 'CREATE INDEX idx_cartera_cliente_id ON cartera_documentos (cliente_id)',
+                'idx_cartera_cliente_estado_fecha' => 'CREATE INDEX idx_cartera_cliente_estado_fecha ON cartera_documentos (cliente_id, estado_documento, fecha_vencimiento)',
+                'idx_cartera_cliente_estado_created' => 'CREATE INDEX idx_cartera_cliente_estado_created ON cartera_documentos (cliente_id, estado_documento, created_at)',
+                'idx_cartera_cliente_estado_saldo' => 'CREATE INDEX idx_cartera_cliente_estado_saldo ON cartera_documentos (cliente_id, estado_documento, saldo_pendiente)',
+            ];
+            foreach ($portfolioIndexes as $name => $sql) {
+                if (!client_index_exists($pdo, 'cartera_documentos', $name)) {
+                    $pdo->exec($sql);
+                }
+            }
+        }
+
+        $historyIndexes = [
+            'idx_cliente_historial_cliente_fecha_id' => 'CREATE INDEX idx_cliente_historial_cliente_fecha_id ON cliente_historial (cliente_id, fecha_evento, id)',
+        ];
+        foreach ($historyIndexes as $name => $sql) {
+            if (!client_index_exists($pdo, 'cliente_historial', $name)) {
+                $pdo->exec($sql);
+            }
+        }
+
         $initialized = true;
     }
 
