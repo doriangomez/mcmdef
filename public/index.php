@@ -19,48 +19,53 @@ ob_start();
             <option value="">Cargando periodos...</option>
           </select>
         </label>
-        <label class="filter-field" for="filtroUen">
-          <span>UEN</span>
-          <select id="filtroUen" name="uen">
-            <option value="">Cargando UEN...</option>
-          </select>
-        </label>
-      </div>
-      <div class="dashboard-filters-row dashboard-filters-row-secondary">
-        <label class="filter-field" for="regional">
-          <span>Regional</span>
-          <select id="regional" name="regional">
-            <option value="">Cargando regionales...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroCanal">
-          <span>Canal</span>
-          <select id="filtroCanal" name="canal">
-            <option value="">Cargando canales...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroEmpleado">
-          <span>Empleado</span>
-          <select id="filtroEmpleado" name="empleado_ventas">
-            <option value="">Cargando empleados...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroCliente">
-          <span>Cliente</span>
-          <select id="filtroCliente" name="cliente">
-            <option value="">Cargando clientes...</option>
-          </select>
-        </label>
-      </div>
-      <div class="dashboard-filters-row dashboard-filters-row-dates">
-        <label class="filter-field filter-field-date" for="filtroFechaDesde">
-          <span>Fecha desde</span>
-          <input id="filtroFechaDesde" name="fecha_desde" type="date">
-        </label>
-        <label class="filter-field filter-field-date" for="filtroFechaHasta">
-          <span>Fecha hasta</span>
-          <input id="filtroFechaHasta" name="fecha_hasta" type="date">
-        </label>
+        <div class="dashboard-filters-collapsible">
+          <button type="button" class="dashboard-filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="additionalFilters">
+            Filtros
+          </button>
+          <div class="dashboard-filters-extra" id="additionalFilters" hidden>
+            <div class="dashboard-filters-row dashboard-filters-row-secondary">
+              <label class="filter-field" for="filtroUen">
+                <span>UEN</span>
+                <select id="filtroUen" name="uen">
+                  <option value="">Cargando UEN...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="regional">
+                <span>Regional</span>
+                <select id="regional" name="regional">
+                  <option value="">Cargando regionales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCanal">
+                <span>Canal</span>
+                <select id="filtroCanal" name="canal">
+                  <option value="">Cargando canales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroEmpleado">
+                <span>Empleado</span>
+                <select id="filtroEmpleado" name="empleado_ventas">
+                  <option value="">Cargando empleados...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCliente">
+                <span>Cliente</span>
+                <select id="filtroCliente" name="cliente">
+                  <option value="">Cargando clientes...</option>
+                </select>
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaDesde">
+                <span>Fecha desde</span>
+                <input id="filtroFechaDesde" name="fecha_desde" type="date">
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaHasta">
+                <span>Fecha hasta</span>
+                <input id="filtroFechaHasta" name="fecha_hasta" type="date">
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
     </form>
     <div class="filter-actions">
@@ -99,10 +104,21 @@ ob_start();
     var kpiGrid = document.getElementById('kpiGrid');
     var comparisonBox = document.getElementById('comparisonBox');
     var fallbackNotice = document.getElementById('dashboardFallbackNotice');
+    var filtersToggle = document.getElementById('filtersToggle');
+    var additionalFilters = document.getElementById('additionalFilters');
     var charts = {};
     var reloadDebounceMs = 500;
     var reloadTimeoutId = null;
     var pendingRequestController = null;
+    var filterDefaults = {
+      uen: '',
+      fecha_desde: '',
+      fecha_hasta: '',
+      regional: '',
+      canal: '',
+      empleado_ventas: '',
+      cliente: ''
+    };
 
     if (!form) return;
 
@@ -115,6 +131,15 @@ ob_start();
     if (unit === 'percent') return decimal.format(n) + '%';
     if (unit === 'days') return decimal.format(n) + ' días';
     return decimal.format(n);
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function noDataOptions(height) {
@@ -154,20 +179,37 @@ ob_start();
     }
     kpiGrid.innerHTML = kpis.map(function (kpi) {
       var foot = kpi.message || kpi.tooltip || '';
-      return '<article class="kpi-premium-card kpi-status-' + (kpi.status || 'neutral') + '" title="' + (kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + kpi.title + '</p><span class="kpi-premium-icon"><i class="' + (kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value">' + f(kpi.value, kpi.unit) + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + foot + '</span></div></article>';
+      var emptyState = Boolean(kpi.empty_state);
+      var cardClasses = 'kpi-premium-card kpi-status-' + (kpi.status || 'neutral') + (emptyState ? ' kpi-premium-card-empty' : '');
+      var valueHtml = emptyState ? escapeHtml(kpi.empty_value_label || 'Sin datos') : escapeHtml(f(kpi.value, kpi.unit));
+      var infoIcon = emptyState && kpi.empty_tooltip
+        ? '<span class="kpi-inline-info" tabindex="0" title="' + escapeHtml(kpi.empty_tooltip) + '" aria-label="' + escapeHtml(kpi.empty_tooltip) + '"><i class="fa-solid fa-circle-info"></i></span>'
+        : '';
+      return '<article class="' + cardClasses + '" title="' + escapeHtml(kpi.tooltip || '') + '"><div class="kpi-premium-head"><p class="kpi-premium-label">' + escapeHtml(kpi.title) + '</p><span class="kpi-premium-icon"><i class="' + escapeHtml(kpi.icon || 'fa-solid fa-chart-line') + '"></i></span></div><p class="kpi-premium-value' + (emptyState ? ' is-empty' : '') + '">' + valueHtml + '</p><div class="kpi-premium-foot"><span class="kpi-premium-subtext">' + escapeHtml(foot) + '</span>' + infoIcon + '</div></article>';
     }).join('');
   }
 
   function renderCharts(data) {
     var aging = data.aging || [];
+    var agingNegative = data.aging_negative || { bucket: 'Saldo negativo', value: 0, pct: 0 };
+    var agingCategories = aging.map(function (r) { return r.bucket; }).concat([agingNegative.bucket || 'Saldo negativo']);
+    var agingSeriesValues = aging.map(function (r) { return r.value; }).concat([0]);
+    var agingPctValues = aging.map(function (r) { return Math.max(0, r.pct || 0); }).concat([0]);
+    var agingNegativeSeries = aging.map(function () { return 0; }).concat([agingNegative.value || 0]);
     upsert('aging', 'agingChart', Object.assign(noDataOptions(280), {
       chart: { type: 'bar', height: 280 },
       series: [
-        { name: 'Saldo', data: aging.map(function (r) { return r.value; }) },
-        { name: '%', data: aging.map(function (r) { return r.pct; }) }
+        { name: 'Saldo', data: agingSeriesValues, color: '#2563EB' },
+        { name: 'Saldo negativo', data: agingNegativeSeries, color: '#F97316' },
+        { name: '%', data: agingPctValues, type: 'line', color: '#0F172A' }
       ],
-      xaxis: { categories: aging.map(function (r) { return r.bucket; }) },
-      yaxis: [{ labels: { formatter: function (v) { return currency.format(v); } } }, { opposite: true, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }],
+      xaxis: { categories: agingCategories },
+      yaxis: [
+        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, min: 0, forceNiceScale: true, labels: { formatter: function (v) { return decimal.format(Math.max(0, v)) + '%'; } } }
+      ],
+      stroke: { width: [0, 0, 3] },
+      dataLabels: { enabled: false },
       tooltip: { shared: true, intersect: false }
     }));
 
@@ -220,15 +262,27 @@ ob_start();
     }));
 
     var dep = data.dependencia_mayor || { cliente: 'Sin dato', pct: 0, saldo: 0 };
-    document.getElementById('dependenciaClienteMayor').innerHTML = '<div style="padding:16px"><h4 style="margin:0 0 8px">' + dep.cliente + '</h4><p style="margin:0;font-size:22px;font-weight:700">' + decimal.format(dep.pct || 0) + '%</p><p style="margin:4px 0 0">' + currency.format(dep.saldo || 0) + '</p></div>';
+    document.getElementById('dependenciaClienteMayor').innerHTML = '<div style="padding:16px"><h4 style="margin:0 0 8px">' + escapeHtml(dep.cliente) + '</h4><p style="margin:0;font-size:22px;font-weight:700">' + decimal.format(dep.pct || 0) + '%</p><p style="margin:4px 0 0">' + currency.format(dep.saldo || 0) + '</p></div>';
 
-    var score = (data.score && data.score.value) || 0;
-    upsert('score', 'scoreChart', Object.assign(noDataOptions(300), {
+    var scoreData = data.score || {};
+    var score = scoreData.value || 0;
+    var scoreContainer = document.getElementById('scoreChart');
+    if (scoreContainer) {
+      if (charts.score) {
+        charts.score.destroy();
+        delete charts.score;
+      }
+      scoreContainer.innerHTML = '<div class="score-chart-layout"><div id="scoreChartViz" class="score-chart-viz"></div><div class="score-drivers"><p class="score-drivers-title">' + (score > 80 ? 'Fortalezas principales' : 'Factores que afectan el score') + '</p><ul class="score-driver-list">' + ((scoreData.drivers || []).map(function (driver) {
+        var isStrength = driver.kind === 'strength';
+        return '<li class="score-driver-item ' + (isStrength ? 'is-strength' : 'is-risk') + '"><span class="score-driver-icon">' + (isStrength ? '✓' : '⚠') + '</span><span>' + escapeHtml(driver.label || '') + '</span></li>';
+      }).join('') || '<li class="score-driver-item"><span>No hay factores disponibles.</span></li>') + '</ul></div></div>';
+    }
+    upsert('score', 'scoreChartViz', Object.assign(noDataOptions(220), {
       chart: { type: 'radialBar', height: 300 },
       series: [score],
-      labels: [(data.score && data.score.label) || 'Score General'],
+      labels: [scoreData.label || 'Score General'],
       plotOptions: { radialBar: { dataLabels: { value: { formatter: function (v) { return decimal.format(v); } } } } },
-      tooltip: { enabled: true, y: { formatter: function () { return (data.score && data.score.tooltip) || ''; } } }
+      tooltip: { enabled: true, y: { formatter: function () { return scoreData.tooltip || ''; } } }
     }));
   }
 
@@ -297,6 +351,54 @@ ob_start();
     hydrateSelectableFilter('filtroUen', options, selected, 'Todas las UEN');
   }
 
+  function updateFilterDefaults(payload) {
+    if (!payload || !payload.filter_options) return;
+
+    filterDefaults = {
+      uen: '',
+      fecha_desde: String((payload.filter_options && payload.filter_options.fecha_desde) || ''),
+      fecha_hasta: String((payload.filter_options && payload.filter_options.fecha_hasta) || ''),
+      regional: '',
+      canal: '',
+      empleado_ventas: '',
+      cliente: ''
+    };
+  }
+
+  function getActiveFilterCount() {
+    var filters = getFilters();
+    var current = {
+      uen: filters.uen,
+      fecha_desde: filters.fechaDesde,
+      fecha_hasta: filters.fechaHasta,
+      regional: filters.regional,
+      canal: filters.canal,
+      empleado_ventas: filters.empleado,
+      cliente: filters.cliente
+    };
+
+    return Object.keys(current).reduce(function (count, key) {
+      var value = String(current[key] || '').trim();
+      var defaultValue = String(filterDefaults[key] || '').trim();
+      return count + (value !== '' && value !== defaultValue ? 1 : 0);
+    }, 0);
+  }
+
+  function setFiltersExpanded(expanded) {
+    if (!filtersToggle || !additionalFilters) return;
+    filtersToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    additionalFilters.hidden = !expanded;
+    filtersToggle.classList.toggle('is-expanded', expanded);
+  }
+
+  function updateFiltersToggleLabel() {
+    if (!filtersToggle) return;
+    var activeCount = getActiveFilterCount();
+    filtersToggle.innerHTML = activeCount > 0
+      ? 'Filtros aplicados (' + activeCount + ') <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>'
+      : 'Filtros <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>';
+  }
+
   function getFilterValue(selectId) {
     var el = document.getElementById(selectId);
     return el ? String(el.value || '').trim() : '';
@@ -357,6 +459,7 @@ ob_start();
 
     var selected = (payload.meta && payload.meta.selected_filters) || {};
     var options = payload.filter_options || {};
+    updateFilterDefaults(payload);
 
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
@@ -366,6 +469,7 @@ ob_start();
     hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
     hydrateCliente(options.cliente || [], selected.cliente || '');
     hydrateUen(options.uen || [], selected.uen || '');
+    updateFiltersToggleLabel();
   }
 
   function requestData() {
@@ -460,6 +564,13 @@ ob_start();
       scheduleRequestData();
     });
 
+    if (filtersToggle) {
+      filtersToggle.addEventListener('click', function () {
+        var expanded = filtersToggle.getAttribute('aria-expanded') === 'true';
+        setFiltersExpanded(!expanded);
+      });
+    }
+
     if (periodoSelect) {
       periodoSelect.addEventListener('change', function () {
         console.log('Cambio de periodo detectado:', this.value);
@@ -470,6 +581,7 @@ ob_start();
     if (regionalSelect) {
       regionalSelect.addEventListener('change', function () {
         console.log('Cambio de regional detectado:', this.value);
+        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     }
@@ -477,6 +589,7 @@ ob_start();
     if (uenSelect) {
       uenSelect.addEventListener('change', function () {
         console.log('Cambio de UEN detectado:', this.value);
+        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     }
@@ -486,9 +599,12 @@ ob_start();
       if (!el) return;
       el.addEventListener('change', function () {
         console.log('Cambio de filtro detectado:', filterId, this.value);
+        updateFiltersToggleLabel();
         scheduleRequestData();
       });
     });
+
+    updateFiltersToggleLabel();
 
     requestData();
   }
