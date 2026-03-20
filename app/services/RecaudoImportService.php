@@ -90,6 +90,49 @@ function recaudo_detect_structure(array $rows): array
     ];
 }
 
+function recaudo_matches_known_structure(array $rows): bool
+{
+    if ($rows === []) {
+        return false;
+    }
+
+    $headers = is_array($rows[0] ?? null) ? $rows[0] : [];
+    $nonEmptyHeaders = array_values(array_filter(
+        array_map(static fn(mixed $header): string => trim((string)$header), $headers),
+        static fn(string $header): bool => $header !== ''
+    ));
+
+    if ($nonEmptyHeaders === []) {
+        return false;
+    }
+
+    $map = recaudo_map_headers($headers);
+    if (!isset($map['documento'], $map['valor_pagado'])) {
+        return false;
+    }
+
+    $recognizedHeaders = count($map);
+    $hasContextColumn = isset($map['fecha_pago'], $map['periodo'])
+        || isset($map['nro_recibo'])
+        || isset($map['cliente'])
+        || isset($map['vendedor'])
+        || isset($map['observacion']);
+
+    return $recognizedHeaders >= 3 || $hasContextColumn;
+}
+
+function detect_non_cartera_upload_module(array $rows): ?array
+{
+    if (recaudo_matches_known_structure($rows)) {
+        return [
+            'module' => 'recaudos',
+            'message' => 'El archivo cargado no corresponde a cartera. Verifique que está utilizando el módulo correcto (ej: recaudos).',
+        ];
+    }
+
+    return null;
+}
+
 function recaudo_cell_to_string(mixed $value): string
 {
     if ($value === null) {
