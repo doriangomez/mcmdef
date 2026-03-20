@@ -57,11 +57,18 @@ CREATE TABLE IF NOT EXISTS clientes (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     cuenta VARCHAR(80) NOT NULL,
     nombre VARCHAR(180) NOT NULL,
+    nombre_cliente VARCHAR(180) NULL,
     nit VARCHAR(30) NOT NULL,
+    nro_identificacion VARCHAR(30) NULL,
+    fecha_activacion DATE NULL,
+    fecha_creacion DATETIME NULL,
+    estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo',
+    nombre_normalizado VARCHAR(190) NULL,
     direccion VARCHAR(220) NULL,
     contacto VARCHAR(120) NULL,
     telefono VARCHAR(60) NULL,
     canal VARCHAR(80) NULL,
+    uen VARCHAR(120) NULL,
     regional VARCHAR(80) NULL,
     empleado_ventas VARCHAR(120) NULL,
     responsable_usuario_id BIGINT NULL,
@@ -71,9 +78,32 @@ CREATE TABLE IF NOT EXISTS clientes (
     KEY idx_cliente_regional (regional),
     KEY idx_cliente_canal (canal),
     KEY idx_cliente_nombre (nombre),
+    KEY idx_cliente_nombre_normalizado (nombre_normalizado),
+    KEY idx_cliente_identificacion (nro_identificacion),
     KEY idx_cliente_responsable (responsable_usuario_id),
     CONSTRAINT fk_cliente_responsable FOREIGN KEY (responsable_usuario_id) REFERENCES usuarios(id)
 );
+
+ALTER TABLE clientes
+    ADD COLUMN IF NOT EXISTS nombre_cliente VARCHAR(180) NULL AFTER nombre,
+    ADD COLUMN IF NOT EXISTS nro_identificacion VARCHAR(30) NULL AFTER nit,
+    ADD COLUMN IF NOT EXISTS fecha_activacion DATE NULL AFTER nro_identificacion,
+    ADD COLUMN IF NOT EXISTS fecha_creacion DATETIME NULL AFTER fecha_activacion,
+    ADD COLUMN IF NOT EXISTS estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo' AFTER fecha_creacion,
+    ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(190) NULL AFTER estado,
+    ADD COLUMN IF NOT EXISTS uen VARCHAR(120) NULL AFTER canal;
+
+ALTER TABLE clientes
+    ADD INDEX IF NOT EXISTS idx_cliente_nombre_normalizado (nombre_normalizado),
+    ADD INDEX IF NOT EXISTS idx_cliente_identificacion (nro_identificacion);
+
+UPDATE clientes
+SET nombre_cliente = COALESCE(NULLIF(nombre_cliente, ''), nombre),
+    nro_identificacion = COALESCE(NULLIF(nro_identificacion, ''), nit),
+    fecha_activacion = COALESCE(fecha_activacion, DATE(created_at), CURDATE()),
+    fecha_creacion = COALESCE(fecha_creacion, created_at, NOW()),
+    estado = COALESCE(NULLIF(estado, ''), 'activo'),
+    nombre_normalizado = COALESCE(NULLIF(nombre_normalizado, ''), LOWER(TRIM(nombre)));
 
 CREATE TABLE IF NOT EXISTS cartera_documentos (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -85,7 +115,7 @@ CREATE TABLE IF NOT EXISTS cartera_documentos (
     uens VARCHAR(120) NULL,
     regional VARCHAR(80) NULL,
     nro_documento VARCHAR(80) NOT NULL,
-    nro_ref_cliente VARCHAR(80) NULL,
+    nro_ref_cliente VARCHAR(255) NULL,
     tipo VARCHAR(50) NOT NULL,
     documento_uid VARCHAR(180) NOT NULL,
     tipo_documento_financiero ENUM('factura', 'nota_credito', 'recibo', 'ajuste') NOT NULL DEFAULT 'factura',
@@ -115,6 +145,10 @@ CREATE TABLE IF NOT EXISTS cartera_documentos (
     INDEX idx_mora (dias_vencido),
     INDEX idx_cartera_saldo_pendiente (saldo_pendiente),
     INDEX idx_cliente (cliente),
+    INDEX idx_cartera_cliente_id (cliente_id),
+    INDEX idx_cartera_cliente_estado_fecha (cliente_id, estado_documento, fecha_vencimiento),
+    INDEX idx_cartera_cliente_estado_created (cliente_id, estado_documento, created_at),
+    INDEX idx_cartera_cliente_estado_saldo (cliente_id, estado_documento, saldo_pendiente),
     INDEX idx_canal (canal),
     INDEX idx_regional (regional),
     CONSTRAINT fk_doc_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
@@ -126,7 +160,8 @@ ALTER TABLE cartera_documentos
     DROP INDEX IF EXISTS idx_cartera_documento_uid,
     DROP INDEX IF EXISTS idx_cartera_fecha_vencimiento,
     DROP INDEX IF EXISTS idx_cartera_dias_vencido,
-    DROP INDEX IF EXISTS idx_documento;
+    DROP INDEX IF EXISTS idx_documento,
+    MODIFY COLUMN nro_ref_cliente VARCHAR(255) NULL;
 
 CREATE TABLE IF NOT EXISTS bitacora_gestion (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -154,6 +189,25 @@ CREATE TABLE IF NOT EXISTS auditoria_sistema (
     INDEX idx_auditoria_usuario (usuario_id),
     INDEX idx_auditoria_created_at (created_at),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS cliente_historial (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    cliente_id BIGINT NOT NULL,
+    fecha_evento DATETIME NOT NULL,
+    tipo_evento VARCHAR(30) NOT NULL,
+    valor DECIMAL(18,2) NOT NULL DEFAULT 0,
+    descripcion TEXT NOT NULL,
+    documento_id BIGINT NULL,
+    carga_id BIGINT NULL,
+    recaudo_detalle_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_cliente_historial_cliente_fecha (cliente_id, fecha_evento),
+    INDEX idx_cliente_historial_cliente_fecha_id (cliente_id, fecha_evento, id),
+    INDEX idx_cliente_historial_tipo (tipo_evento),
+    CONSTRAINT fk_cliente_historial_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+    CONSTRAINT fk_cliente_historial_documento FOREIGN KEY (documento_id) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_cliente_historial_carga FOREIGN KEY (carga_id) REFERENCES cargas_cartera(id)
 );
 
 
@@ -238,6 +292,15 @@ ALTER TABLE recaudo_detalle
 
 CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id_recaudo_detalle BIGINT NULL,
+    id_cartera_documento BIGINT NULL,
+    id_carga_recaudo BIGINT NOT NULL,
+    estado ENUM('conciliado_total','conciliado_parcial','pago_excedido','sin_pago','pago_sin_factura','tipo_no_coincide','periodo_diferente') NOT NULL,
+    importe_aplicado DECIMAL(18,2) NOT NULL DEFAULT 0,
+    saldo_pendiente_cartera DECIMAL(18,2) NOT NULL DEFAULT 0,
+    diferencia DECIMAL(18,2) NOT NULL DEFAULT 0,
+    fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    observacion TEXT NULL,
     periodo_cartera VARCHAR(7) NULL,
     periodo_recaudo VARCHAR(7) NULL,
     cartera_id BIGINT NULL,
@@ -248,17 +311,23 @@ CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
     valor_factura DECIMAL(18,2) NOT NULL DEFAULT 0,
     valor_pagado DECIMAL(18,2) NOT NULL DEFAULT 0,
     saldo_resultante DECIMAL(18,2) NOT NULL DEFAULT 0,
-    estado_conciliacion ENUM('conciliado_total', 'conciliado_parcial', 'sin_pago', 'pago_sin_factura', 'pago_excedido', 'periodo_diferente', 'tipo_no_coincide') NOT NULL,
+    estado_conciliacion ENUM('conciliado_total','conciliado_parcial','sin_pago','pago_sin_factura','pago_excedido','periodo_diferente','tipo_no_coincide') NOT NULL,
     nivel_confianza INT NOT NULL DEFAULT 100,
     detalle_validacion TEXT NULL,
-    fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_conciliacion_carga_recaudo (id_carga_recaudo),
+    INDEX idx_conciliacion_cartera_documento (id_cartera_documento),
+    INDEX idx_conciliacion_estado_nuevo (estado),
     INDEX idx_conciliacion_recaudo_id (recaudo_id),
     INDEX idx_conciliacion_documento (numero_documento),
     INDEX idx_conciliacion_estado (estado_conciliacion),
     INDEX idx_conciliacion_periodo (periodo_cartera, periodo_recaudo),
     CONSTRAINT fk_conciliacion_recaudo FOREIGN KEY (recaudo_id) REFERENCES cargas_recaudo(id),
-    CONSTRAINT fk_conciliacion_cartera FOREIGN KEY (cartera_id) REFERENCES cartera_documentos(id)
+    CONSTRAINT fk_conciliacion_cartera FOREIGN KEY (cartera_id) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_conciliacion_recaudo_detalle FOREIGN KEY (id_recaudo_detalle) REFERENCES recaudo_detalle(id),
+    CONSTRAINT fk_conciliacion_cartera_documento FOREIGN KEY (id_cartera_documento) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_conciliacion_carga_recaudo FOREIGN KEY (id_carga_recaudo) REFERENCES cargas_recaudo(id)
 );
+
 
 CREATE TABLE IF NOT EXISTS recaudo_validacion_errores (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
