@@ -66,20 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
     if (empty($errors)) {
         try {
             $rows = parse_input_file((string)$file['tmp_name'], $ext);
-            $validation = recaudo_validate_and_prepare($pdo, $rows);
-            $errors = $validation['errors'] ?? [];
-            $warnings = $validation['warnings'] ?? [];
-            $summary = $validation['summary'] ?? $summary;
-            $validRows = $validation['valid_rows'] ?? [];
-            $periodoDetectado = $validation['periodo_detectado'] ?? null;
-            $diagnosticResult = $validation['diagnostic'] ?? null;
-            $validationResult = [
-                'periodo_detectado' => $periodoDetectado,
-                'errors' => $errors,
-                'warnings' => $warnings,
-                'summary' => $summary,
-                'diagnostic' => $diagnosticResult,
-            ];
+            $validationResult = recaudo_validate_and_prepare($pdo, $rows);
+            $errors = $validationResult['errors'] ?? [];
+            $warnings = $validationResult['warnings'] ?? [];
+            $summary = $validationResult['summary'] ?? $summary;
+            $validRows = $validationResult['valid_rows'] ?? [];
+            $periodoDetectado = $validationResult['periodo_detectado'] ?? null;
+            $diagnosticResult = $validationResult['diagnostic'] ?? null;
             $documentosExcelPreview = array_values(array_filter(array_map(static function (array $sample): string {
                 return (string)($sample['documento_raw'] ?? '');
             }, $diagnosticResult['raw_row_samples'] ?? []), static fn (string $documento): bool => $documento !== ''));
@@ -166,8 +159,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
             $msg = 'No fue posible procesar el recaudo.';
         }
     }
-    var_dump($validationResult);
-    die();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_POST['upload_type'] === 'presupuesto') {
@@ -581,7 +572,7 @@ ob_start();
 <section class="gd-grid-2">
   <article class="card">
     <h3>Cargar archivo de recaudo</h3>
-    <form id="form-recaudo" method="post" enctype="multipart/form-data" class="form-carga">
+    <form id="form-recaudo" method="post" action="" enctype="multipart/form-data" class="form-carga">
       <input type="hidden" name="upload_type" value="recaudo">
       <label>Archivo recaudo (CSV / XLSX / XLS) <input id="archivo-recaudo" type="file" name="archivo_recaudo" accept=".csv,.xlsx,.xls" required></label>
       <button id="btn-cargar-recaudo" class="btn" type="submit">Cargar</button>
