@@ -19,48 +19,53 @@ ob_start();
             <option value="">Cargando periodos...</option>
           </select>
         </label>
-        <label class="filter-field" for="filtroUen">
-          <span>UEN</span>
-          <select id="filtroUen" name="uen">
-            <option value="">Cargando UEN...</option>
-          </select>
-        </label>
-      </div>
-      <div class="dashboard-filters-row dashboard-filters-row-secondary">
-        <label class="filter-field" for="regional">
-          <span>Regional</span>
-          <select id="regional" name="regional">
-            <option value="">Cargando regionales...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroCanal">
-          <span>Canal</span>
-          <select id="filtroCanal" name="canal">
-            <option value="">Cargando canales...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroEmpleado">
-          <span>Empleado</span>
-          <select id="filtroEmpleado" name="empleado_ventas">
-            <option value="">Cargando empleados...</option>
-          </select>
-        </label>
-        <label class="filter-field" for="filtroCliente">
-          <span>Cliente</span>
-          <select id="filtroCliente" name="cliente">
-            <option value="">Cargando clientes...</option>
-          </select>
-        </label>
-      </div>
-      <div class="dashboard-filters-row dashboard-filters-row-dates">
-        <label class="filter-field filter-field-date" for="filtroFechaDesde">
-          <span>Fecha desde</span>
-          <input id="filtroFechaDesde" name="fecha_desde" type="date">
-        </label>
-        <label class="filter-field filter-field-date" for="filtroFechaHasta">
-          <span>Fecha hasta</span>
-          <input id="filtroFechaHasta" name="fecha_hasta" type="date">
-        </label>
+        <div class="dashboard-filters-collapsible">
+          <button type="button" class="dashboard-filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="additionalFilters">
+            Filtros
+          </button>
+          <div class="dashboard-filters-extra" id="additionalFilters" hidden>
+            <div class="dashboard-filters-row dashboard-filters-row-secondary">
+              <label class="filter-field" for="filtroUen">
+                <span>UEN</span>
+                <select id="filtroUen" name="uen">
+                  <option value="">Cargando UEN...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="regional">
+                <span>Regional</span>
+                <select id="regional" name="regional">
+                  <option value="">Cargando regionales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCanal">
+                <span>Canal</span>
+                <select id="filtroCanal" name="canal">
+                  <option value="">Cargando canales...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroEmpleado">
+                <span>Empleado</span>
+                <select id="filtroEmpleado" name="empleado_ventas">
+                  <option value="">Cargando empleados...</option>
+                </select>
+              </label>
+              <label class="filter-field" for="filtroCliente">
+                <span>Cliente</span>
+                <select id="filtroCliente" name="cliente">
+                  <option value="">Cargando clientes...</option>
+                </select>
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaDesde">
+                <span>Fecha desde</span>
+                <input id="filtroFechaDesde" name="fecha_desde" type="date">
+              </label>
+              <label class="filter-field filter-field-date" for="filtroFechaHasta">
+                <span>Fecha hasta</span>
+                <input id="filtroFechaHasta" name="fecha_hasta" type="date">
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
     </form>
     <div class="filter-actions">
