@@ -26,9 +26,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borra
     } else {
         try {
             $pdo->beginTransaction();
-            $tablesToClear = ['bitacora_gestion', 'cartera_documentos', 'carga_errores', 'cargas_cartera', 'clientes'];
+            $tablesToClear = ['cartera_documentos', 'carga_errores', 'cargas_cartera', 'clientes'];
             $existingTables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) ?: [];
             $existingLookup = array_flip($existingTables);
+            $deleteContext = carga_prepare_mass_delete($pdo);
+
+            carga_delete_related_data(
+                $pdo,
+                $deleteContext['carga_ids'] ?? [],
+                $deleteContext['document_ids'] ?? []
+            );
 
             foreach ($tablesToClear as $tableName) {
                 if (isset($existingLookup[$tableName])) {
@@ -37,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'borra
             }
 
             if (isset($existingLookup['auditoria_sistema'])) {
-                audit_log($pdo, 'cargas_cartera', 0, 'borrado_masivo_temporal', null, 'tablas=' . implode(',', $tablesToClear), (int)current_user()['id']);
+                audit_log($pdo, 'cargas_cartera', 0, 'borrado_masivo_temporal', null, 'tablas=' . implode(',', array_merge(['cliente_historial', 'bitacora_gestion', 'conciliacion_cartera_recaudo', 'recaudo_detalle(cartera_documento_id=NULL)'], $tablesToClear)), (int)current_user()['id']);
             }
 
             $pdo->commit();
