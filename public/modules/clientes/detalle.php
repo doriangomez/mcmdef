@@ -11,6 +11,8 @@ ensure_client_management_schema($pdo);
 $id = (int)($_GET['id'] ?? $_GET['id_cliente'] ?? $_POST['id'] ?? 0);
 $historyOffset = max(0, (int)($_GET['historial_offset'] ?? 0));
 $historyLimit = 20;
+$portfolioOffset = max(0, (int)($_GET['cartera_offset'] ?? 0));
+$portfolioLimit = 20;
 $scope = portfolio_client_scope_sql('c');
 $user = current_user() ?? [];
 $canEditContact = in_array((string)($user['rol'] ?? ''), ['admin', 'analista'], true);
@@ -77,6 +79,7 @@ $carteraActual = [];
 $historial = [];
 $resumen = ['saldo_total' => 0, 'documentos' => 0, 'ultima_actividad' => null];
 $totalHistorial = 0;
+$totalDocumentosActivos = 0;
 
 if ($cliente) {
     $resumenStmt = $pdo->prepare(
@@ -93,11 +96,20 @@ if ($cliente) {
     $resumenStmt->execute([$id]);
     $resumen = array_merge($resumen, $resumenStmt->fetch(PDO::FETCH_ASSOC) ?: []);
 
+    $documentCountStmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM cartera_documentos
+         WHERE cliente_id = ? AND estado_documento = "activo"'
+    );
+    $documentCountStmt->execute([$id]);
+    $totalDocumentosActivos = (int)$documentCountStmt->fetchColumn();
+
     $carteraStmt = $pdo->prepare(
         'SELECT id, nro_documento, tipo, fecha_contabilizacion, fecha_vencimiento, valor_documento, saldo_pendiente, dias_vencido
          FROM cartera_documentos
          WHERE cliente_id = ? AND estado_documento = "activo"
-         ORDER BY dias_vencido DESC, saldo_pendiente DESC, fecha_vencimiento ASC'
+         ORDER BY dias_vencido DESC, saldo_pendiente DESC, fecha_vencimiento ASC
+         LIMIT ' . $portfolioLimit . ' OFFSET ' . $portfolioOffset
     );
     $carteraStmt->execute([$id]);
     $carteraActual = $carteraStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -117,6 +129,15 @@ if ($cliente) {
     $histStmt->execute([$id]);
     $historial = $histStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
+
+$baseDetailQuery = [
+    'id' => $id,
+    'historial_offset' => $historyOffset,
+    'cartera_offset' => $portfolioOffset,
+];
+$buildDetailUrl = static function (array $overrides) use ($baseDetailQuery): string {
+    return app_url('clientes/detalle.php?' . http_build_query(array_merge($baseDetailQuery, $overrides)));
+};
 
 ob_start();
 ?>
@@ -189,7 +210,10 @@ ob_start();
   </form>
 
   <div class="card table-responsive">
-    <div class="card-header"><h3>Cartera actual</h3></div>
+    <div class="card-header">
+      <h3>Cartera actual</h3>
+      <span class="muted">Mostrando <?= count($carteraActual) ?> de <?= $totalDocumentosActivos ?> documento(s) activos</span>
+    </div>
     <table class="table">
       <tr><th>Número</th><th>Tipo</th><th>Fecha contabilización</th><th>Fecha vencimiento</th><th>Valor original</th><th>Saldo pendiente</th><th>Días vencido</th></tr>
       <?php foreach ($carteraActual as $doc): ?>
@@ -203,12 +227,20 @@ ob_start();
           <td><?= (int)$doc['dias_vencido'] ?></td>
         </tr>
       <?php endforeach; ?>
+      <?php if (empty($carteraActual)): ?>
+        <tr><td colspan="7">No hay documentos activos para este cliente.</td></tr>
+      <?php endif; ?>
       <tr>
         <td colspan="5"><strong>Total</strong></td>
         <td><strong>$<?= number_format((float)$resumen['saldo_total'], 2, ',', '.') ?></strong></td>
         <td><strong><?= (int)$resumen['documentos'] ?> doc(s)</strong></td>
       </tr>
     </table>
+    <?php if (($portfolioOffset + $portfolioLimit) < $totalDocumentosActivos): ?>
+      <div style="margin-top:14px;">
+        <a class="btn btn-secondary" href="<?= htmlspecialchars($buildDetailUrl(['cartera_offset' => $portfolioOffset + $portfolioLimit])) ?>">Cargar 20 más documentos</a>
+      </div>
+    <?php endif; ?>
   </div>
 
   <div class="card">
@@ -232,10 +264,13 @@ ob_start();
           </div>
         </li>
       <?php endforeach; ?>
+      <?php if (empty($historial)): ?>
+        <li><div class="crm-timeline-body"><p>No hay eventos registrados para este cliente.</p></div></li>
+      <?php endif; ?>
     </ul>
     <?php if (($historyOffset + $historyLimit) < $totalHistorial): ?>
       <div style="margin-top:14px;">
-        <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('clientes/detalle.php?id=' . (int)$cliente['id'] . '&historial_offset=' . ($historyOffset + $historyLimit))) ?>">Cargar 20 más</a>
+        <a class="btn btn-secondary" href="<?= htmlspecialchars($buildDetailUrl(['historial_offset' => $historyOffset + $historyLimit])) ?>">Cargar 20 más</a>
       </div>
     <?php endif; ?>
   </div>
