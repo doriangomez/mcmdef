@@ -239,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     if (!empty($duplicateErrors)) {
                         $errors = array_merge($errors, $duplicateErrors);
                         $hayErrores = true;
-                        sync_validation_result($validationResult, $errors, $hayErrorEstructural);
+                        ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
                     }
 
                     $periodos = [];
@@ -256,14 +256,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                         if ($chronologyError !== null) {
                             $errors[] = build_validation_error(0, 'periodo', $periodoDetectadoCartera, $chronologyError);
                             $hayErrores = true;
-                            sync_validation_result($validationResult, $errors, $hayErrorEstructural);
+                            ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
                         }
                     }
                 } catch (Throwable $exception) {
                     $errors[] = build_validation_error(0, 'base_datos', '', 'No fue posible validar duplicados: ' . $exception->getMessage());
                     $hayErrores = true;
                     $hayErrorEstructural = true;
-                    sync_validation_result($validationResult, $errors, true);
+                    ensure_validation_feedback($validationResult, $errors, true);
                 }
             }
 
@@ -295,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $errors[] = build_validation_error(0, 'periodo', '', 'No fue posible detectar el periodo del archivo desde fecha_contabilizacion.');
                     $hayErrores = true;
                     $hayErrorEstructural = true;
-                    sync_validation_result($validationResult, $errors, true);
+                    ensure_validation_feedback($validationResult, $errors, true);
                 }
             }
 
@@ -309,7 +309,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 if ($ultimoPeriodo !== '' && $periodoDetectado < $ultimoPeriodo) {
                     $errors[] = build_validation_error(0, 'periodo', $periodoDetectado, 'Advertencia: el periodo detectado es anterior al último cargado (' . $ultimoPeriodo . '). La carga fue bloqueada.');
                     $hayErrores = true;
-                    sync_validation_result($validationResult, $errors, $hayErrorEstructural);
+                    ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
                 }
             }
 
@@ -318,6 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
                 $errors = $validationResult['errors'] ?? [];
                 $errorReportToken = bin2hex(random_bytes(16));
+                ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
                 $_SESSION['import_error_reports'][$errorReportToken] = $errors;
                 $msg = $hayErrorEstructural
                     ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
