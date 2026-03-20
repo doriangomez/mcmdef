@@ -10,7 +10,7 @@ require_role(['admin', 'analista']);
 
 $msg = '';
 $errorMsg = '';
-$processResult = null;
+$validationResult = null;
 $detail = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'delete_load') {
@@ -33,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'upload_recaudo') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['upload_type'] ?? '') === 'upload_recaudo') {
+    error_log('RECAUDO DEBUG: POST recibido = ' . json_encode($_POST));
+    error_log('RECAUDO DEBUG: FILES recibido = ' . json_encode(array_keys($_FILES)));
     $file = $_FILES['archivo_recaudo'] ?? null;
 
     if (!$file || (int)($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -50,8 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
                 ]);
 
                 $rows = parse_input_file((string)$file['tmp_name'], $extension);
-                $processResult = recaudo_prepare_rows($rows);
-                $summary = $processResult['summary'];
+                $validationResult = recaudo_prepare_rows($rows);
+                error_log('RECAUDO DEBUG: validationResult = ' . json_encode($validationResult));
+                $summary = $validationResult['summary'];
 
                 recaudo_log('Número de filas leídas', ['filas_leidas' => (int)($summary['total_leidas'] ?? 0)]);
 
@@ -61,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
                     recaudo_log('Número de errores', ['errores' => (int)($summary['con_error'] ?? 0)]);
                 } else {
                     $pdo->beginTransaction();
-                    $cargaId = recaudo_insert_load($pdo, $file, $processResult, (int)($_SESSION['user']['id'] ?? 0));
+                    $cargaId = recaudo_insert_load($pdo, $file, $validationResult, (int)($_SESSION['user']['id'] ?? 0));
                     audit_log($pdo, 'cargas_recaudo', $cargaId, 'carga_recaudo_creada', null, 'activa', (int)($_SESSION['user']['id'] ?? 0));
                     $pdo->commit();
 
@@ -108,7 +111,7 @@ ob_start();
 <section class="card" style="margin-bottom: 24px;">
   <h3>Subir archivo</h3>
   <form method="post" enctype="multipart/form-data" class="form-carga">
-    <input type="hidden" name="action" value="upload_recaudo">
+    <input type="hidden" name="upload_type" value="upload_recaudo">
     <label>
       Archivo de recaudos (.xlsx o .csv)
       <input type="file" name="archivo_recaudo" accept=".csv,.xlsx" required>
@@ -118,8 +121,8 @@ ob_start();
   <p class="muted" style="margin-top:12px;">Columnas mínimas: documento y valor pagado. Si el archivo no trae encabezados, se usa la columna 1 como documento y la 2 como valor.</p>
 </section>
 
-<?php if ($processResult !== null): ?>
-  <?php $summary = $processResult['summary']; ?>
+<?php if ($validationResult !== null): ?>
+  <?php $summary = $validationResult['summary']; ?>
   <section class="card" style="margin-bottom: 24px;">
     <h3>Resultado del proceso</h3>
     <div class="stats-grid">
@@ -129,10 +132,10 @@ ob_start();
       <article class="gd-kpi-card"><span>Filas vacías ignoradas</span><strong><?= (int)($summary['vacias_ignoradas'] ?? 0) ?></strong></article>
     </div>
 
-    <?php if (!empty($processResult['errors'])): ?>
+    <?php if (!empty($validationResult['errors'])): ?>
       <h4>Ejemplos de errores</h4>
       <ul>
-        <?php foreach ($processResult['errors'] as $error): ?>
+        <?php foreach ($validationResult['errors'] as $error): ?>
           <li>Fila <?= (int)($error['fila'] ?? 0) ?>: <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?><?php if (($error['valor'] ?? '') !== ''): ?> (valor: <code><?= htmlspecialchars((string)$error['valor']) ?></code>)<?php endif; ?>.</li>
         <?php endforeach; ?>
       </ul>
