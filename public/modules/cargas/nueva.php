@@ -67,45 +67,50 @@ function sync_validation_result(array &$validationResult, array $errors, bool $s
     $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
 }
 
-function ensure_validation_feedback(
-    array &$validationResult,
-    array &$errors,
+function finalize_validation_result(
+    array $validationResult,
+    array $errors,
     bool $structuralError = false,
     string $fallbackMessage = 'El archivo cargado no coincide con la plantilla esperada. Verifique la estructura e intente nuevamente.'
-): void {
-    $currentErrors = [];
-    if (isset($validationResult['errors']) && is_array($validationResult['errors'])) {
-        $currentErrors = $validationResult['errors'];
-    }
+): array {
+    $mergedErrors = [];
+    foreach ([$validationResult['errors'] ?? [], $errors] as $errorGroup) {
+        if (!is_array($errorGroup)) {
+            continue;
+        }
+        foreach ($errorGroup as $error) {
+            if (!is_array($error)) {
+                continue;
+            }
 
-    if (!empty($currentErrors)) {
-        $errors = array_merge($errors, $currentErrors);
-    }
-
-    if (empty($errors) && ($structuralError || (($validationResult['ok'] ?? true) === false))) {
-        $errors[] = build_validation_error(0, 'archivo', '', $fallbackMessage);
-    }
-
-    if (!empty($errors)) {
-        $uniqueErrors = [];
-        $seenErrors = [];
-        foreach ($errors as $error) {
             $signature = json_encode([
                 'fila' => (int)($error['fila'] ?? 0),
                 'campo' => (string)($error['campo'] ?? ''),
                 'valor' => (string)($error['valor'] ?? ''),
                 'motivo' => (string)($error['motivo'] ?? ''),
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if ($signature === false || isset($seenErrors[$signature])) {
+
+            if ($signature === false || isset($mergedErrors[$signature])) {
                 continue;
             }
-            $seenErrors[$signature] = true;
-            $uniqueErrors[] = $error;
+
+            $mergedErrors[$signature] = $error;
         }
-        $errors = $uniqueErrors;
     }
 
-    sync_validation_result($validationResult, $errors, $structuralError);
+    if (empty($mergedErrors) && ($structuralError || (($validationResult['ok'] ?? true) === false))) {
+        $fallbackError = build_validation_error(0, 'archivo', '', $fallbackMessage);
+        $signature = json_encode($fallbackError, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($signature !== false) {
+            $mergedErrors[$signature] = $fallbackError;
+        }
+    }
+
+    $validationResult['errors'] = array_values($mergedErrors);
+    $validationResult['ok'] = empty($validationResult['errors']);
+    $validationResult['structural_error'] = $structuralError || (bool)($validationResult['structural_error'] ?? false);
+
+    return $validationResult;
 }
 
 if (isset($_SESSION['flash_carga_ok'])) {
@@ -220,7 +225,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             $validationResult = $validation;
             $errors = array_merge($errors, $validation['errors'] ?? []);
             $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
-            ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
             if ($hayErrorEstructural || !empty($errors)) {
                 $hayErrores = true;
             }
@@ -311,6 +315,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
             if ($hayErrores) {
                 $estadoCarga = 'rechazada';
+                $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
+                $errors = $validationResult['errors'] ?? [];
                 $errorReportToken = bin2hex(random_bytes(16));
                 ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
                 $_SESSION['import_error_reports'][$errorReportToken] = $errors;
@@ -389,14 +395,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     }
                     $errors[] = build_validation_error(0, 'base_de_datos', '', $exception->getMessage());
                     $estadoCarga = 'rechazada';
-                    ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
+                    $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
+                    $errors = $validationResult['errors'] ?? [];
                     $msg = 'Carga rechazada. No se insertó ningún registro.';
                 }
             }
     }
 }
 
-ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural || $hayErrores);
+$validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural || $hayErrores);
 $validationErrors = $validationResult['errors'] ?? [];
 
 if (!empty($validationErrors)) {
