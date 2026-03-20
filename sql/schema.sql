@@ -285,6 +285,15 @@ ALTER TABLE recaudo_detalle
 
 CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id_recaudo_detalle BIGINT NULL,
+    id_cartera_documento BIGINT NULL,
+    id_carga_recaudo BIGINT NOT NULL,
+    estado ENUM('conciliado_total','conciliado_parcial','pago_excedido','sin_pago','pago_sin_factura','tipo_no_coincide','periodo_diferente') NOT NULL,
+    importe_aplicado DECIMAL(18,2) NOT NULL DEFAULT 0,
+    saldo_pendiente_cartera DECIMAL(18,2) NOT NULL DEFAULT 0,
+    diferencia DECIMAL(18,2) NOT NULL DEFAULT 0,
+    fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    observacion TEXT NULL,
     periodo_cartera VARCHAR(7) NULL,
     periodo_recaudo VARCHAR(7) NULL,
     cartera_id BIGINT NULL,
@@ -295,17 +304,23 @@ CREATE TABLE IF NOT EXISTS conciliacion_cartera_recaudo (
     valor_factura DECIMAL(18,2) NOT NULL DEFAULT 0,
     valor_pagado DECIMAL(18,2) NOT NULL DEFAULT 0,
     saldo_resultante DECIMAL(18,2) NOT NULL DEFAULT 0,
-    estado_conciliacion ENUM('conciliado_total', 'conciliado_parcial', 'sin_pago', 'pago_sin_factura', 'pago_excedido', 'periodo_diferente', 'tipo_no_coincide') NOT NULL,
+    estado_conciliacion ENUM('conciliado_total','conciliado_parcial','sin_pago','pago_sin_factura','pago_excedido','periodo_diferente','tipo_no_coincide') NOT NULL,
     nivel_confianza INT NOT NULL DEFAULT 100,
     detalle_validacion TEXT NULL,
-    fecha_conciliacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_conciliacion_carga_recaudo (id_carga_recaudo),
+    INDEX idx_conciliacion_cartera_documento (id_cartera_documento),
+    INDEX idx_conciliacion_estado_nuevo (estado),
     INDEX idx_conciliacion_recaudo_id (recaudo_id),
     INDEX idx_conciliacion_documento (numero_documento),
     INDEX idx_conciliacion_estado (estado_conciliacion),
     INDEX idx_conciliacion_periodo (periodo_cartera, periodo_recaudo),
     CONSTRAINT fk_conciliacion_recaudo FOREIGN KEY (recaudo_id) REFERENCES cargas_recaudo(id),
-    CONSTRAINT fk_conciliacion_cartera FOREIGN KEY (cartera_id) REFERENCES cartera_documentos(id)
+    CONSTRAINT fk_conciliacion_cartera FOREIGN KEY (cartera_id) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_conciliacion_recaudo_detalle FOREIGN KEY (id_recaudo_detalle) REFERENCES recaudo_detalle(id),
+    CONSTRAINT fk_conciliacion_cartera_documento FOREIGN KEY (id_cartera_documento) REFERENCES cartera_documentos(id),
+    CONSTRAINT fk_conciliacion_carga_recaudo FOREIGN KEY (id_carga_recaudo) REFERENCES cargas_recaudo(id)
 );
+
 
 CREATE TABLE IF NOT EXISTS recaudo_validacion_errores (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
