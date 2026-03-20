@@ -118,6 +118,26 @@ if (isset($_SESSION['flash_carga_ok'])) {
     unset($_SESSION['flash_carga_ok']);
 }
 
+if (isset($_SESSION['flash_carga_error']) && is_array($_SESSION['flash_carga_error'])) {
+    $flashError = $_SESSION['flash_carga_error'];
+    unset($_SESSION['flash_carga_error']);
+
+    $msg = (string)($flashError['message'] ?? 'Carga rechazada. No se insertó ningún registro.');
+    $estadoCarga = 'rechazada';
+    $hayErrores = true;
+    $hayErrorEstructural = (bool)($flashError['structural_error'] ?? false);
+    $errorReportToken = is_string($flashError['error_report_token'] ?? null) ? $flashError['error_report_token'] : null;
+
+    if (isset($flashError['validation_result']) && is_array($flashError['validation_result'])) {
+        $validationResult = finalize_validation_result(
+            $flashError['validation_result'],
+            $flashError['validation_result']['errors'] ?? [],
+            $hayErrorEstructural
+        );
+        $errors = $validationResult['errors'] ?? [];
+    }
+}
+
 $kpiStmt = $pdo->query(
     'SELECT
         COUNT(*) AS total_cargas,
@@ -323,6 +343,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $msg = $hayErrorEstructural
                     ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
                     : 'Carga rechazada. No se insertó ningún registro.';
+                $_SESSION['flash_carga_error'] = [
+                    'message' => $msg,
+                    'structural_error' => $hayErrorEstructural,
+                    'validation_result' => $validationResult,
+                    'error_report_token' => $errorReportToken,
+                ];
+                header('Location: ' . app_url('cargas/nueva.php?status=error'));
+                exit;
             } else {
                 ensure_client_management_schema($pdo);
 
@@ -398,6 +426,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                     $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
                     $errors = $validationResult['errors'] ?? [];
                     $msg = 'Carga rechazada. No se insertó ningún registro.';
+                    $errorReportToken = bin2hex(random_bytes(16));
+                    $_SESSION['import_error_reports'][$errorReportToken] = $errors;
+                    $_SESSION['flash_carga_error'] = [
+                        'message' => $msg,
+                        'structural_error' => $hayErrorEstructural,
+                        'validation_result' => $validationResult,
+                        'error_report_token' => $errorReportToken,
+                    ];
+                    header('Location: ' . app_url('cargas/nueva.php?status=error'));
+                    exit;
                 }
             }
     }
