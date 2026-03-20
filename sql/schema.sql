@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS clientes (
     contacto VARCHAR(120) NULL,
     telefono VARCHAR(60) NULL,
     canal VARCHAR(80) NULL,
+    uen VARCHAR(120) NULL,
     regional VARCHAR(80) NULL,
     empleado_ventas VARCHAR(120) NULL,
     responsable_usuario_id BIGINT NULL,
@@ -89,7 +90,8 @@ ALTER TABLE clientes
     ADD COLUMN IF NOT EXISTS fecha_activacion DATE NULL AFTER nro_identificacion,
     ADD COLUMN IF NOT EXISTS fecha_creacion DATETIME NULL AFTER fecha_activacion,
     ADD COLUMN IF NOT EXISTS estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo' AFTER fecha_creacion,
-    ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(190) NULL AFTER estado;
+    ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(190) NULL AFTER estado,
+    ADD COLUMN IF NOT EXISTS uen VARCHAR(120) NULL AFTER canal;
 
 ALTER TABLE clientes
     ADD INDEX IF NOT EXISTS idx_cliente_nombre_normalizado (nombre_normalizado),
