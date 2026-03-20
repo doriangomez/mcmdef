@@ -317,7 +317,8 @@ ob_start();
 <?php if ($warnings): ?><div class="alert alert-info"><ul><?php foreach ($warnings as $warning): ?><li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div class="alert alert-error"><ul><?php foreach ($errors as $error): ?><li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
-<?php if ($validationResult !== null): ?>
+<?php if (true): ?>
+<pre><?php var_dump($validationResult); ?></pre>
 <section class="card">
   <h3>Resultado de validación de recaudo</h3>
   <p><strong>Periodo detectado:</strong> <?= htmlspecialchars((string)($validationResult['periodo_detectado'] ?? 'No detectado')) ?></p>
