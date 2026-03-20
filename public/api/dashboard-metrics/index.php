@@ -96,7 +96,7 @@ $defaultFrom = (string)($dateBounds['min_fecha'] ?? '');
 $defaultTo = (string)($dateBounds['max_fecha'] ?? '');
 
 $optionBase = " FROM cartera_documentos d
-    INNER JOIN clientes c ON c.id = d.cliente_id
+    LEFT JOIN clientes c ON c.id = d.cliente_id
     WHERE d.estado_documento = 'activo'";
 $optionParams = [];
 if ($selectedPeriod !== '') {
