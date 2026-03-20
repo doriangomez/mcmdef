@@ -604,6 +604,7 @@ ob_start();
       });
     });
 
+    setFiltersExpanded(true);
     updateFiltersToggleLabel();
 
     requestData();
