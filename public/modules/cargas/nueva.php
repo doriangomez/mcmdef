@@ -24,6 +24,7 @@ $totalActualizados = 0;
 $totalCerrados = 0;
 $totalSaldoInsertado = 0.0;
 $periodoDetectadoCartera = null;
+$templateMismatchDetected = false;
 
 
 function detect_periodo_from_records(array $records): ?string
@@ -253,9 +254,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
             $validation = validate_cartera_rows($rows);
             $validationResult = $validation;
+            $templateMismatchDetected = (bool)($validation['template_mismatch'] ?? false);
             $errors = array_merge($errors, $validation['errors'] ?? []);
             $hayErrorEstructural = (bool)($validation['structural_error'] ?? false);
-            if ($hayErrorEstructural || !empty($errors)) {
+            if ($templateMismatchDetected) {
+                $errors = [build_validation_error(0, 'archivo', '', 'El archivo cargado no corresponde a la plantilla de cartera.')];
+                $validationResult['errors'] = $errors;
+                $hayErrores = true;
+                $hayErrorEstructural = true;
+                $msg = 'El archivo cargado no corresponde a la plantilla de cartera.';
+            } elseif ($hayErrorEstructural || !empty($errors)) {
                 $hayErrores = true;
             }
 
@@ -347,12 +355,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
                 $estadoCarga = 'rechazada';
                 $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural);
                 $errors = $validationResult['errors'] ?? [];
-                $errorReportToken = bin2hex(random_bytes(16));
-                ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
-                $_SESSION['import_error_reports'][$errorReportToken] = $errors;
-                $msg = $hayErrorEstructural
-                    ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
-                    : 'Carga rechazada. No se insertó ningún registro.';
+                if (!$templateMismatchDetected) {
+                    $errorReportToken = bin2hex(random_bytes(16));
+                    ensure_validation_feedback($validationResult, $errors, $hayErrorEstructural);
+                    $_SESSION['import_error_reports'][$errorReportToken] = $errors;
+                }
+                if ($msg === '') {
+                    $msg = $templateMismatchDetected
+                        ? 'El archivo cargado no corresponde a la plantilla de cartera.'
+                        : ($hayErrorEstructural
+                            ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
+                            : 'Carga rechazada. No se insertó ningún registro.');
+                }
                 $errors = $validationResult['errors'] ?? [];
             } else {
                 ensure_client_management_schema($pdo);
@@ -439,15 +453,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
 
 $validationResult = finalize_validation_result($validationResult, $errors, $hayErrorEstructural || $hayErrores);
 $validationErrors = $validationResult['errors'] ?? [];
+$mostrarDetalleErrores = !$templateMismatchDetected;
 
 if (!empty($validationErrors)) {
     if ($estadoCarga === '') {
         $estadoCarga = 'rechazada';
     }
     if ($msg === '') {
-        $msg = (bool)($validationResult['structural_error'] ?? false)
-            ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
-            : 'Carga rechazada. No se insertó ningún registro.';
+        $msg = $templateMismatchDetected
+            ? 'El archivo cargado no corresponde a la plantilla de cartera.'
+            : ((bool)($validationResult['structural_error'] ?? false)
+                ? 'Carga rechazada por error estructural. No se insertó ningún registro.'
+                : 'Carga rechazada. No se insertó ningún registro.');
     }
 }
 
@@ -455,7 +472,7 @@ ob_start();
 ?>
 <h1>Nueva carga de cartera</h1>
 <?php if($msg): ?><div class="alert <?= $estadoCarga === 'rechazada' ? 'alert-error' : 'alert-ok' ?>"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
-<?php if(!empty($validationErrors)): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($validationErrors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
+<?php if($mostrarDetalleErrores && !empty($validationErrors)): ?><div class="alert alert-error"><strong>Errores de validación:</strong><ul><?php foreach($validationErrors as $e): ?><li>Fila <?= (int)($e['fila'] ?? 0) ?> - Campo <?= htmlspecialchars((string)($e['campo'] ?? '')) ?> - Valor "<?= htmlspecialchars((string)($e['valor'] ?? '')) ?>": <?= htmlspecialchars((string)($e['motivo'] ?? '')) ?></li><?php endforeach; ?></ul><?php if (!empty($errorReportToken)): ?><p><a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cargas/nueva.php?download_errors=' . $errorReportToken)) ?>">Descargar reporte de errores (CSV)</a></p><?php endif; ?></div><?php endif; ?>
 <?php if ($ultimaExitosa): ?>
   <div class="card carga-highlight-success">
     <i class="fa-solid fa-circle-check"></i>
