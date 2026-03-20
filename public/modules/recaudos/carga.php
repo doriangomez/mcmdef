@@ -17,6 +17,7 @@ $summary = ['total' => 0, 'validas' => 0, 'con_error' => 0, 'total_aplicado' => 
 $periodoDetectado = null;
 $validationResult = null;
 $diagnosticResult = null;
+$documentosExcelPreview = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'eliminar_carga_recaudo') {
     $cargaId = (int)($_POST['carga_id'] ?? 0);
@@ -79,6 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 'summary' => $summary,
                 'diagnostic' => $diagnosticResult,
             ];
+            $documentosExcelPreview = array_values(array_filter(array_map(static function (array $sample): string {
+                return (string)($sample['documento_raw'] ?? '');
+            }, $diagnosticResult['raw_row_samples'] ?? []), static fn (string $documento): bool => $documento !== ''));
 
             if (!empty($errors)) {
                 $msg = 'Carga de recaudo rechazada por validaciones obligatorias.';
@@ -135,6 +139,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_type']) && $_P
                 recaudo_run_reconciliation($pdo, $cargaId);
                 $diagnosticResult = recaudo_diagnostic_load($cargaId);
                 $validationResult['diagnostic'] = $diagnosticResult;
+                $documentosExcelPreview = array_values(array_filter(array_map(static function (array $sample): string {
+                    return (string)($sample['documento_raw'] ?? '');
+                }, $diagnosticResult['raw_row_samples'] ?? []), static fn (string $documento): bool => $documento !== ''));
                 recaudo_build_aggregates($pdo, $cargaId);
                 recaudo_auto_conciliar($pdo, $cargaId);
                 if ($periodoDetectado !== null) {
@@ -304,6 +311,7 @@ ob_start();
 <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if ($errorMsg): ?><div class="alert alert-error"><?= htmlspecialchars($errorMsg) ?></div><?php endif; ?>
 <?php if ($periodoDetectado): ?><div class="alert alert-ok">Periodo detectado automáticamente: <strong><?= htmlspecialchars((string)$periodoDetectado) ?></strong></div><?php endif; ?>
+<?php if ($documentosExcelPreview): ?><div class="alert alert-info">Primeros 3 números de documento del Excel: <?php foreach (array_slice($documentosExcelPreview, 0, 3) as $index => $documento): ?><?php if ($index > 0): ?>, <?php endif; ?><code><?= htmlspecialchars($documento) ?></code><?php endforeach; ?></div><?php endif; ?>
 <?php if ($warnings): ?><div class="alert alert-info"><ul><?php foreach ($warnings as $warning): ?><li>Fila <?= (int)($warning['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($warning['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div class="alert alert-error"><ul><?php foreach ($errors as $error): ?><li>Fila <?= (int)($error['fila'] ?? 0) ?> - <?= htmlspecialchars((string)($error['motivo'] ?? '')) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
