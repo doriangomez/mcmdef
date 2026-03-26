@@ -53,6 +53,7 @@ function valid_period_ym(string $value): bool
 
 $rawFilters = [
     'periodo' => qf('periodo'),
+    'comparar_periodo' => qf('comparar_periodo'),
     'fecha_desde' => qf('fecha_desde'),
     'fecha_hasta' => qf('fecha_hasta'),
     'comparar_anterior' => qf('comparar_anterior') === '1',
@@ -76,6 +77,9 @@ $monthExpr = "DATE_FORMAT($fechaExpr, '%Y-%m')";
 $periodOptions = $pdo->query("SELECT DISTINCT DATE_FORMAT($fechaExpr, '%Y-%m') AS periodo FROM cartera_documentos d WHERE d.estado_documento = 'activo' AND $fechaExpr IS NOT NULL ORDER BY periodo DESC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $defaultPeriod = $periodOptions[0] ?? '';
 $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo'] : '';
+$selectedComparisonPeriod = (valid_period_ym($rawFilters['comparar_periodo']) && in_array($rawFilters['comparar_periodo'], $periodOptions, true))
+    ? $rawFilters['comparar_periodo']
+    : '';
 
 $periodStart = '';
 $periodEnd = '';
@@ -175,6 +179,7 @@ if ($rawFilters['cliente'] !== '' && isset($clienteSet[normalize($rawFilters['cl
 
 $filters = [
     'periodo' => $selectedPeriod,
+    'comparar_periodo' => $selectedComparisonPeriod,
     'fecha_desde' => $fechaDesde,
     'fecha_hasta' => $fechaHasta,
     'comparar_anterior' => $rawFilters['comparar_anterior'],
@@ -452,31 +457,79 @@ $hasRecaudoData = $recaudoState['loaded'] && $recaudoState['integrated'];
 $rotationDays = $hasRecaudoData && $recaudoTotal > 0 ? ($carteraTotal / $recaudoTotal) * 30 : null;
 
 $comparison = null;
-if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
-    $start = new DateTimeImmutable($filters['fecha_desde']);
-    $end = new DateTimeImmutable($filters['fecha_hasta']);
-    $days = max(1, (int)$end->diff($start)->days + 1);
-    $prevStart = $start->sub(new DateInterval('P' . $days . 'D'));
-    $prevEnd = $start->sub(new DateInterval('P1D'));
+if ($filters['comparar_anterior']) {
+    $cmpWhere = ["d.estado_documento = 'activo'"];
+    $cmpParams = [$moraCriticaBaseDias];
 
-    $cmpSql = "SELECT
-      COALESCE(SUM(d.saldo_pendiente),0) cartera_total,
-      COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
-      COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
-      FROM cartera_documentos d
-      LEFT JOIN clientes c ON c.id = d.cliente_id
-      WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND $monthExpr = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
-    $cmpParams = array_merge([$moraCriticaBaseDias], $scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
-    $cmpStmt = $pdo->prepare($cmpSql);
-    $cmpStmt->execute($cmpParams);
-    $cmp = $cmpStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    if ($scope['sql'] !== '') {
+        $cmpWhere[] = ltrim($scope['sql'], ' AND');
+        $cmpParams = array_merge($cmpParams, $scope['params']);
+    }
+    if ($uenScope['sql'] !== '') {
+        $cmpWhere[] = ltrim($uenScope['sql'], ' AND');
+        $cmpParams = array_merge($cmpParams, $uenScope['params']);
+    }
+    if ($filters['regional'] !== '') {
+        $cmpWhere[] = "$regionalExpr = ?";
+        $cmpParams[] = $filters['regional'];
+    }
+    if ($filters['canal'] !== '') {
+        $cmpWhere[] = "$canalExpr = ?";
+        $cmpParams[] = $filters['canal'];
+    }
+    if ($filters['empleado_ventas'] !== '') {
+        $cmpWhere[] = "$empleadoExpr = ?";
+        $cmpParams[] = $filters['empleado_ventas'];
+    }
+    if ($filters['cliente'] !== '') {
+        $cmpWhere[] = "$clienteExpr = ?";
+        $cmpParams[] = $filters['cliente'];
+    }
 
-    $comparison = [
-        'periodo_anterior' => ['desde' => $prevStart->format('Y-m-d'), 'hasta' => $prevEnd->format('Y-m-d')],
-        'variacion_cartera_pct' => ((float)($cmp['cartera_total'] ?? 0)) > 0 ? (($carteraTotal - (float)$cmp['cartera_total']) / (float)$cmp['cartera_total']) * 100 : 0,
-        'variacion_mora_pct' => ((float)($cmp['cartera_vencida'] ?? 0)) > 0 ? (($carteraVencida - (float)$cmp['cartera_vencida']) / (float)$cmp['cartera_vencida']) * 100 : 0,
-        'variacion_exposicion_pct' => ((float)($cmp['cartera_critica'] ?? 0)) > 0 ? ((((float)($m['saldo_critico'] ?? 0)) - (float)$cmp['cartera_critica']) / (float)$cmp['cartera_critica']) * 100 : 0,
-    ];
+    $comparisonLabel = '';
+    if ($filters['comparar_periodo'] !== '') {
+        $cmpWhere[] = "$monthExpr = ?";
+        $cmpParams[] = $filters['comparar_periodo'];
+        $comparisonLabel = $filters['comparar_periodo'];
+    } elseif ($filters['periodo'] !== '') {
+        $periodDate = DateTimeImmutable::createFromFormat('Y-m-d', $filters['periodo'] . '-01');
+        if ($periodDate instanceof DateTimeImmutable) {
+            $comparisonPeriod = $periodDate->sub(new DateInterval('P1M'))->format('Y-m');
+            $cmpWhere[] = "$monthExpr = ?";
+            $cmpParams[] = $comparisonPeriod;
+            $comparisonLabel = $comparisonPeriod;
+        }
+    } elseif ($filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
+        $start = new DateTimeImmutable($filters['fecha_desde']);
+        $end = new DateTimeImmutable($filters['fecha_hasta']);
+        $days = max(1, (int)$end->diff($start)->days + 1);
+        $prevStart = $start->sub(new DateInterval('P' . $days . 'D'));
+        $prevEnd = $start->sub(new DateInterval('P1D'));
+        $cmpWhere[] = "$fechaExpr BETWEEN ? AND ?";
+        $cmpParams[] = $prevStart->format('Y-m-d');
+        $cmpParams[] = $prevEnd->format('Y-m-d');
+        $comparisonLabel = $prevStart->format('Y-m-d') . ' a ' . $prevEnd->format('Y-m-d');
+    }
+
+    if ($comparisonLabel !== '') {
+        $cmpSql = "SELECT
+          COALESCE(SUM(d.saldo_pendiente),0) cartera_total,
+          COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
+          COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
+          FROM cartera_documentos d
+          LEFT JOIN clientes c ON c.id = d.cliente_id
+          WHERE " . implode(' AND ', $cmpWhere);
+        $cmpStmt = $pdo->prepare($cmpSql);
+        $cmpStmt->execute($cmpParams);
+        $cmp = $cmpStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $comparison = [
+            'periodo_anterior' => ['label' => $comparisonLabel],
+            'variacion_cartera_pct' => ((float)($cmp['cartera_total'] ?? 0)) > 0 ? (($carteraTotal - (float)$cmp['cartera_total']) / (float)$cmp['cartera_total']) * 100 : 0,
+            'variacion_mora_pct' => ((float)($cmp['cartera_vencida'] ?? 0)) > 0 ? (($carteraVencida - (float)$cmp['cartera_vencida']) / (float)$cmp['cartera_vencida']) * 100 : 0,
+            'variacion_exposicion_pct' => ((float)($cmp['cartera_critica'] ?? 0)) > 0 ? ((((float)($m['saldo_critico'] ?? 0)) - (float)$cmp['cartera_critica']) / (float)$cmp['cartera_critica']) * 100 : 0,
+        ];
+    }
 }
 
 $scorePenalty = ($indiceSeveridad * 15) + ($top5ConcentrationPct * 0.30) + ($porcCritica * 0.30) + ($docsVencidosPct * 0.25);
