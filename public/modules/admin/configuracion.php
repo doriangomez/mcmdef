@@ -92,10 +92,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'general') {
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'mora') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'update_mora_params') {
+        $severidadBaseInput = trim((string)($_POST['mora_severidad_base_dias'] ?? '90'));
+        $criticaBaseInput = trim((string)($_POST['mora_critica_base_dias'] ?? '90'));
+
+        if ($severidadBaseInput === '' || !ctype_digit($severidadBaseInput)) {
+            $error = 'La referencia base de severidad debe ser un número entero positivo.';
+        } elseif ($criticaBaseInput === '' || !ctype_digit($criticaBaseInput)) {
+            $error = 'El umbral de cartera crítica debe ser un número entero positivo.';
+        } else {
+            $severidadBase = (int)$severidadBaseInput;
+            $criticaBase = (int)$criticaBaseInput;
+
+            if ($severidadBase < 1 || $severidadBase > 720) {
+                $error = 'La referencia base de severidad debe estar entre 1 y 720 días.';
+            } elseif ($criticaBase < 1 || $criticaBase > 720) {
+                $error = 'El umbral de cartera crítica debe estar entre 1 y 720 días.';
+            } else {
+                system_setting_set($pdo, 'mora_severidad_base_dias', (string)$severidadBase);
+                system_setting_set($pdo, 'mora_critica_base_dias', (string)$criticaBase);
+                $msg = 'Parámetros de mora actualizados correctamente.';
+            }
+        }
+    }
+}
+
 $current = $sections[$tab];
 $logoPath = system_setting_get($pdo, 'institutional_logo_path');
 $logoRelative = system_logo_public_path($logoPath);
 $logoPreviewUrl = app_url($logoRelative ?? system_logo_default_path());
+$moraSeveridadBaseDias = system_setting_get($pdo, 'mora_severidad_base_dias', '90') ?? '90';
+$moraCriticaBaseDias = system_setting_get($pdo, 'mora_critica_base_dias', '90') ?? '90';
 
 ob_start();
 ?>
@@ -134,6 +163,46 @@ ob_start();
         </div>
       </form>
     </div>
+  </div>
+<?php elseif ($tab === 'mora'): ?>
+  <?php if ($msg): ?><div class="alert alert-ok"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+  <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+  <div class="card">
+    <div class="card-header">
+      <h3>Parámetros de severidad</h3>
+      <?= ui_badge('Configurable', 'success') ?>
+    </div>
+    <p class="muted">Define el valor de referencia (en días) para el cálculo del índice de severidad de mora del dashboard ejecutivo.</p>
+    <form method="post" style="display:grid; gap:10px; max-width:420px;">
+      <input type="hidden" name="action" value="update_mora_params">
+      <label for="mora_severidad_base_dias" style="font-size:13px; font-weight:600; color:#334155;">Referencia base de severidad (días)</label>
+      <input
+        id="mora_severidad_base_dias"
+        name="mora_severidad_base_dias"
+        type="number"
+        min="1"
+        max="720"
+        step="1"
+        value="<?= htmlspecialchars($moraSeveridadBaseDias) ?>"
+        required
+      >
+      <small class="muted">Valor recomendado por defecto: 90 días.</small>
+      <label for="mora_critica_base_dias" style="font-size:13px; font-weight:600; color:#334155;">Umbral de cartera crítica (días)</label>
+      <input
+        id="mora_critica_base_dias"
+        name="mora_critica_base_dias"
+        type="number"
+        min="1"
+        max="720"
+        step="1"
+        value="<?= htmlspecialchars($moraCriticaBaseDias) ?>"
+        required
+      >
+      <small class="muted">Este valor controla el KPI de % cartera crítica y su tooltip en dashboards.</small>
+      <div>
+        <button class="btn" type="submit">Guardar parámetros de mora</button>
+      </div>
+    </form>
   </div>
 <?php else: ?>
   <div class="card">
