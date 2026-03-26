@@ -61,6 +61,13 @@ ob_start();
           <span>Fecha hasta</span>
           <input id="filtroFechaHasta" name="fecha_hasta" type="date">
         </label>
+        <label class="filter-field filter-field-toggle" for="filtroCompararAnterior">
+          <span>Comparación</span>
+          <span style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+            <input id="filtroCompararAnterior" name="comparar_anterior" type="checkbox" value="1">
+            Comparar contra periodo anterior
+          </span>
+        </label>
       </div>
     </form>
     <div class="filter-actions">
@@ -346,6 +353,7 @@ ob_start();
       uen: getFilterValue('filtroUen'),
       fechaDesde: getFilterValue('filtroFechaDesde'),
       fechaHasta: getFilterValue('filtroFechaHasta'),
+      compararAnterior: Boolean(document.getElementById('filtroCompararAnterior') && document.getElementById('filtroCompararAnterior').checked),
       regional: getFilterValue('regional'),
       canal: getFilterValue('filtroCanal'),
       empleado: getFilterValue('filtroEmpleado'),
@@ -357,6 +365,7 @@ ob_start();
       uen: filters.uen,
       fechaDesde: filters.fechaDesde,
       fechaHasta: filters.fechaHasta,
+      compararAnterior: filters.compararAnterior,
       regional: filters.regional,
       canal: filters.canal,
       empleado: filters.empleado,
@@ -380,6 +389,9 @@ ob_start();
     appendFilter(url.searchParams, 'uen', filters.uen);
     appendFilter(url.searchParams, 'fecha_desde', filters.fechaDesde);
     appendFilter(url.searchParams, 'fecha_hasta', filters.fechaHasta);
+    if (filters.compararAnterior) {
+      url.searchParams.set('comparar_anterior', '1');
+    }
     appendFilter(url.searchParams, 'regional', filters.regional);
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
@@ -399,6 +411,10 @@ ob_start();
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
     hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
+    var compararAnterior = document.getElementById('filtroCompararAnterior');
+    if (compararAnterior) {
+      compararAnterior.checked = Boolean(selected.comparar_anterior);
+    }
     hydrateRegional(options.regional || [], selected.regional || '');
     hydrateCanal(options.canal || [], selected.canal || '');
     hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
@@ -519,7 +535,7 @@ ob_start();
       });
     }
 
-    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente'].forEach(function (filterId) {
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente', 'filtroCompararAnterior'].forEach(function (filterId) {
       var el = document.getElementById(filterId);
       if (!el) return;
       el.addEventListener('change', function () {
