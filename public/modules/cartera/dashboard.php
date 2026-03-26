@@ -4,7 +4,7 @@ require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
- 
+
 require_role(['admin', 'analista']);
  
 $baseWhere = ' WHERE d.estado_documento = "activo"';
@@ -14,8 +14,8 @@ $severidadReferenciaDias = is_numeric($severidadReferenciaRaw) ? (float)$severid
 if ($severidadReferenciaDias <= 0) {
     $severidadReferenciaDias = 90.0;
 }
- 
- 
+
+
 $globalKpiStmt = $pdo->query(
     'SELECT
         COUNT(*) AS total_documentos,
@@ -68,7 +68,7 @@ $kpiStmt = $pdo->prepare(
         COUNT(DISTINCT d.cliente_id) AS total_clientes,
         COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_vencida,
-        COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END), 0) AS documentos_vencidos
      FROM cartera_documentos d
      LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
@@ -79,7 +79,7 @@ $periodoDashboard = trim((string)($lastLoad['periodo_detectado'] ?? ''));
 if ($periodoDashboard === '') {
     $periodoDashboard = date('Y-m');
 }
- 
+
 $recaudoPeriodoStmt = $pdo->prepare(
     'SELECT COALESCE(SUM(r.importe_aplicado), 0) AS total_recaudo
      FROM recaudo_detalle r
@@ -90,7 +90,7 @@ $recaudoPeriodoStmt = $pdo->prepare(
 );
 $recaudoPeriodoStmt->execute([$periodoDashboard]);
 $recaudoPeriodo = (float)$recaudoPeriodoStmt->fetchColumn();
- 
+
 $moraStmt = $pdo->prepare(
     'SELECT
         COALESCE(SUM(CASE WHEN d.dias_vencido <= 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS vigente,
@@ -232,7 +232,6 @@ $dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
     ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
     : 0.0;
 $rotacionCarteraDias = $recaudoPeriodo > 0 ? ($totalCartera / $recaudoPeriodo) * 30 : null;
- 
 $vencidaTotalSeveridad = (float)($mora['b1_30'] ?? 0)
     + (float)($mora['b31_60'] ?? 0)
     + (float)($mora['b61_90'] ?? 0)
@@ -245,11 +244,9 @@ $diasPonderados = ((float)($mora['b1_30'] ?? 0) * 15)
     + ((float)($mora['b91_180'] ?? 0) * 135)
     + ((float)($mora['b181_360'] ?? 0) * 270)
     + ((float)($mora['b360_plus'] ?? 0) * 420);
-// $severidadReferenciaDias viene de system_setting_get() al inicio del archivo
 $severidadMora = $vencidaTotalSeveridad > 0
     ? (($diasPonderados / $vencidaTotalSeveridad) / $severidadReferenciaDias) * 100
     : 0.0;
- 
 $documentosVencidosPct = $totalDocumentos > 0 ? ($documentosVencidos / $totalDocumentos) * 100 : 0.0;
 $top5Suma = 0.0;
 foreach (array_slice($paretoRows, 0, 5) as $row) {
@@ -327,7 +324,7 @@ ob_start();
     <article class="gd-kpi-card"><span>Total presupuesto</span><strong>Pendiente carga de presupuesto</strong></article>
     <article class="gd-kpi-card"><span>Rotación de cartera (DSO)</span><strong><?= $rotacionCarteraDias !== null ? number_format($rotacionCarteraDias, 1, ',', '.') . ' días' : 'Sin recaudo del periodo' ?></strong></article>
     <article class="gd-kpi-card"><span>Cartera total</span><strong>$<?= number_format($totalCartera, 0, ',', '.') ?></strong></article>
-    <article class="gd-kpi-card"><span>Cartera crítica (&gt;90 días)</span><strong>$<?= number_format($carteraCritica, 0, ',', '.') ?></strong></article>
+    <article class="gd-kpi-card"><span>Cartera crítica (&gt;180 días)</span><strong>$<?= number_format($carteraCritica, 0, ',', '.') ?></strong></article>
     <article class="gd-kpi-card"><span>Índice severidad de mora</span><strong><?= number_format($severidadMora, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>% documentos vencidos</span><strong><?= number_format($documentosVencidosPct, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>Concentración Top 5 clientes</span><strong><?= number_format($concentracionTop5, 2, ',', '.') ?>%</strong></article>
