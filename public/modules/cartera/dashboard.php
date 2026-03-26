@@ -91,7 +91,9 @@ $moraStmt = $pdo->prepare(
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 1 AND 30 THEN d.saldo_pendiente ELSE 0 END), 0) AS b1_30,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 31 AND 60 THEN d.saldo_pendiente ELSE 0 END), 0) AS b31_60,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 61 AND 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b61_90,
-        COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b90_plus
+        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 91 AND 180 THEN d.saldo_pendiente ELSE 0 END), 0) AS b91_180,
+        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 181 AND 360 THEN d.saldo_pendiente ELSE 0 END), 0) AS b181_360,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 360 THEN d.saldo_pendiente ELSE 0 END), 0) AS b360_plus
      FROM cartera_documentos d
      LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
@@ -224,7 +226,25 @@ $dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
     ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
     : 0.0;
 $rotacionCarteraDias = $recaudoPeriodo > 0 ? ($totalCartera / $recaudoPeriodo) * 30 : null;
-$severidadMora = $totalVencido > 0 ? ($carteraCritica / $totalVencido) * 100 : 0.0;
+
+// Índice de severidad de mora ponderado por tramo (corregido: b61_90 con guión bajo)
+$vencidaTotalSeveridad = (float)($mora['b1_30'] ?? 0)
+    + (float)($mora['b31_60'] ?? 0)
+    + (float)($mora['b61_90'] ?? 0)
+    + (float)($mora['b91_180'] ?? 0)
+    + (float)($mora['b181_360'] ?? 0)
+    + (float)($mora['b360_plus'] ?? 0);
+$diasPonderados = ((float)($mora['b1_30'] ?? 0) * 15)
+    + ((float)($mora['b31_60'] ?? 0) * 45)
+    + ((float)($mora['b61_90'] ?? 0) * 75)
+    + ((float)($mora['b91_180'] ?? 0) * 135)
+    + ((float)($mora['b181_360'] ?? 0) * 270)
+    + ((float)($mora['b360_plus'] ?? 0) * 420);
+$severidadReferenciaDias = 90.0;
+$severidadMora = $vencidaTotalSeveridad > 0
+    ? (($diasPonderados / $vencidaTotalSeveridad) / $severidadReferenciaDias) * 100
+    : 0.0;
+
 $documentosVencidosPct = $totalDocumentos > 0 ? ($documentosVencidos / $totalDocumentos) * 100 : 0.0;
 $top5Suma = 0.0;
 foreach (array_slice($paretoRows, 0, 5) as $row) {
@@ -238,7 +258,7 @@ $chartEdad = [
     (float)($mora['b1_30'] ?? 0),
     (float)($mora['b31_60'] ?? 0),
     (float)($mora['b61_90'] ?? 0),
-    (float)($mora['b90_plus'] ?? 0),
+    (float)($mora['b91_180'] ?? 0) + (float)($mora['b181_360'] ?? 0) + (float)($mora['b360_plus'] ?? 0),
 ];
 
 $uenLabels = array_column($uenRows, 'etiqueta');
