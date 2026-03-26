@@ -605,23 +605,16 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
 
         $comparisonTrend = [];
         if ($comparisonMode === 'period' || $comparisonMode === 'date_range') {
-            $cmpTrendSql = "SELECT $monthExpr periodo,
-                COALESCE(SUM(d.saldo_pendiente),0) saldo,
-                COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
+            $cmpTrendSql = "SELECT $monthExpr periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
               FROM cartera_documentos d
               LEFT JOIN clientes c ON c.id = d.cliente_id
               WHERE " . implode(' AND ', $cmpWhere) . "
               GROUP BY periodo
               ORDER BY periodo";
             $cmpTrendStmt = $pdo->prepare($cmpTrendSql);
-            $cmpTrendStmt->execute($cmpParams);
+            $cmpTrendStmt->execute(array_slice($cmpParams, 1));
             $comparisonTrend = array_map(
-                static fn(array $r): array => [
-                    'periodo' => (string)$r['periodo'],
-                    'saldo' => (float)$r['saldo'],
-                    'exposicion_critica' => (float)($r['exposicion_critica'] ?? 0),
-                    'exposicion_critica_pct' => ((float)$r['saldo']) > 0 ? (((float)($r['exposicion_critica'] ?? 0) / (float)$r['saldo']) * 100) : 0,
-                ],
+                static fn(array $r): array => ['periodo' => (string)$r['periodo'], 'saldo' => (float)$r['saldo']],
                 $cmpTrendStmt->fetchAll(PDO::FETCH_ASSOC) ?: []
             );
         }
