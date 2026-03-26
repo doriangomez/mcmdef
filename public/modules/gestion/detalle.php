@@ -141,7 +141,7 @@ if ($clienteId <= 0 && $documentoId > 0) {
 }
 
 $cliente = null;
-$resumen = ['saldo_total' => 0, 'documentos' => 0, 'promedio_mora' => 0];
+$resumen = ['saldo_total' => 0, 'documentos' => 0, 'rotacion_dias' => null];
 $documentos = [];
 $gestiones = [];
 $documentoSeleccionado = null;
@@ -154,13 +154,32 @@ if ($clienteId > 0) {
     $resumenStmt = $pdo->prepare(
         'SELECT
             COALESCE(SUM(saldo_pendiente), 0) AS saldo_total,
-            COUNT(*) AS documentos,
-            COALESCE(AVG(dias_vencido), 0) AS promedio_mora
+            COUNT(*) AS documentos
          FROM cartera_documentos
          WHERE cliente_id = ? AND estado_documento = "activo"'
     );
     $resumenStmt->execute([$clienteId]);
-    $resumen = $resumenStmt->fetch() ?: $resumen;
+    $resumenData = $resumenStmt->fetch() ?: [];
+    $saldoTotal = (float)($resumenData['saldo_total'] ?? 0);
+    $totalDocumentos = (int)($resumenData['documentos'] ?? 0);
+
+    $pagosStmt = $pdo->prepare(
+        'SELECT COALESCE(SUM(r.importe_aplicado), 0) AS pagos_30_dias
+         FROM recaudo_detalle r
+         INNER JOIN cartera_documentos d ON d.id = r.cartera_documento_id
+         WHERE d.cliente_id = ?
+           AND d.estado_documento = "activo"
+           AND r.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)'
+    );
+    $pagosStmt->execute([$clienteId]);
+    $pagos30Dias = (float)$pagosStmt->fetchColumn();
+    $rotacionDias = $pagos30Dias > 0 ? ($saldoTotal / $pagos30Dias) * 30 : null;
+
+    $resumen = [
+        'saldo_total' => $saldoTotal,
+        'documentos' => $totalDocumentos,
+        'rotacion_dias' => $rotacionDias,
+    ];
 
     $orderSql = $ordenDocs === 'saldo'
         ? 'saldo_pendiente DESC, dias_vencido DESC'
@@ -217,7 +236,13 @@ ob_start(); ?>
       <p><strong>Canal:</strong><br><?= htmlspecialchars((string)($cliente['canal'] ?? '-')) ?></p>
       <p><strong>Saldo total del cliente:</strong><br>$<?= number_format((float)$resumen['saldo_total'], 2, ',', '.') ?></p>
       <p><strong>Número de documentos:</strong><br><?= (int)$resumen['documentos'] ?></p>
-      <p><strong>Promedio mora:</strong><br><?= number_format((float)$resumen['promedio_mora'], 1, ',', '.') ?> días</p>
+      <p><strong>Rotación cartera estimada:</strong><br>
+        <?php if ($resumen['rotacion_dias'] !== null): ?>
+          <?= number_format((float)$resumen['rotacion_dias'], 1, ',', '.') ?> días
+        <?php else: ?>
+          Sin recaudos en últimos 30 días
+        <?php endif; ?>
+      </p>
     </div>
   </div>
 
