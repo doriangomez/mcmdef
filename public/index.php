@@ -61,6 +61,26 @@ ob_start();
           <span>Fecha hasta</span>
           <input id="filtroFechaHasta" name="fecha_hasta" type="date">
         </label>
+        <label class="filter-field filter-field-toggle" for="filtroCompararAnterior">
+          <span>Comparación</span>
+          <span style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+            <input id="filtroCompararAnterior" name="comparar_anterior" type="checkbox" value="1">
+            Comparar contra periodo anterior
+          </span>
+        </label>
+        <label class="filter-field filter-field-toggle" for="filtroCompararPersonalizado">
+          <span>Comparación</span>
+          <span style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+            <input id="filtroCompararPersonalizado" name="comparar_personalizado" type="checkbox" value="1">
+            Comparar contra periodo específico
+          </span>
+        </label>
+        <label class="filter-field" for="filtroPeriodoComparacion">
+          <span>Periodo de comparación</span>
+          <select id="filtroPeriodoComparacion" name="comparar_periodo" disabled>
+            <option value="">Automático (periodo anterior)</option>
+          </select>
+        </label>
       </div>
     </form>
     <div class="filter-actions">
@@ -346,6 +366,9 @@ ob_start();
       uen: getFilterValue('filtroUen'),
       fechaDesde: getFilterValue('filtroFechaDesde'),
       fechaHasta: getFilterValue('filtroFechaHasta'),
+      compararAnterior: Boolean(document.getElementById('filtroCompararAnterior') && document.getElementById('filtroCompararAnterior').checked),
+      compararPersonalizado: Boolean(document.getElementById('filtroCompararPersonalizado') && document.getElementById('filtroCompararPersonalizado').checked),
+      compararPeriodo: getFilterValue('filtroPeriodoComparacion'),
       regional: getFilterValue('regional'),
       canal: getFilterValue('filtroCanal'),
       empleado: getFilterValue('filtroEmpleado'),
@@ -357,6 +380,9 @@ ob_start();
       uen: filters.uen,
       fechaDesde: filters.fechaDesde,
       fechaHasta: filters.fechaHasta,
+      compararAnterior: filters.compararAnterior,
+      compararPersonalizado: filters.compararPersonalizado,
+      compararPeriodo: filters.compararPeriodo,
       regional: filters.regional,
       canal: filters.canal,
       empleado: filters.empleado,
@@ -380,6 +406,13 @@ ob_start();
     appendFilter(url.searchParams, 'uen', filters.uen);
     appendFilter(url.searchParams, 'fecha_desde', filters.fechaDesde);
     appendFilter(url.searchParams, 'fecha_hasta', filters.fechaHasta);
+    if (filters.compararAnterior) {
+      url.searchParams.set('comparar_anterior', '1');
+    }
+    if (filters.compararPersonalizado) {
+      url.searchParams.set('comparar_personalizado', '1');
+      appendFilter(url.searchParams, 'comparar_periodo', filters.compararPeriodo);
+    }
     appendFilter(url.searchParams, 'regional', filters.regional);
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
@@ -399,6 +432,24 @@ ob_start();
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
     hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
+    var compararAnterior = document.getElementById('filtroCompararAnterior');
+    var compararPersonalizado = document.getElementById('filtroCompararPersonalizado');
+    var periodoComparacion = document.getElementById('filtroPeriodoComparacion');
+    if (compararAnterior) {
+      compararAnterior.checked = Boolean(selected.comparar_anterior);
+    }
+    if (compararPersonalizado) {
+      compararPersonalizado.checked = Boolean(selected.comparar_personalizado);
+    }
+    if (periodoComparacion) {
+      var periodHtml = ['<option value="">Automático (periodo anterior)</option>'];
+      (options.periodo || []).forEach(function (value) {
+        periodHtml.push('<option value="' + value + '">' + value + '</option>');
+      });
+      periodoComparacion.innerHTML = periodHtml.join('');
+      periodoComparacion.value = selected.comparar_periodo || '';
+      periodoComparacion.disabled = !(compararPersonalizado && compararPersonalizado.checked);
+    }
     hydrateRegional(options.regional || [], selected.regional || '');
     hydrateCanal(options.canal || [], selected.canal || '');
     hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
@@ -454,7 +505,8 @@ ob_start();
           updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
 
           if (data.comparison) {
-            comparisonBox.innerHTML = 'Comparación periodo anterior (' + data.comparison.periodo_anterior.desde + ' a ' + data.comparison.periodo_anterior.hasta + '): ' +
+            var comparisonLabel = (data.comparison.periodo_anterior && data.comparison.periodo_anterior.label) || 'periodo anterior';
+            comparisonBox.innerHTML = 'Comparación contra ' + comparisonLabel + ': ' +
               'Cartera ' + decimal.format(data.comparison.variacion_cartera_pct || 0) + '% | ' +
               'Mora ' + decimal.format(data.comparison.variacion_mora_pct || 0) + '% | ' +
               'Exposición crítica ' + decimal.format(data.comparison.variacion_exposicion_pct || 0) + '%';
@@ -519,14 +571,44 @@ ob_start();
       });
     }
 
-    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente'].forEach(function (filterId) {
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente', 'filtroCompararAnterior', 'filtroCompararPersonalizado'].forEach(function (filterId) {
       var el = document.getElementById(filterId);
       if (!el) return;
       el.addEventListener('change', function () {
+        if (filterId === 'filtroCompararAnterior') {
+          var personalizedEl = document.getElementById('filtroCompararPersonalizado');
+          var comparisonPeriodEl = document.getElementById('filtroPeriodoComparacion');
+          if (this.checked && personalizedEl) {
+            personalizedEl.checked = false;
+          }
+          if (comparisonPeriodEl && (!personalizedEl || !personalizedEl.checked)) {
+            comparisonPeriodEl.disabled = true;
+          }
+        }
+        if (filterId === 'filtroCompararPersonalizado') {
+          var previousEl = document.getElementById('filtroCompararAnterior');
+          var periodEl = document.getElementById('filtroPeriodoComparacion');
+          if (this.checked && previousEl) {
+            previousEl.checked = false;
+          }
+          if (periodEl) {
+            periodEl.disabled = !this.checked;
+            if (this.checked && !periodEl.value) {
+              periodEl.focus();
+            }
+          }
+        }
         console.log('Cambio de filtro detectado:', filterId, this.value);
         scheduleRequestData();
       });
     });
+
+    var comparisonPeriodSelect = document.getElementById('filtroPeriodoComparacion');
+    if (comparisonPeriodSelect) {
+      comparisonPeriodSelect.addEventListener('change', function () {
+        scheduleRequestData();
+      });
+    }
 
 
     requestData();
