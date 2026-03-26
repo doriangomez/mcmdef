@@ -222,31 +222,57 @@ ob_start();
     var trend = data.trend || [];
     var trendMap = {};
     trend.forEach(function (r) {
-      trendMap[r.periodo] = r.saldo;
+      trendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
     });
     var comparisonTrendMap = {};
     var comparisonTrend = (comparison && comparison.trend) || [];
     comparisonTrend.forEach(function (r) {
-      comparisonTrendMap[r.periodo] = r.saldo;
+      comparisonTrendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
     });
     var trendCategories = Array.from(new Set(
       trend.map(function (r) { return r.periodo; }).concat(comparisonTrend.map(function (r) { return r.periodo; }))
     )).sort();
-    var currentTrendSeries = trendCategories.map(function (periodo) {
-      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo] : null;
+    var currentExposureSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCritica : null;
+    });
+    var currentExposurePctSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCriticaPct : null;
     });
     var trendComparisonSeries = trendCategories.map(function (periodo) {
-      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo] : null;
+      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo].exposicionCritica : null;
     });
-    var trendSeries = [{ name: 'Saldo pendiente', data: currentTrendSeries }];
+    var trendSeries = [
+      { name: 'Exposición crítica', data: currentExposureSeries },
+      { name: '% Exposición crítica', data: currentExposurePctSeries, type: 'line' }
+    ];
     if (comparisonTrend.length) {
-      trendSeries.push({ name: 'Saldo periodo comparación', data: trendComparisonSeries });
+      trendSeries.push({ name: 'Exposición crítica comparación', data: trendComparisonSeries });
     }
     upsert('trend', 'trendChart', Object.assign(noDataOptions(280), {
       chart: { type: 'line', height: 280, toolbar: { show: false } },
       series: trendSeries,
       xaxis: { categories: trendCategories },
-      tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Var.: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
+      yaxis: [
+        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, min: 0, max: 100, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
+      ],
+      stroke: { width: [3, 3, 3] },
+      tooltip: {
+        shared: true,
+        y: {
+          formatter: function (v, ctx) {
+            return ctx.seriesIndex === 1 ? (decimal.format(v || 0) + '%') : currency.format(v || 0);
+          }
+        }
+      }
     }));
 
     var moraUen = data.mora_uen || [];

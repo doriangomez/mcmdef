@@ -340,23 +340,48 @@ if ($uenScope['sql'] !== '') {
     $trendWhere[] = ltrim($uenScope['sql'], ' AND');
     $trendParams = array_merge($trendParams, $uenScope['params']);
 }
+if ($filters['regional'] !== '') {
+    $trendWhere[] = "$regionalExpr = ?";
+    $trendParams[] = $filters['regional'];
+}
+if ($filters['canal'] !== '') {
+    $trendWhere[] = "$canalExpr = ?";
+    $trendParams[] = $filters['canal'];
+}
+if ($filters['empleado_ventas'] !== '') {
+    $trendWhere[] = "$empleadoExpr = ?";
+    $trendParams[] = $filters['empleado_ventas'];
+}
+if ($filters['cliente'] !== '') {
+    $trendWhere[] = "$clienteExpr = ?";
+    $trendParams[] = $filters['cliente'];
+}
 $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
 
-$trendSql = "SELECT $monthExpr AS periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
+$trendSql = "SELECT $monthExpr AS periodo,
+    COALESCE(SUM(d.saldo_pendiente),0) saldo,
+    COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
     ORDER BY periodo ASC";
 $trendStmt = $pdo->prepare($trendSql);
-$trendStmt->execute($trendParams);
+$trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
 $trendRows = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
 $trend = [];
 $prev = null;
 foreach ($trendRows as $row) {
     $saldo = (float)$row['saldo'];
+    $criticalExposure = (float)($row['exposicion_critica'] ?? 0);
     $variation = ($prev !== null && $prev > 0) ? (($saldo - $prev) / $prev) * 100 : 0;
-    $trend[] = ['periodo' => (string)$row['periodo'], 'saldo' => $saldo, 'variation_pct' => $variation];
+    $trend[] = [
+        'periodo' => (string)$row['periodo'],
+        'saldo' => $saldo,
+        'exposicion_critica' => $criticalExposure,
+        'exposicion_critica_pct' => $saldo > 0 ? ($criticalExposure / $saldo) * 100 : 0,
+        'variation_pct' => $variation,
+    ];
     $prev = $saldo;
 }
 
@@ -546,16 +571,23 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
 
         $comparisonTrend = [];
         if ($comparisonMode === 'period' || $comparisonMode === 'date_range') {
-            $cmpTrendSql = "SELECT $monthExpr periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
+            $cmpTrendSql = "SELECT $monthExpr periodo,
+                COALESCE(SUM(d.saldo_pendiente),0) saldo,
+                COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
               FROM cartera_documentos d
               LEFT JOIN clientes c ON c.id = d.cliente_id
               WHERE " . implode(' AND ', $cmpWhere) . "
               GROUP BY periodo
               ORDER BY periodo";
             $cmpTrendStmt = $pdo->prepare($cmpTrendSql);
-            $cmpTrendStmt->execute(array_slice($cmpParams, 1));
+            $cmpTrendStmt->execute($cmpParams);
             $comparisonTrend = array_map(
-                static fn(array $r): array => ['periodo' => (string)$r['periodo'], 'saldo' => (float)$r['saldo']],
+                static fn(array $r): array => [
+                    'periodo' => (string)$r['periodo'],
+                    'saldo' => (float)$r['saldo'],
+                    'exposicion_critica' => (float)($r['exposicion_critica'] ?? 0),
+                    'exposicion_critica_pct' => ((float)$r['saldo']) > 0 ? (((float)($r['exposicion_critica'] ?? 0) / (float)$r['saldo']) * 100) : 0,
+                ],
                 $cmpTrendStmt->fetchAll(PDO::FETCH_ASSOC) ?: []
             );
         }
