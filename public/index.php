@@ -525,7 +525,13 @@ ob_start();
       signal: currentRequestController.signal
     })
       .then(async function (response) {
-        var data = await response.json();
+        var data;
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          var rawBody = await response.text();
+          throw new Error('Respuesta inválida del servidor: ' + rawBody.slice(0, 280));
+        }
         console.log('Response:', data);
         try {
 
@@ -533,6 +539,14 @@ ob_start();
             kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
             comparisonBox.textContent = '';
             fallbackNotice.textContent = '';
+            updatedAtEl.textContent = 'Error de actualización';
+            return;
+          }
+          if (data.ok === false) {
+            var serverMessage = data.message || 'No fue posible actualizar el dashboard.';
+            kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">' + escapeHtml(serverMessage) + '</p></article>';
+            comparisonBox.textContent = '';
+            fallbackNotice.textContent = data.debug ? ('Detalle técnico: ' + data.debug) : '';
             updatedAtEl.textContent = 'Error de actualización';
             return;
           }

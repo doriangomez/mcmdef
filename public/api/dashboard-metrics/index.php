@@ -9,6 +9,16 @@ require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+set_exception_handler(static function (Throwable $e): void {
+    http_response_code(500);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Error interno al construir métricas del dashboard.',
+        'debug' => $e->getMessage(),
+    ]);
+    exit;
+});
+
 if (!is_logged_in()) {
     http_response_code(401);
     echo json_encode(['ok' => false, 'message' => 'No autorizado.']);
