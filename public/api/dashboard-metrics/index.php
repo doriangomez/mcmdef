@@ -375,9 +375,24 @@ $trendSql = "SELECT $monthExpr AS periodo,
     $trendWhereSql
     GROUP BY periodo
     ORDER BY periodo ASC";
-$trendStmt = $pdo->prepare($trendSql);
-$trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
-$trendRows = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
+$trendRows = [];
+try {
+    $trendStmt = $pdo->prepare($trendSql);
+    $trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
+    $trendRows = $trendStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $trendError) {
+    $fallbackTrendSql = "SELECT $monthExpr AS periodo,
+        COALESCE(SUM(d.saldo_pendiente),0) saldo,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
+        FROM cartera_documentos d
+        LEFT JOIN clientes c ON c.id = d.cliente_id
+        WHERE d.estado_documento = 'activo'
+        GROUP BY periodo
+        ORDER BY periodo ASC";
+    $fallbackStmt = $pdo->prepare($fallbackTrendSql);
+    $fallbackStmt->execute([$moraCriticaBaseDias]);
+    $trendRows = $fallbackStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
 $trend = [];
 $prev = null;
 foreach ($trendRows as $row) {
