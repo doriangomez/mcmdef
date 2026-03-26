@@ -69,6 +69,21 @@ $kpiStmt = $pdo->prepare(
 );
 $kpiStmt->execute($baseParams);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$periodoDashboard = trim((string)($lastLoad['periodo_detectado'] ?? ''));
+if ($periodoDashboard === '') {
+    $periodoDashboard = date('Y-m');
+}
+
+$recaudoPeriodoStmt = $pdo->prepare(
+    'SELECT COALESCE(SUM(r.importe_aplicado), 0) AS total_recaudo
+     FROM recaudo_detalle r
+     INNER JOIN cargas_recaudo c ON c.id = r.carga_id
+     WHERE c.estado = "activa"
+       AND c.activo = 1
+       AND c.periodo = ?'
+);
+$recaudoPeriodoStmt->execute([$periodoDashboard]);
+$recaudoPeriodo = (float)$recaudoPeriodoStmt->fetchColumn();
 
 $moraStmt = $pdo->prepare(
     'SELECT
@@ -208,6 +223,7 @@ $topCliente = $paretoRows[0] ?? null;
 $dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
     ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
     : 0.0;
+$rotacionCarteraDias = $recaudoPeriodo > 0 ? ($totalCartera / $recaudoPeriodo) * 30 : null;
 $severidadMora = $totalVencido > 0 ? ($carteraCritica / $totalVencido) * 100 : 0.0;
 $documentosVencidosPct = $totalDocumentos > 0 ? ($documentosVencidos / $totalDocumentos) * 100 : 0.0;
 $top5Suma = 0.0;
@@ -284,6 +300,7 @@ ob_start();
   <section class="gd-kpi-grid gd-kpi-grid-wide">
     <article class="gd-kpi-card"><span>Total recaudo</span><strong>Pendiente carga de recaudo</strong></article>
     <article class="gd-kpi-card"><span>Total presupuesto</span><strong>Pendiente carga de presupuesto</strong></article>
+    <article class="gd-kpi-card"><span>Rotación de cartera (DSO)</span><strong><?= $rotacionCarteraDias !== null ? number_format($rotacionCarteraDias, 1, ',', '.') . ' días' : 'Sin recaudo del periodo' ?></strong></article>
     <article class="gd-kpi-card"><span>Cartera total</span><strong>$<?= number_format($totalCartera, 0, ',', '.') ?></strong></article>
     <article class="gd-kpi-card"><span>Cartera crítica (&gt;90 días)</span><strong>$<?= number_format($carteraCritica, 0, ',', '.') ?></strong></article>
     <article class="gd-kpi-card"><span>Índice severidad de mora</span><strong><?= number_format($severidadMora, 2, ',', '.') ?>%</strong></article>
