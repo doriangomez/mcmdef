@@ -54,6 +54,8 @@ function valid_period_ym(string $value): bool
 $rawFilters = [
     'periodo' => qf('periodo'),
     'comparar_periodo' => qf('comparar_periodo'),
+    'comparar_fecha_desde' => qf('comparar_fecha_desde'),
+    'comparar_fecha_hasta' => qf('comparar_fecha_hasta'),
     'fecha_desde' => qf('fecha_desde'),
     'fecha_hasta' => qf('fecha_hasta'),
     'comparar_anterior' => qf('comparar_anterior') === '1',
@@ -81,6 +83,11 @@ $selectedPeriod = valid_period_ym($rawFilters['periodo']) ? $rawFilters['periodo
 $selectedComparisonPeriod = (valid_period_ym($rawFilters['comparar_periodo']) && in_array($rawFilters['comparar_periodo'], $periodOptions, true))
     ? $rawFilters['comparar_periodo']
     : '';
+$selectedCompareFrom = valid_date_ymd($rawFilters['comparar_fecha_desde']) ? $rawFilters['comparar_fecha_desde'] : '';
+$selectedCompareTo = valid_date_ymd($rawFilters['comparar_fecha_hasta']) ? $rawFilters['comparar_fecha_hasta'] : '';
+if ($selectedCompareFrom !== '' && $selectedCompareTo !== '' && $selectedCompareFrom > $selectedCompareTo) {
+    [$selectedCompareFrom, $selectedCompareTo] = [$selectedCompareTo, $selectedCompareFrom];
+}
 
 $periodStart = '';
 $periodEnd = '';
@@ -181,6 +188,8 @@ if ($rawFilters['cliente'] !== '' && isset($clienteSet[normalize($rawFilters['cl
 $filters = [
     'periodo' => $selectedPeriod,
     'comparar_periodo' => $selectedComparisonPeriod,
+    'comparar_fecha_desde' => $selectedCompareFrom,
+    'comparar_fecha_hasta' => $selectedCompareTo,
     'fecha_desde' => $fechaDesde,
     'fecha_hasta' => $fechaHasta,
     'comparar_anterior' => $rawFilters['comparar_anterior'],
@@ -489,10 +498,18 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
     }
 
     $comparisonLabel = '';
-    if ($filters['comparar_personalizado'] && $filters['comparar_periodo'] !== '') {
+    $comparisonMode = '';
+    if ($filters['comparar_personalizado'] && $filters['comparar_fecha_desde'] !== '' && $filters['comparar_fecha_hasta'] !== '') {
+        $cmpWhere[] = "$fechaExpr BETWEEN ? AND ?";
+        $cmpParams[] = $filters['comparar_fecha_desde'];
+        $cmpParams[] = $filters['comparar_fecha_hasta'];
+        $comparisonLabel = $filters['comparar_fecha_desde'] . ' a ' . $filters['comparar_fecha_hasta'];
+        $comparisonMode = 'date_range';
+    } elseif ($filters['comparar_personalizado'] && $filters['comparar_periodo'] !== '') {
         $cmpWhere[] = "$monthExpr = ?";
         $cmpParams[] = $filters['comparar_periodo'];
         $comparisonLabel = $filters['comparar_periodo'];
+        $comparisonMode = 'period';
     } elseif ($filters['comparar_anterior'] && $filters['periodo'] !== '') {
         $periodDate = DateTimeImmutable::createFromFormat('Y-m-d', $filters['periodo'] . '-01');
         if ($periodDate instanceof DateTimeImmutable) {
@@ -500,6 +517,7 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
             $cmpWhere[] = "$monthExpr = ?";
             $cmpParams[] = $comparisonPeriod;
             $comparisonLabel = $comparisonPeriod;
+            $comparisonMode = 'period';
         }
     } elseif ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
         $start = new DateTimeImmutable($filters['fecha_desde']);
@@ -511,6 +529,7 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
         $cmpParams[] = $prevStart->format('Y-m-d');
         $cmpParams[] = $prevEnd->format('Y-m-d');
         $comparisonLabel = $prevStart->format('Y-m-d') . ' a ' . $prevEnd->format('Y-m-d');
+        $comparisonMode = 'date_range';
     }
 
     if ($comparisonLabel !== '') {
@@ -525,11 +544,28 @@ if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
         $cmpStmt->execute($cmpParams);
         $cmp = $cmpStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+        $comparisonTrend = [];
+        if ($comparisonMode === 'period' || $comparisonMode === 'date_range') {
+            $cmpTrendSql = "SELECT $monthExpr periodo, COALESCE(SUM(d.saldo_pendiente),0) saldo
+              FROM cartera_documentos d
+              LEFT JOIN clientes c ON c.id = d.cliente_id
+              WHERE " . implode(' AND ', $cmpWhere) . "
+              GROUP BY periodo
+              ORDER BY periodo";
+            $cmpTrendStmt = $pdo->prepare($cmpTrendSql);
+            $cmpTrendStmt->execute(array_slice($cmpParams, 1));
+            $comparisonTrend = array_map(
+                static fn(array $r): array => ['periodo' => (string)$r['periodo'], 'saldo' => (float)$r['saldo']],
+                $cmpTrendStmt->fetchAll(PDO::FETCH_ASSOC) ?: []
+            );
+        }
+
         $comparison = [
             'periodo_anterior' => ['label' => $comparisonLabel],
             'variacion_cartera_pct' => ((float)($cmp['cartera_total'] ?? 0)) > 0 ? (($carteraTotal - (float)$cmp['cartera_total']) / (float)$cmp['cartera_total']) * 100 : 0,
             'variacion_mora_pct' => ((float)($cmp['cartera_vencida'] ?? 0)) > 0 ? (($carteraVencida - (float)$cmp['cartera_vencida']) / (float)$cmp['cartera_vencida']) * 100 : 0,
             'variacion_exposicion_pct' => ((float)($cmp['cartera_critica'] ?? 0)) > 0 ? ((((float)($m['saldo_critico'] ?? 0)) - (float)$cmp['cartera_critica']) / (float)$cmp['cartera_critica']) * 100 : 0,
+            'trend' => $comparisonTrend,
         ];
     }
 }

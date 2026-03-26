@@ -75,11 +75,13 @@ ob_start();
             Comparar contra periodo específico
           </span>
         </label>
-        <label class="filter-field" for="filtroPeriodoComparacion">
-          <span>Periodo de comparación</span>
-          <select id="filtroPeriodoComparacion" name="comparar_periodo" disabled>
-            <option value="">Automático (periodo anterior)</option>
-          </select>
+        <label class="filter-field filter-field-date" for="filtroCompararFechaDesde">
+          <span>Comparar desde</span>
+          <input id="filtroCompararFechaDesde" name="comparar_fecha_desde" type="date" disabled>
+        </label>
+        <label class="filter-field filter-field-date" for="filtroCompararFechaHasta">
+          <span>Comparar hasta</span>
+          <input id="filtroCompararFechaHasta" name="comparar_fecha_hasta" type="date" disabled>
         </label>
       </div>
     </form>
@@ -193,7 +195,7 @@ ob_start();
     }).join('');
   }
 
-  function renderCharts(data) {
+  function renderCharts(data, comparison) {
     var aging = data.aging || [];
     var agingNegative = data.aging_negative || { bucket: 'Saldo negativo', value: 0, pct: 0 };
     var agingCategories = aging.map(function (r) { return r.bucket; }).concat([agingNegative.bucket || 'Saldo negativo']);
@@ -218,10 +220,32 @@ ob_start();
     }));
 
     var trend = data.trend || [];
+    var trendMap = {};
+    trend.forEach(function (r) {
+      trendMap[r.periodo] = r.saldo;
+    });
+    var comparisonTrendMap = {};
+    var comparisonTrend = (comparison && comparison.trend) || [];
+    comparisonTrend.forEach(function (r) {
+      comparisonTrendMap[r.periodo] = r.saldo;
+    });
+    var trendCategories = Array.from(new Set(
+      trend.map(function (r) { return r.periodo; }).concat(comparisonTrend.map(function (r) { return r.periodo; }))
+    )).sort();
+    var currentTrendSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo] : null;
+    });
+    var trendComparisonSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo] : null;
+    });
+    var trendSeries = [{ name: 'Saldo pendiente', data: currentTrendSeries }];
+    if (comparisonTrend.length) {
+      trendSeries.push({ name: 'Saldo periodo comparación', data: trendComparisonSeries });
+    }
     upsert('trend', 'trendChart', Object.assign(noDataOptions(280), {
       chart: { type: 'line', height: 280, toolbar: { show: false } },
-      series: [{ name: 'Saldo pendiente', data: trend.map(function (r) { return r.saldo; }) }],
-      xaxis: { categories: trend.map(function (r) { return r.periodo; }) },
+      series: trendSeries,
+      xaxis: { categories: trendCategories },
       tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Var.: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
     }));
 
@@ -368,7 +392,8 @@ ob_start();
       fechaHasta: getFilterValue('filtroFechaHasta'),
       compararAnterior: Boolean(document.getElementById('filtroCompararAnterior') && document.getElementById('filtroCompararAnterior').checked),
       compararPersonalizado: Boolean(document.getElementById('filtroCompararPersonalizado') && document.getElementById('filtroCompararPersonalizado').checked),
-      compararPeriodo: getFilterValue('filtroPeriodoComparacion'),
+      compararFechaDesde: getFilterValue('filtroCompararFechaDesde'),
+      compararFechaHasta: getFilterValue('filtroCompararFechaHasta'),
       regional: getFilterValue('regional'),
       canal: getFilterValue('filtroCanal'),
       empleado: getFilterValue('filtroEmpleado'),
@@ -382,7 +407,8 @@ ob_start();
       fechaHasta: filters.fechaHasta,
       compararAnterior: filters.compararAnterior,
       compararPersonalizado: filters.compararPersonalizado,
-      compararPeriodo: filters.compararPeriodo,
+      compararFechaDesde: filters.compararFechaDesde,
+      compararFechaHasta: filters.compararFechaHasta,
       regional: filters.regional,
       canal: filters.canal,
       empleado: filters.empleado,
@@ -411,7 +437,8 @@ ob_start();
     }
     if (filters.compararPersonalizado) {
       url.searchParams.set('comparar_personalizado', '1');
-      appendFilter(url.searchParams, 'comparar_periodo', filters.compararPeriodo);
+      appendFilter(url.searchParams, 'comparar_fecha_desde', filters.compararFechaDesde);
+      appendFilter(url.searchParams, 'comparar_fecha_hasta', filters.compararFechaHasta);
     }
     appendFilter(url.searchParams, 'regional', filters.regional);
     appendFilter(url.searchParams, 'canal', filters.canal);
@@ -434,21 +461,21 @@ ob_start();
     hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
     var compararAnterior = document.getElementById('filtroCompararAnterior');
     var compararPersonalizado = document.getElementById('filtroCompararPersonalizado');
-    var periodoComparacion = document.getElementById('filtroPeriodoComparacion');
+    var compararFechaDesde = document.getElementById('filtroCompararFechaDesde');
+    var compararFechaHasta = document.getElementById('filtroCompararFechaHasta');
     if (compararAnterior) {
       compararAnterior.checked = Boolean(selected.comparar_anterior);
     }
     if (compararPersonalizado) {
       compararPersonalizado.checked = Boolean(selected.comparar_personalizado);
     }
-    if (periodoComparacion) {
-      var periodHtml = ['<option value="">Automático (periodo anterior)</option>'];
-      (options.periodo || []).forEach(function (value) {
-        periodHtml.push('<option value="' + value + '">' + value + '</option>');
-      });
-      periodoComparacion.innerHTML = periodHtml.join('');
-      periodoComparacion.value = selected.comparar_periodo || '';
-      periodoComparacion.disabled = !(compararPersonalizado && compararPersonalizado.checked);
+    if (compararFechaDesde) {
+      compararFechaDesde.value = selected.comparar_fecha_desde || '';
+      compararFechaDesde.disabled = !(compararPersonalizado && compararPersonalizado.checked);
+    }
+    if (compararFechaHasta) {
+      compararFechaHasta.value = selected.comparar_fecha_hasta || '';
+      compararFechaHasta.disabled = !(compararPersonalizado && compararPersonalizado.checked);
     }
     hydrateRegional(options.regional || [], selected.regional || '');
     hydrateCanal(options.canal || [], selected.canal || '');
@@ -499,7 +526,7 @@ ob_start();
           }
 
           if (data && data.charts) {
-            renderCharts(data.charts);
+            renderCharts(data.charts, data.comparison || null);
           }
 
           updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
@@ -571,45 +598,45 @@ ob_start();
       });
     }
 
-    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente', 'filtroCompararAnterior', 'filtroCompararPersonalizado'].forEach(function (filterId) {
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente', 'filtroCompararAnterior', 'filtroCompararPersonalizado', 'filtroCompararFechaDesde', 'filtroCompararFechaHasta'].forEach(function (filterId) {
       var el = document.getElementById(filterId);
       if (!el) return;
       el.addEventListener('change', function () {
         if (filterId === 'filtroCompararAnterior') {
           var personalizedEl = document.getElementById('filtroCompararPersonalizado');
-          var comparisonPeriodEl = document.getElementById('filtroPeriodoComparacion');
+          var comparisonFromEl = document.getElementById('filtroCompararFechaDesde');
+          var comparisonToEl = document.getElementById('filtroCompararFechaHasta');
           if (this.checked && personalizedEl) {
             personalizedEl.checked = false;
           }
-          if (comparisonPeriodEl && (!personalizedEl || !personalizedEl.checked)) {
-            comparisonPeriodEl.disabled = true;
+          if (comparisonFromEl && (!personalizedEl || !personalizedEl.checked)) {
+            comparisonFromEl.disabled = true;
+          }
+          if (comparisonToEl && (!personalizedEl || !personalizedEl.checked)) {
+            comparisonToEl.disabled = true;
           }
         }
         if (filterId === 'filtroCompararPersonalizado') {
           var previousEl = document.getElementById('filtroCompararAnterior');
-          var periodEl = document.getElementById('filtroPeriodoComparacion');
+          var fromEl = document.getElementById('filtroCompararFechaDesde');
+          var toEl = document.getElementById('filtroCompararFechaHasta');
           if (this.checked && previousEl) {
             previousEl.checked = false;
           }
-          if (periodEl) {
-            periodEl.disabled = !this.checked;
-            if (this.checked && !periodEl.value) {
-              periodEl.focus();
+          if (fromEl) {
+            fromEl.disabled = !this.checked;
+            if (this.checked && !fromEl.value) {
+              fromEl.focus();
             }
+          }
+          if (toEl) {
+            toEl.disabled = !this.checked;
           }
         }
         console.log('Cambio de filtro detectado:', filterId, this.value);
         scheduleRequestData();
       });
     });
-
-    var comparisonPeriodSelect = document.getElementById('filtroPeriodoComparacion');
-    if (comparisonPeriodSelect) {
-      comparisonPeriodSelect.addEventListener('change', function () {
-        scheduleRequestData();
-      });
-    }
-
 
     requestData();
   }
