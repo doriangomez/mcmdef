@@ -8,6 +8,21 @@ require_once __DIR__ . '/../../../app/services/UenService.php';
 require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
 
 header('Content-Type: application/json; charset=utf-8');
+$debugMode = (($_GET['debug'] ?? '') === '1');
+
+set_exception_handler(static function (Throwable $e) use ($debugMode): void {
+    http_response_code(500);
+    error_log('[dashboard-metrics] ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    $payload = [
+        'ok' => false,
+        'message' => 'Error interno al construir métricas del dashboard.',
+    ];
+    if ($debugMode) {
+        $payload['debug'] = $e->getMessage();
+    }
+    echo json_encode($payload);
+    exit;
+});
 
 set_exception_handler(static function (Throwable $e): void {
     http_response_code(500);

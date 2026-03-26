@@ -427,6 +427,7 @@ ob_start();
   function buildDashboardUrl() {
     var filters = getFilters();
     var url = new URL(endpointUrl, window.location.origin);
+    var pageParams = new URLSearchParams(window.location.search);
 
     appendFilter(url.searchParams, 'periodo', filters.periodo);
     appendFilter(url.searchParams, 'uen', filters.uen);
@@ -444,6 +445,9 @@ ob_start();
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
     appendFilter(url.searchParams, 'cliente', filters.cliente);
+    if (pageParams.get('debug') === '1') {
+      url.searchParams.set('debug', '1');
+    }
 
     console.log('URL con filtros:', url.toString());
 
@@ -517,8 +521,7 @@ ob_start();
             return;
           }
           if (data.ok === false) {
-            var serverMessage = data.message || 'No fue posible actualizar el dashboard.';
-            kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">' + escapeHtml(serverMessage) + '</p></article>';
+            kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">' + escapeHtml(data.message || 'No fue posible actualizar el dashboard.') + '</p></article>';
             comparisonBox.textContent = '';
             fallbackNotice.textContent = data.debug ? ('Detalle técnico: ' + data.debug) : '';
             updatedAtEl.textContent = 'Error de actualización';
