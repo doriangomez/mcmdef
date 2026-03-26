@@ -61,6 +61,28 @@ ob_start();
           <span>Fecha hasta</span>
           <input id="filtroFechaHasta" name="fecha_hasta" type="date">
         </label>
+        <label class="filter-field filter-field-toggle" for="filtroCompararAnterior">
+          <span>Comparación</span>
+          <span style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+            <input id="filtroCompararAnterior" name="comparar_anterior" type="checkbox" value="1">
+            Comparar contra periodo anterior
+          </span>
+        </label>
+        <label class="filter-field filter-field-toggle" for="filtroCompararPersonalizado">
+          <span>Comparación</span>
+          <span style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+            <input id="filtroCompararPersonalizado" name="comparar_personalizado" type="checkbox" value="1">
+            Comparar contra periodo específico
+          </span>
+        </label>
+        <label class="filter-field filter-field-date" for="filtroCompararFechaDesde">
+          <span>Comparar desde</span>
+          <input id="filtroCompararFechaDesde" name="comparar_fecha_desde" type="date" disabled>
+        </label>
+        <label class="filter-field filter-field-date" for="filtroCompararFechaHasta">
+          <span>Comparar hasta</span>
+          <input id="filtroCompararFechaHasta" name="comparar_fecha_hasta" type="date" disabled>
+        </label>
       </div>
     </form>
     <div class="filter-actions">
@@ -173,7 +195,7 @@ ob_start();
     }).join('');
   }
 
-  function renderCharts(data) {
+  function renderCharts(data, comparison) {
     var aging = data.aging || [];
     var agingNegative = data.aging_negative || { bucket: 'Saldo negativo', value: 0, pct: 0 };
     var agingCategories = aging.map(function (r) { return r.bucket; }).concat([agingNegative.bucket || 'Saldo negativo']);
@@ -198,11 +220,59 @@ ob_start();
     }));
 
     var trend = data.trend || [];
+    var trendMap = {};
+    trend.forEach(function (r) {
+      trendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
+    });
+    var comparisonTrendMap = {};
+    var comparisonTrend = (comparison && comparison.trend) || [];
+    comparisonTrend.forEach(function (r) {
+      comparisonTrendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
+    });
+    var trendCategories = Array.from(new Set(
+      trend.map(function (r) { return r.periodo; }).concat(comparisonTrend.map(function (r) { return r.periodo; }))
+    )).sort();
+    var currentExposureSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCritica : null;
+    });
+    var currentExposurePctSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCriticaPct : null;
+    });
+    var trendComparisonSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo].exposicionCritica : null;
+    });
+    var trendSeries = [
+      { name: 'Exposición crítica', data: currentExposureSeries },
+      { name: '% Exposición crítica', data: currentExposurePctSeries, type: 'line' }
+    ];
+    if (comparisonTrend.length) {
+      trendSeries.push({ name: 'Exposición crítica comparación', data: trendComparisonSeries });
+    }
     upsert('trend', 'trendChart', Object.assign(noDataOptions(280), {
       chart: { type: 'line', height: 280, toolbar: { show: false } },
-      series: [{ name: 'Saldo pendiente', data: trend.map(function (r) { return r.saldo; }) }],
-      xaxis: { categories: trend.map(function (r) { return r.periodo; }) },
-      tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Var.: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
+      series: trendSeries,
+      xaxis: { categories: trendCategories },
+      yaxis: [
+        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, min: 0, max: 100, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
+      ],
+      stroke: { width: [3, 3, 3] },
+      tooltip: {
+        shared: true,
+        y: {
+          formatter: function (v, ctx) {
+            return ctx.seriesIndex === 1 ? (decimal.format(v || 0) + '%') : currency.format(v || 0);
+          }
+        }
+      }
     }));
 
     var moraUen = data.mora_uen || [];
@@ -346,6 +416,10 @@ ob_start();
       uen: getFilterValue('filtroUen'),
       fechaDesde: getFilterValue('filtroFechaDesde'),
       fechaHasta: getFilterValue('filtroFechaHasta'),
+      compararAnterior: Boolean(document.getElementById('filtroCompararAnterior') && document.getElementById('filtroCompararAnterior').checked),
+      compararPersonalizado: Boolean(document.getElementById('filtroCompararPersonalizado') && document.getElementById('filtroCompararPersonalizado').checked),
+      compararFechaDesde: getFilterValue('filtroCompararFechaDesde'),
+      compararFechaHasta: getFilterValue('filtroCompararFechaHasta'),
       regional: getFilterValue('regional'),
       canal: getFilterValue('filtroCanal'),
       empleado: getFilterValue('filtroEmpleado'),
@@ -357,6 +431,10 @@ ob_start();
       uen: filters.uen,
       fechaDesde: filters.fechaDesde,
       fechaHasta: filters.fechaHasta,
+      compararAnterior: filters.compararAnterior,
+      compararPersonalizado: filters.compararPersonalizado,
+      compararFechaDesde: filters.compararFechaDesde,
+      compararFechaHasta: filters.compararFechaHasta,
       regional: filters.regional,
       canal: filters.canal,
       empleado: filters.empleado,
@@ -380,6 +458,14 @@ ob_start();
     appendFilter(url.searchParams, 'uen', filters.uen);
     appendFilter(url.searchParams, 'fecha_desde', filters.fechaDesde);
     appendFilter(url.searchParams, 'fecha_hasta', filters.fechaHasta);
+    if (filters.compararAnterior) {
+      url.searchParams.set('comparar_anterior', '1');
+    }
+    if (filters.compararPersonalizado) {
+      url.searchParams.set('comparar_personalizado', '1');
+      appendFilter(url.searchParams, 'comparar_fecha_desde', filters.compararFechaDesde);
+      appendFilter(url.searchParams, 'comparar_fecha_hasta', filters.compararFechaHasta);
+    }
     appendFilter(url.searchParams, 'regional', filters.regional);
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
@@ -399,6 +485,24 @@ ob_start();
     hydratePeriod(options.periodo || [], selected.periodo || '');
     hydrateDateInput('filtroFechaDesde', selected.fecha_desde || '', options.fecha_desde || '');
     hydrateDateInput('filtroFechaHasta', selected.fecha_hasta || '', options.fecha_hasta || '');
+    var compararAnterior = document.getElementById('filtroCompararAnterior');
+    var compararPersonalizado = document.getElementById('filtroCompararPersonalizado');
+    var compararFechaDesde = document.getElementById('filtroCompararFechaDesde');
+    var compararFechaHasta = document.getElementById('filtroCompararFechaHasta');
+    if (compararAnterior) {
+      compararAnterior.checked = Boolean(selected.comparar_anterior);
+    }
+    if (compararPersonalizado) {
+      compararPersonalizado.checked = Boolean(selected.comparar_personalizado);
+    }
+    if (compararFechaDesde) {
+      compararFechaDesde.value = selected.comparar_fecha_desde || '';
+      compararFechaDesde.disabled = !(compararPersonalizado && compararPersonalizado.checked);
+    }
+    if (compararFechaHasta) {
+      compararFechaHasta.value = selected.comparar_fecha_hasta || '';
+      compararFechaHasta.disabled = !(compararPersonalizado && compararPersonalizado.checked);
+    }
     hydrateRegional(options.regional || [], selected.regional || '');
     hydrateCanal(options.canal || [], selected.canal || '');
     hydrateEmpleado(options.empleado_ventas || [], selected.empleado_ventas || '');
@@ -448,13 +552,14 @@ ob_start();
           }
 
           if (data && data.charts) {
-            renderCharts(data.charts);
+            renderCharts(data.charts, data.comparison || null);
           }
 
           updatedAtEl.textContent = 'Actualizado: ' + ((data.meta && data.meta.generated_at_human) || '--');
 
           if (data.comparison) {
-            comparisonBox.innerHTML = 'Comparación periodo anterior (' + data.comparison.periodo_anterior.desde + ' a ' + data.comparison.periodo_anterior.hasta + '): ' +
+            var comparisonLabel = (data.comparison.periodo_anterior && data.comparison.periodo_anterior.label) || 'periodo anterior';
+            comparisonBox.innerHTML = 'Comparación contra ' + comparisonLabel + ': ' +
               'Cartera ' + decimal.format(data.comparison.variacion_cartera_pct || 0) + '% | ' +
               'Mora ' + decimal.format(data.comparison.variacion_mora_pct || 0) + '% | ' +
               'Exposición crítica ' + decimal.format(data.comparison.variacion_exposicion_pct || 0) + '%';
@@ -519,15 +624,45 @@ ob_start();
       });
     }
 
-    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente'].forEach(function (filterId) {
+    ['filtroFechaDesde', 'filtroFechaHasta', 'filtroCanal', 'filtroEmpleado', 'filtroCliente', 'filtroCompararAnterior', 'filtroCompararPersonalizado', 'filtroCompararFechaDesde', 'filtroCompararFechaHasta'].forEach(function (filterId) {
       var el = document.getElementById(filterId);
       if (!el) return;
       el.addEventListener('change', function () {
+        if (filterId === 'filtroCompararAnterior') {
+          var personalizedEl = document.getElementById('filtroCompararPersonalizado');
+          var comparisonFromEl = document.getElementById('filtroCompararFechaDesde');
+          var comparisonToEl = document.getElementById('filtroCompararFechaHasta');
+          if (this.checked && personalizedEl) {
+            personalizedEl.checked = false;
+          }
+          if (comparisonFromEl && (!personalizedEl || !personalizedEl.checked)) {
+            comparisonFromEl.disabled = true;
+          }
+          if (comparisonToEl && (!personalizedEl || !personalizedEl.checked)) {
+            comparisonToEl.disabled = true;
+          }
+        }
+        if (filterId === 'filtroCompararPersonalizado') {
+          var previousEl = document.getElementById('filtroCompararAnterior');
+          var fromEl = document.getElementById('filtroCompararFechaDesde');
+          var toEl = document.getElementById('filtroCompararFechaHasta');
+          if (this.checked && previousEl) {
+            previousEl.checked = false;
+          }
+          if (fromEl) {
+            fromEl.disabled = !this.checked;
+            if (this.checked && !fromEl.value) {
+              fromEl.focus();
+            }
+          }
+          if (toEl) {
+            toEl.disabled = !this.checked;
+          }
+        }
         console.log('Cambio de filtro detectado:', filterId, this.value);
         scheduleRequestData();
       });
     });
-
 
     requestData();
   }
