@@ -497,18 +497,37 @@ function build_documento_uid(string $tipo, string $nroDocumento): string
 
 function classify_financial_document_type(string $tipo): string
 {
-    $normalized = normalize_document_type($tipo);
-    if (in_array($normalized, ['NCN', 'NCI'], true)) {
+    $n = mb_strtoupper(trim($tipo), 'UTF-8');
+
+    // Códigos cortos — cartera
+    if (in_array($n, ['NCN', 'NCI', 'NCNAL', 'NCEXP'], true)) {
         return 'nota_credito';
     }
-    if ($normalized === 'RC') {
+    if (in_array($n, ['ND', 'NDNAL', 'NDEXP'], true)) {
+        return 'nota_debito';
+    }
+    if ($n === 'RC') {
         return 'recibo';
     }
-    if ($normalized === 'AC') {
+    if ($n === 'AC') {
         return 'ajuste';
     }
-    if (in_array($normalized, ['FA', 'POS'], true)) {
+    if (in_array($n, ['FA', 'POS', 'SI', 'FVNAL1', 'FVNAL2', 'FVNAL3', 'FVEXP1', 'FVEXP2'], true)) {
         return 'factura';
+    }
+
+    // Nombres completos — recaudos
+    if (str_contains($n, 'CR') || str_contains($n, 'CRED')) {
+        return 'nota_credito';
+    }
+    if (str_contains($n, 'D') && str_contains($n, 'BITO')) {
+        return 'nota_debito';
+    }
+    if (str_contains($n, 'RECIBO')) {
+        return 'recibo';
+    }
+    if (str_contains($n, 'ASIENTO') || str_contains($n, 'CONTABLE')) {
+        return 'ajuste';
     }
 
     return 'factura';
