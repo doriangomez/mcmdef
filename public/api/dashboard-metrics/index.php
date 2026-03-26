@@ -333,7 +333,7 @@ foreach ($agingDefs as $def) {
 $negativeAgingValue = abs((float)($m['saldo_negativo'] ?? 0));
 $negativeAgingPct = $carteraTotal > 0 ? ($negativeAgingValue / abs($carteraTotal)) * 100 : 0;
 
-$trendWhere = ['d.id_carga IS NOT NULL'];
+$trendWhere = ['1=1'];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
 if ($uenScope['sql'] !== '') {
@@ -356,15 +356,17 @@ if ($filters['cliente'] !== '') {
     $trendWhere[] = "$clienteExpr = ?";
     $trendParams[] = $filters['cliente'];
 }
+if ($filters['fecha_desde'] !== '') {
+    $trendWhere[] = "$fechaExpr >= ?";
+    $trendParams[] = $filters['fecha_desde'];
+}
+if ($filters['fecha_hasta'] !== '') {
+    $trendWhere[] = "$fechaExpr <= ?";
+    $trendParams[] = $filters['fecha_hasta'];
+}
 $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
-$trendLoadSql = "INNER JOIN (
-    SELECT periodo_detectado, MAX(id) AS carga_id
-    FROM cargas_cartera
-    WHERE estado = 'activa' AND periodo_detectado IS NOT NULL AND TRIM(periodo_detectado) <> ''
-    GROUP BY periodo_detectado
-) cl ON cl.carga_id = d.id_carga";
 
-$trendSql = "SELECT cl.periodo_detectado AS periodo,
+$trendSql = "SELECT $monthExpr AS periodo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo,
     COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
