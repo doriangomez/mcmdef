@@ -57,6 +57,7 @@ $rawFilters = [
     'fecha_desde' => qf('fecha_desde'),
     'fecha_hasta' => qf('fecha_hasta'),
     'comparar_anterior' => qf('comparar_anterior') === '1',
+    'comparar_personalizado' => qf('comparar_personalizado') === '1',
     'regional' => qf('regional'),
     'canal' => qf('canal'),
     'empleado_ventas' => qf('empleado_ventas'),
@@ -183,6 +184,7 @@ $filters = [
     'fecha_desde' => $fechaDesde,
     'fecha_hasta' => $fechaHasta,
     'comparar_anterior' => $rawFilters['comparar_anterior'],
+    'comparar_personalizado' => $rawFilters['comparar_personalizado'],
     'regional' => $selectedRegional,
     'canal' => $selectedCanal,
     'empleado_ventas' => $selectedEmpleado,
@@ -457,7 +459,7 @@ $hasRecaudoData = $recaudoState['loaded'] && $recaudoState['integrated'];
 $rotationDays = $hasRecaudoData && $recaudoTotal > 0 ? ($carteraTotal / $recaudoTotal) * 30 : null;
 
 $comparison = null;
-if ($filters['comparar_anterior']) {
+if ($filters['comparar_personalizado'] || $filters['comparar_anterior']) {
     $cmpWhere = ["d.estado_documento = 'activo'"];
     $cmpParams = [$moraCriticaBaseDias];
 
@@ -487,11 +489,11 @@ if ($filters['comparar_anterior']) {
     }
 
     $comparisonLabel = '';
-    if ($filters['comparar_periodo'] !== '') {
+    if ($filters['comparar_personalizado'] && $filters['comparar_periodo'] !== '') {
         $cmpWhere[] = "$monthExpr = ?";
         $cmpParams[] = $filters['comparar_periodo'];
         $comparisonLabel = $filters['comparar_periodo'];
-    } elseif ($filters['periodo'] !== '') {
+    } elseif ($filters['comparar_anterior'] && $filters['periodo'] !== '') {
         $periodDate = DateTimeImmutable::createFromFormat('Y-m-d', $filters['periodo'] . '-01');
         if ($periodDate instanceof DateTimeImmutable) {
             $comparisonPeriod = $periodDate->sub(new DateInterval('P1M'))->format('Y-m');
@@ -499,7 +501,7 @@ if ($filters['comparar_anterior']) {
             $cmpParams[] = $comparisonPeriod;
             $comparisonLabel = $comparisonPeriod;
         }
-    } elseif ($filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
+    } elseif ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters['fecha_hasta'] !== '') {
         $start = new DateTimeImmutable($filters['fecha_desde']);
         $end = new DateTimeImmutable($filters['fecha_hasta']);
         $days = max(1, (int)$end->diff($start)->days + 1);
