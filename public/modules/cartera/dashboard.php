@@ -226,6 +226,8 @@ $dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
     ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
     : 0.0;
 $rotacionCarteraDias = $recaudoPeriodo > 0 ? ($totalCartera / $recaudoPeriodo) * 30 : null;
+
+// Índice de severidad de mora ponderado por tramo (corregido: b61_90 con guión bajo)
 $vencidaTotalSeveridad = (float)($mora['b1_30'] ?? 0)
     + (float)($mora['b31_60'] ?? 0)
     + (float)($mora['b61_90'] ?? 0)
@@ -242,6 +244,7 @@ $severidadReferenciaDias = 90.0;
 $severidadMora = $vencidaTotalSeveridad > 0
     ? (($diasPonderados / $vencidaTotalSeveridad) / $severidadReferenciaDias) * 100
     : 0.0;
+
 $documentosVencidosPct = $totalDocumentos > 0 ? ($documentosVencidos / $totalDocumentos) * 100 : 0.0;
 $top5Suma = 0.0;
 foreach (array_slice($paretoRows, 0, 5) as $row) {
