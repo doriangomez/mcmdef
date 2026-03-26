@@ -357,16 +357,16 @@ if ($filters['cliente'] !== '') {
     $trendParams[] = $filters['cliente'];
 }
 if ($filters['fecha_desde'] !== '') {
-    $trendWhere[] = "$fechaExpr >= ?";
+    $trendWhere[] = 'd.fecha_contabilizacion >= ?';
     $trendParams[] = $filters['fecha_desde'];
 }
 if ($filters['fecha_hasta'] !== '') {
-    $trendWhere[] = "$fechaExpr <= ?";
+    $trendWhere[] = 'd.fecha_contabilizacion <= ?';
     $trendParams[] = $filters['fecha_hasta'];
 }
 $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
 
-$trendSql = "SELECT $monthExpr AS periodo,
+$trendSql = "SELECT DATE_FORMAT(d.fecha_contabilizacion, '%Y-%m') AS periodo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo,
     COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
