@@ -254,7 +254,8 @@ foreach (array_slice($paretoRows, 0, 5) as $row) {
 }
 $concentracionTop5 = $totalVencido > 0 ? ($top5Suma / $totalVencido) * 100 : 0.0;
 $topClienteParticipacion = $dependenciaMayor;
- 
+$topClienteValor = $topCliente !== null ? (float)($topCliente['saldo_vencido'] ?? 0) : 0.0;
+
 $chartEdad = [
     (float)($mora['vigente'] ?? 0),
     (float)($mora['b1_30'] ?? 0),
@@ -329,7 +330,7 @@ ob_start();
     <article class="gd-kpi-card"><span>% documentos vencidos</span><strong><?= number_format($documentosVencidosPct, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>Concentración Top 5 clientes</span><strong><?= number_format($concentracionTop5, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>Dependencia cliente mayor</span><strong><?= number_format($dependenciaMayor, 2, ',', '.') ?>%</strong></article>
-    <article class="gd-kpi-card"><span>Cliente mayor participación</span><strong><?= htmlspecialchars($topCliente['nombre'] ?? 'Sin datos') ?> (<?= number_format($topClienteParticipacion, 2, ',', '.') ?>%)</strong></article>
+    <article class="gd-kpi-card"><span>Cliente mayor participación</span><strong><?= htmlspecialchars($topCliente['nombre'] ?? 'Sin datos') ?> (<?= number_format($topClienteParticipacion, 2, ',', '.') ?>%) · $<?= number_format($topClienteValor, 0, ',', '.') ?></strong></article>
   </section>
  
   <section class="gd-grid-2">
