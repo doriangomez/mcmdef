@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/config/auth.php';
 require_once __DIR__ . '/../../../app/services/PortfolioScope.php';
 require_once __DIR__ . '/../../../app/services/UenService.php';
+require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -15,6 +16,11 @@ if (!is_logged_in()) {
 }
 
 $user = current_user();
+$moraCriticaBaseRaw = system_setting_get($pdo, 'mora_critica_base_dias', '90');
+$moraCriticaBaseDias = is_numeric($moraCriticaBaseRaw) ? (int)$moraCriticaBaseRaw : 90;
+if ($moraCriticaBaseDias < 1) {
+    $moraCriticaBaseDias = 90;
+}
 
 function qf(string $key): string
 {
@@ -227,7 +233,7 @@ $kpiSql = "SELECT
     COALESCE(SUM(d.bucket_91_180),0) saldo_91_180,
     COALESCE(SUM(d.bucket_181_360),0) saldo_181_360,
     COALESCE(SUM(d.bucket_361_plus),0) saldo_361_plus,
-    COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) saldo_critico,
+    COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) saldo_critico,
     COALESCE(SUM(CASE WHEN d.saldo_pendiente < 0 THEN d.saldo_pendiente ELSE 0 END),0) saldo_negativo,
     COUNT(*) total_docs,
     COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END),0) docs_vencidos
@@ -235,7 +241,7 @@ $kpiSql = "SELECT
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $whereSql";
 $stmt = $pdo->prepare($kpiSql);
-$stmt->execute($params);
+$stmt->execute(array_merge([$moraCriticaBaseDias], $params));
 $m = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $carteraTotal = (float)($m['cartera_total'] ?? 0);
@@ -456,11 +462,11 @@ if ($filters['comparar_anterior'] && $filters['fecha_desde'] !== '' && $filters[
     $cmpSql = "SELECT
       COALESCE(SUM(d.saldo_pendiente),0) cartera_total,
       COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END),0) cartera_vencida,
-      COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
+      COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) cartera_critica
       FROM cartera_documentos d
       LEFT JOIN clientes c ON c.id = d.cliente_id
       WHERE d.estado_documento = 'activo'" . $scope['sql'] . ($uenScope['sql'] ?? '') . ($filters['periodo'] !== '' ? " AND $monthExpr = ?" : '') . " AND $fechaExpr BETWEEN ? AND ?";
-    $cmpParams = array_merge($scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
+    $cmpParams = array_merge([$moraCriticaBaseDias], $scope['params'], $uenScope['params'] ?? [], $filters['periodo'] !== '' ? [$filters['periodo']] : [], [$prevStart->format('Y-m-d'), $prevEnd->format('Y-m-d')]);
     $cmpStmt = $pdo->prepare($cmpSql);
     $cmpStmt->execute($cmpParams);
     $cmp = $cmpStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -481,7 +487,7 @@ $scoreDrivers = [
     [
         'key' => 'critical',
         'kind' => 'risk',
-        'label' => 'Cartera crítica >180 días representa ' . number_format($porcCritica, 1, '.', '') . '%',
+        'label' => 'Cartera crítica >' . $moraCriticaBaseDias . ' días representa ' . number_format($porcCritica, 1, '.', '') . '%',
         'value' => $porcCritica,
         'direction' => 'lower_better',
     ],
@@ -529,7 +535,7 @@ $recaudoMissingCardMeta = [
 
 $kpis = [
     ['title' => 'Cartera Total', 'value' => $carteraTotal, 'unit' => 'currency', 'icon' => 'fa-solid fa-sack-dollar', 'tooltip' => 'Suma del saldo pendiente para los filtros aplicados.'],
-    ['title' => '% Cartera Crítica (>180 días)', 'value' => $porcCritica, 'unit' => 'percent', 'icon' => 'fa-solid fa-circle-exclamation', 'status' => $porcCritica > 20 ? 'critical' : 'good', 'tooltip' => 'Porcentaje de cartera en mora superior a 180 días.'],
+    ['title' => '% Cartera Crítica (>' . $moraCriticaBaseDias . ' días)', 'value' => $porcCritica, 'unit' => 'percent', 'icon' => 'fa-solid fa-circle-exclamation', 'status' => $porcCritica > 20 ? 'critical' : 'good', 'tooltip' => 'Porcentaje de cartera en mora superior a ' . $moraCriticaBaseDias . ' días.'],
     ['title' => 'Índice de Severidad de Mora', 'value' => $indiceSeveridad, 'unit' => 'ratio', 'icon' => 'fa-solid fa-gauge-high', 'status' => $indiceSeveridad > 1.6 ? 'critical' : 'warning', 'tooltip' => 'Pondera los buckets superiores a 90 días con mayor peso.'],
     array_merge([
         'title' => 'Rotación de Cartera',
