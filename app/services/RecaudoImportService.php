@@ -22,9 +22,10 @@ function recaudo_header_aliases(): array
     return [
         'documento' => ['documento', 'numero_documento', 'nro_documento', 'documento_aplicado', 'nro_documento_aplicado', 'cedula', 'nit'],
         'valor_pagado' => ['valor_pagado', 'valor', 'importe_aplicado', 'importe', 'valor_aplicado', 'pago', 'valor_pago'],
-        'fecha_pago' => ['fecha_pago', 'fecha', 'fecha_aplicacion', 'fecha_recibo'],
+        'fecha_pago' => ['fecha_pago', 'fecha_aplicacion', 'fecha_de_aplicacion', 'fecha_recibo', 'fecha_de_recibo', 'fecha'],
         'periodo' => ['periodo', 'mes', 'periodo_recaudo'],
-        'nro_recibo' => ['nro_recibo', 'numero_recibo', 'recibo', 'comprobante'],
+        'nro_recibo' => ['nro_recibo', 'nro_de_recibo', 'numero_recibo', 'recibo', 'comprobante'],
+        'tipo_doc' => ['tipo_documento_aplicado', 'tipo_documento', 'tipo'],
         'cliente' => ['cliente', 'nombre_cliente'],
         'vendedor' => ['vendedor', 'asesor', 'empleado_de_ventas'],
         'observacion' => ['observacion', 'detalle', 'descripcion'],
@@ -241,6 +242,7 @@ function recaudo_prepare_rows(array $rows): array
         $fechaPago = isset($map['fecha_pago']) ? normalize_date_value($row[$map['fecha_pago']] ?? null) : null;
         $periodo = isset($map['periodo']) ? periodo_normalizar(recaudo_cell_to_string($row[$map['periodo']] ?? null)) : '';
         $nroRecibo = isset($map['nro_recibo']) ? recaudo_cell_to_string($row[$map['nro_recibo']] ?? null) : '';
+        $tipoDoc = isset($map['tipo_doc']) ? recaudo_cell_to_string($row[$map['tipo_doc']] ?? null) : '';
         $cliente = isset($map['cliente']) ? recaudo_cell_to_string($row[$map['cliente']] ?? null) : '';
         $vendedor = isset($map['vendedor']) ? recaudo_cell_to_string($row[$map['vendedor']] ?? null) : '';
         $observacion = isset($map['observacion']) ? recaudo_cell_to_string($row[$map['observacion']] ?? null) : '';
@@ -267,6 +269,7 @@ function recaudo_prepare_rows(array $rows): array
             'fecha_pago' => $fechaPago,
             'periodo' => $periodo,
             'nro_recibo' => $nroRecibo,
+            'tipo_doc' => $tipoDoc,
             'cliente' => $cliente,
             'vendedor' => $vendedor,
             'observacion' => $observacion,
@@ -298,6 +301,9 @@ function recaudo_insert_load(PDO $pdo, array $file, array $result, int $userId):
     $validRows = $result['valid_rows'] ?? [];
     $summary = $result['summary'] ?? [];
     $loadPeriod = recaudo_resolve_load_period($validRows);
+    if ($loadPeriod === '') {
+        throw new RuntimeException('No fue posible determinar el periodo de la carga. Verifique que el archivo contenga fechas válidas.');
+    }
 
     $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version), 0) FROM cargas_recaudo WHERE periodo = ?');
     $versionStmt->execute([$loadPeriod]);
@@ -318,7 +324,7 @@ function recaudo_insert_load(PDO $pdo, array $file, array $result, int $userId):
 
     $cargaId = (int)$pdo->lastInsertId();
 
-    $detailStmt = $pdo->prepare('INSERT INTO recaudo_detalle (carga_id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, tipo_documento, cliente, vendedor, importe_aplicado, saldo_documento, periodo, uen, canal, regional, bucket, cartera_documento_id, cliente_conciliado, estado_conciliacion, observacion_conciliacion, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NULL, 0, NULL, ?, NOW())');
+    $detailStmt = $pdo->prepare('INSERT INTO recaudo_detalle (carga_id, nro_recibo, fecha_recibo, fecha_aplicacion, documento_aplicado, tipo_documento, cliente, vendedor, importe_aplicado, saldo_documento, periodo, uen, canal, regional, bucket, cartera_documento_id, cliente_conciliado, estado_conciliacion, observacion_conciliacion, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NULL, 0, NULL, ?, NOW())');
 
     foreach ($validRows as $row) {
         $detailStmt->execute([
@@ -327,6 +333,7 @@ function recaudo_insert_load(PDO $pdo, array $file, array $result, int $userId):
             $row['fecha_pago'] ?: null,
             $row['fecha_pago'] ?: null,
             (string)$row['documento'],
+            (string)($row['tipo_doc'] ?? ''),
             (string)($row['cliente'] ?? ''),
             (string)($row['vendedor'] ?? ''),
             (float)$row['valor_pagado'],
