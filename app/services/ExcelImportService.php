@@ -497,21 +497,51 @@ function build_documento_uid(string $tipo, string $nroDocumento): string
 
 function classify_financial_document_type(string $tipo): string
 {
-    $normalized = normalize_document_type($tipo);
-    if (in_array($normalized, ['NCN', 'NCI'], true)) {
-        return 'nota_credito';
+    $normalizeForStorage = static function (string $value): string {
+        // `cartera_documentos.tipo_documento_financiero` admite:
+        // factura, nota_credito, recibo, ajuste.
+        // Nota débito se normaliza como ajuste para evitar rechazos por ENUM.
+        if ($value === 'nota_debito') {
+            return 'ajuste';
+        }
+
+        return $value;
+    };
+
+    $n = mb_strtoupper(trim($tipo), 'UTF-8');
+
+    // Códigos cortos — cartera
+    if (in_array($n, ['NCN', 'NCI', 'NCNAL', 'NCEXP'], true)) {
+        return $normalizeForStorage('nota_credito');
     }
-    if ($normalized === 'RC') {
-        return 'recibo';
+    if (in_array($n, ['ND', 'NDNAL', 'NDEXP'], true)) {
+        return $normalizeForStorage('nota_debito');
     }
-    if ($normalized === 'AC') {
-        return 'ajuste';
+    if ($n === 'RC') {
+        return $normalizeForStorage('recibo');
     }
-    if (in_array($normalized, ['FA', 'POS'], true)) {
-        return 'factura';
+    if ($n === 'AC') {
+        return $normalizeForStorage('ajuste');
+    }
+    if (in_array($n, ['FA', 'POS', 'SI', 'FVNAL1', 'FVNAL2', 'FVNAL3', 'FVEXP1', 'FVEXP2'], true)) {
+        return $normalizeForStorage('factura');
     }
 
-    return 'factura';
+    // Nombres completos — recaudos
+    if (str_contains($n, 'CR') || str_contains($n, 'CRED')) {
+        return $normalizeForStorage('nota_credito');
+    }
+    if (str_contains($n, 'D') && str_contains($n, 'BITO')) {
+        return $normalizeForStorage('nota_debito');
+    }
+    if (str_contains($n, 'RECIBO')) {
+        return $normalizeForStorage('recibo');
+    }
+    if (str_contains($n, 'ASIENTO') || str_contains($n, 'CONTABLE')) {
+        return $normalizeForStorage('ajuste');
+    }
+
+    return $normalizeForStorage('factura');
 }
 
 function validate_cartera_rows(array $rows): array
