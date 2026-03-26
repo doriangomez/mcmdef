@@ -3,11 +3,17 @@ require_once __DIR__ . '/../../../app/config/db.php';
 require_once __DIR__ . '/../../../app/middlewares/require_auth.php';
 require_once __DIR__ . '/../../../app/middlewares/require_role.php';
 require_once __DIR__ . '/../../../app/views/layout.php';
+require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
 
 require_role(['admin', 'analista']);
 
 $baseWhere = ' WHERE d.estado_documento = "activo"';
 $baseParams = [];
+$severidadReferenciaRaw = system_setting_get($pdo, 'mora_severidad_base_dias', '90');
+$severidadReferenciaDias = is_numeric($severidadReferenciaRaw) ? (float)$severidadReferenciaRaw : 90.0;
+if ($severidadReferenciaDias <= 0) {
+    $severidadReferenciaDias = 90.0;
+}
 
 
 $globalKpiStmt = $pdo->query(
@@ -62,13 +68,28 @@ $kpiStmt = $pdo->prepare(
         COUNT(DISTINCT d.cliente_id) AS total_clientes,
         COALESCE(SUM(d.saldo_pendiente), 0) AS total_cartera,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_vencida,
-        COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 180 THEN d.saldo_pendiente ELSE 0 END), 0) AS cartera_critica,
         COALESCE(SUM(CASE WHEN d.dias_vencido > 0 THEN 1 ELSE 0 END), 0) AS documentos_vencidos
      FROM cartera_documentos d
      LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
 $kpiStmt->execute($baseParams);
 $kpi = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$periodoDashboard = trim((string)($lastLoad['periodo_detectado'] ?? ''));
+if ($periodoDashboard === '') {
+    $periodoDashboard = date('Y-m');
+}
+
+$recaudoPeriodoStmt = $pdo->prepare(
+    'SELECT COALESCE(SUM(r.importe_aplicado), 0) AS total_recaudo
+     FROM recaudo_detalle r
+     INNER JOIN cargas_recaudo c ON c.id = r.carga_id
+     WHERE c.estado = "activa"
+       AND c.activo = 1
+       AND c.periodo = ?'
+);
+$recaudoPeriodoStmt->execute([$periodoDashboard]);
+$recaudoPeriodo = (float)$recaudoPeriodoStmt->fetchColumn();
 
 $moraStmt = $pdo->prepare(
     'SELECT
@@ -76,7 +97,9 @@ $moraStmt = $pdo->prepare(
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 1 AND 30 THEN d.saldo_pendiente ELSE 0 END), 0) AS b1_30,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 31 AND 60 THEN d.saldo_pendiente ELSE 0 END), 0) AS b31_60,
         COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 61 AND 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b61_90,
-        COALESCE(SUM(CASE WHEN d.dias_vencido > 90 THEN d.saldo_pendiente ELSE 0 END), 0) AS b90_plus
+        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 91 AND 180 THEN d.saldo_pendiente ELSE 0 END), 0) AS b91_180,
+        COALESCE(SUM(CASE WHEN d.dias_vencido BETWEEN 181 AND 360 THEN d.saldo_pendiente ELSE 0 END), 0) AS b181_360,
+        COALESCE(SUM(CASE WHEN d.dias_vencido > 360 THEN d.saldo_pendiente ELSE 0 END), 0) AS b360_plus
      FROM cartera_documentos d
      LEFT JOIN clientes c ON c.id = d.cliente_id' . $baseWhere
 );
@@ -208,7 +231,22 @@ $topCliente = $paretoRows[0] ?? null;
 $dependenciaMayor = ($topCliente !== null && $totalVencido > 0)
     ? (((float)$topCliente['saldo_vencido'] / $totalVencido) * 100)
     : 0.0;
-$severidadMora = $totalVencido > 0 ? ($carteraCritica / $totalVencido) * 100 : 0.0;
+$rotacionCarteraDias = $recaudoPeriodo > 0 ? ($totalCartera / $recaudoPeriodo) * 30 : null;
+$vencidaTotalSeveridad = (float)($mora['b1_30'] ?? 0)
+    + (float)($mora['b31_60'] ?? 0)
+    + (float)($mora['b61_90'] ?? 0)
+    + (float)($mora['b91_180'] ?? 0)
+    + (float)($mora['b181_360'] ?? 0)
+    + (float)($mora['b360_plus'] ?? 0);
+$diasPonderados = ((float)($mora['b1_30'] ?? 0) * 15)
+    + ((float)($mora['b31_60'] ?? 0) * 45)
+    + ((float)($mora['b61_90'] ?? 0) * 75)
+    + ((float)($mora['b91_180'] ?? 0) * 135)
+    + ((float)($mora['b181_360'] ?? 0) * 270)
+    + ((float)($mora['b360_plus'] ?? 0) * 420);
+$severidadMora = $vencidaTotalSeveridad > 0
+    ? (($diasPonderados / $vencidaTotalSeveridad) / $severidadReferenciaDias) * 100
+    : 0.0;
 $documentosVencidosPct = $totalDocumentos > 0 ? ($documentosVencidos / $totalDocumentos) * 100 : 0.0;
 $top5Suma = 0.0;
 foreach (array_slice($paretoRows, 0, 5) as $row) {
@@ -222,7 +260,7 @@ $chartEdad = [
     (float)($mora['b1_30'] ?? 0),
     (float)($mora['b31_60'] ?? 0),
     (float)($mora['b61_90'] ?? 0),
-    (float)($mora['b90_plus'] ?? 0),
+    (float)($mora['b91_180'] ?? 0) + (float)($mora['b181_360'] ?? 0) + (float)($mora['b360_plus'] ?? 0),
 ];
 
 $uenLabels = array_column($uenRows, 'etiqueta');
@@ -284,8 +322,9 @@ ob_start();
   <section class="gd-kpi-grid gd-kpi-grid-wide">
     <article class="gd-kpi-card"><span>Total recaudo</span><strong>Pendiente carga de recaudo</strong></article>
     <article class="gd-kpi-card"><span>Total presupuesto</span><strong>Pendiente carga de presupuesto</strong></article>
+    <article class="gd-kpi-card"><span>Rotación de cartera (DSO)</span><strong><?= $rotacionCarteraDias !== null ? number_format($rotacionCarteraDias, 1, ',', '.') . ' días' : 'Sin recaudo del periodo' ?></strong></article>
     <article class="gd-kpi-card"><span>Cartera total</span><strong>$<?= number_format($totalCartera, 0, ',', '.') ?></strong></article>
-    <article class="gd-kpi-card"><span>Cartera crítica (&gt;90 días)</span><strong>$<?= number_format($carteraCritica, 0, ',', '.') ?></strong></article>
+    <article class="gd-kpi-card"><span>Cartera crítica (&gt;180 días)</span><strong>$<?= number_format($carteraCritica, 0, ',', '.') ?></strong></article>
     <article class="gd-kpi-card"><span>Índice severidad de mora</span><strong><?= number_format($severidadMora, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>% documentos vencidos</span><strong><?= number_format($documentosVencidosPct, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>Concentración Top 5 clientes</span><strong><?= number_format($concentracionTop5, 2, ',', '.') ?>%</strong></article>

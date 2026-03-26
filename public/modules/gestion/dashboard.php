@@ -136,7 +136,7 @@ $alertsStmt = $pdo->prepare(
         SUM(CASE WHEN lc.last_created_at IS NULL OR lc.last_created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS clientes_sin_gestion,
         SUM(CASE WHEN lc.compromiso_pago IS NOT NULL AND COALESCE(lc.estado_compromiso, "pendiente") = "pendiente" AND lc.compromiso_pago < CURDATE() THEN 1 ELSE 0 END) AS promesas_vencidas,
         SUM(CASE WHEN lc.compromiso_pago = CURDATE() AND COALESCE(lc.estado_compromiso, "pendiente") = "pendiente" THEN 1 ELSE 0 END) AS compromisos_hoy,
-        SUM(CASE WHEN dmax.max_dias_vencido >= 90 THEN 1 ELSE 0 END) AS mora_critica
+        SUM(CASE WHEN dmax.max_dias_vencido > 180 THEN 1 ELSE 0 END) AS mora_critica
      FROM (
         SELECT d.cliente_id, MAX(d.dias_vencido) AS max_dias_vencido
         FROM cartera_documentos d
@@ -292,7 +292,7 @@ ob_start(); ?>
         <div class="gm-alert-card gm-alert-warning"><strong><?= (int)($alerts['clientes_sin_gestion'] ?? 0) ?></strong><span>Clientes sin gestión reciente (+7 días)</span></div>
         <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['promesas_vencidas'] ?? 0) ?></strong><span>Promesas de pago vencidas</span></div>
         <div class="gm-alert-card gm-alert-warning"><strong><?= (int)($alerts['compromisos_hoy'] ?? 0) ?></strong><span>Compromisos que vencen hoy</span></div>
-        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['mora_critica'] ?? 0) ?></strong><span>Clientes con mora crítica (+90 días)</span></div>
+        <div class="gm-alert-card gm-alert-critical"><strong><?= (int)($alerts['mora_critica'] ?? 0) ?></strong><span>Clientes con mora crítica (+180 días)</span></div>
       </div>
     </article>
 
