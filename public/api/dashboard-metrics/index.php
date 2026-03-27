@@ -333,7 +333,7 @@ foreach ($agingDefs as $def) {
 $negativeAgingValue = abs((float)($m['saldo_negativo'] ?? 0));
 $negativeAgingPct = $carteraTotal > 0 ? ($negativeAgingValue / abs($carteraTotal)) * 100 : 0;
 
-$trendWhere = [];
+$trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
 if ($uenScope['sql'] !== '') {
