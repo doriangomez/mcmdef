@@ -364,7 +364,7 @@ $trendLoadSql = "INNER JOIN (
     GROUP BY periodo_detectado
 ) cl ON cl.carga_id = d.id_carga";
 
-$trendSql = "SELECT cl.periodo_detectado AS periodo,
+$trendSql = "SELECT $monthExpr AS periodo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo,
     COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
@@ -372,6 +372,7 @@ $trendSql = "SELECT cl.periodo_detectado AS periodo,
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
+    -- Orden cronológico mensual consistente para la serie histórica de exposición.
     ORDER BY periodo ASC";
 $trendStmt = $pdo->prepare($trendSql);
 $trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
