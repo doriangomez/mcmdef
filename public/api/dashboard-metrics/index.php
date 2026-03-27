@@ -357,14 +357,21 @@ if ($filters['cliente'] !== '') {
     $trendParams[] = $filters['cliente'];
 }
 $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
-$trendSql = "SELECT $monthExpr AS periodo,
+$trendLoadSql = "INNER JOIN (
+    SELECT periodo_detectado, MAX(id) AS carga_id
+    FROM cargas_cartera
+    WHERE estado = 'activa' AND activo = 1 AND periodo_detectado IS NOT NULL AND TRIM(periodo_detectado) <> ''
+    GROUP BY periodo_detectado
+) cl ON cl.carga_id = d.id_carga";
+
+$trendSql = "SELECT cl.periodo_detectado AS periodo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo,
     COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
-    -- Serie histórica mensual directa sobre documentos para no depender del estado de cargas.
+    -- Serie histórica por período usando la última carga activa de cada mes.
     ORDER BY periodo ASC";
 $trendStmt = $pdo->prepare($trendSql);
 $trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
