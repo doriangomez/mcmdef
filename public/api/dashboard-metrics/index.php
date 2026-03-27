@@ -357,10 +357,26 @@ if ($filters['cliente'] !== '') {
     $trendParams[] = $filters['cliente'];
 }
 $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
+$hasCargaActivaColumn = false;
+try {
+    $activoColumnStmt = $pdo->query("SHOW COLUMNS FROM cargas_cartera LIKE 'activo'");
+    $hasCargaActivaColumn = (bool)($activoColumnStmt && $activoColumnStmt->fetch(PDO::FETCH_ASSOC));
+} catch (Throwable $e) {
+    $hasCargaActivaColumn = false;
+}
+$trendLoadConditions = [
+    "estado = 'activa'",
+    "periodo_detectado IS NOT NULL",
+    "TRIM(periodo_detectado) <> ''",
+];
+if ($hasCargaActivaColumn) {
+    $trendLoadConditions[] = 'activo = 1';
+}
+
 $trendLoadSql = "INNER JOIN (
     SELECT periodo_detectado, MAX(id) AS carga_id
     FROM cargas_cartera
-    WHERE estado = 'activa' AND periodo_detectado IS NOT NULL AND TRIM(periodo_detectado) <> ''
+    WHERE " . implode(' AND ', $trendLoadConditions) . "
     GROUP BY periodo_detectado
 ) cl ON cl.carga_id = d.id_carga";
 
@@ -372,6 +388,7 @@ $trendSql = "SELECT cl.periodo_detectado AS periodo,
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
+    -- Serie histórica por período usando la última carga activa de cada mes.
     ORDER BY periodo ASC";
 $trendStmt = $pdo->prepare($trendSql);
 $trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
