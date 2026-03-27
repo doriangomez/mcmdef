@@ -333,7 +333,7 @@ foreach ($agingDefs as $def) {
 $negativeAgingValue = abs((float)($m['saldo_negativo'] ?? 0));
 $negativeAgingPct = $carteraTotal > 0 ? ($negativeAgingValue / abs($carteraTotal)) * 100 : 0;
 
-$trendWhere = ['d.id_carga IS NOT NULL'];
+$trendWhere = ["d.estado_documento = 'activo'"];
 $trendParams = $scope['params'];
 if ($scope['sql'] !== '') { $trendWhere[] = ltrim($scope['sql'], ' AND'); }
 if ($uenScope['sql'] !== '') {
@@ -384,7 +384,6 @@ $trendSql = "SELECT cl.periodo_detectado AS periodo,
     COALESCE(SUM(d.saldo_pendiente),0) saldo,
     COALESCE(SUM(CASE WHEN d.dias_vencido > ? THEN d.saldo_pendiente ELSE 0 END),0) exposicion_critica
     FROM cartera_documentos d
-    $trendLoadSql
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
