@@ -360,7 +360,7 @@ $trendWhereSql = ' WHERE ' . implode(' AND ', $trendWhere);
 $trendLoadSql = "INNER JOIN (
     SELECT periodo_detectado, MAX(id) AS carga_id
     FROM cargas_cartera
-    WHERE estado = 'activa' AND periodo_detectado IS NOT NULL AND TRIM(periodo_detectado) <> ''
+    WHERE estado = 'activa' AND activo = 1 AND periodo_detectado IS NOT NULL AND TRIM(periodo_detectado) <> ''
     GROUP BY periodo_detectado
 ) cl ON cl.carga_id = d.id_carga";
 
@@ -372,6 +372,7 @@ $trendSql = "SELECT cl.periodo_detectado AS periodo,
     LEFT JOIN clientes c ON c.id = d.cliente_id
     $trendWhereSql
     GROUP BY periodo
+    -- Serie histórica por período usando la última carga activa de cada mes.
     ORDER BY periodo ASC";
 $trendStmt = $pdo->prepare($trendSql);
 $trendStmt->execute(array_merge([$moraCriticaBaseDias], $trendParams));
