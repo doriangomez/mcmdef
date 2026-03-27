@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../../app/views/layout.php';
 require_once __DIR__ . '/../../../app/services/SystemSettingsService.php';
 
 require_role(['admin', 'analista']);
- 
+
 $baseWhere = ' WHERE d.estado_documento = "activo"';
 $baseParams = [];
 $severidadReferenciaRaw = system_setting_get($pdo, 'mora_severidad_base_dias', '90');
@@ -25,7 +25,7 @@ $globalKpiStmt = $pdo->query(
      WHERE d.estado_documento = "activo"'
 );
 $globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
- 
+
 $lastLoadStmt = $pdo->query(
     'SELECT fecha_carga, periodo_detectado, nombre_archivo
      FROM cargas_cartera
@@ -34,8 +34,8 @@ $lastLoadStmt = $pdo->query(
      LIMIT 1'
 );
 $lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
- 
- 
+
+
 $globalKpiStmt = $pdo->query(
     'SELECT
         COUNT(*) AS total_documentos,
@@ -45,14 +45,14 @@ $globalKpiStmt = $pdo->query(
      WHERE d.estado_documento = "activo"'
 );
 $globalKpi = $globalKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
- 
+
 $assignedClientsCount = null;
 if (!$isAdmin) {
     $assignedStmt = $pdo->prepare('SELECT COUNT(*) FROM clientes WHERE responsable_usuario_id = ?');
     $assignedStmt->execute([(int)(current_user()['id'] ?? 0)]);
     $assignedClientsCount = (int)$assignedStmt->fetchColumn();
 }
- 
+
 $lastLoadStmt = $pdo->query(
     'SELECT fecha_carga, periodo_detectado, nombre_archivo
      FROM cargas_cartera
@@ -61,7 +61,7 @@ $lastLoadStmt = $pdo->query(
      LIMIT 1'
 );
 $lastLoad = $lastLoadStmt->fetch(PDO::FETCH_ASSOC) ?: null;
- 
+
 $kpiStmt = $pdo->prepare(
     'SELECT
         COUNT(*) AS total_documentos,
@@ -105,7 +105,7 @@ $moraStmt = $pdo->prepare(
 );
 $moraStmt->execute($baseParams);
 $mora = $moraStmt->fetch(PDO::FETCH_ASSOC) ?: [];
- 
+
 $uenStmt = $pdo->prepare(
     'SELECT
         COALESCE(NULLIF(TRIM(d.uens), ""), "Sin UEN") AS etiqueta,
@@ -118,7 +118,7 @@ $uenStmt = $pdo->prepare(
 );
 $uenStmt->execute($baseParams);
 $uenRows = $uenStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $canalStmt = $pdo->prepare(
     'SELECT
         COALESCE(NULLIF(TRIM(COALESCE(NULLIF(d.canal, ""), c.canal)), ""), "Sin canal") AS etiqueta,
@@ -131,7 +131,7 @@ $canalStmt = $pdo->prepare(
 );
 $canalStmt->execute($baseParams);
 $canalRows = $canalStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $vendedorStmt = $pdo->prepare(
     'SELECT
         COALESCE(NULLIF(TRIM(c.empleado_ventas), ""), "Sin vendedor") AS etiqueta,
@@ -144,7 +144,7 @@ $vendedorStmt = $pdo->prepare(
 );
 $vendedorStmt->execute($baseParams);
 $vendedorRows = $vendedorStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $clienteCarteraStmt = $pdo->prepare(
     'SELECT
         COALESCE(NULLIF(TRIM(c.nombre), ""), NULLIF(TRIM(d.cliente), ""), CONCAT("Cliente #", d.cliente_id)) AS nombre,
@@ -159,7 +159,7 @@ $clienteCarteraStmt = $pdo->prepare(
 );
 $clienteCarteraStmt->execute($baseParams);
 $clienteCarteraRows = $clienteCarteraStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $documentoStmt = $pdo->prepare(
     'SELECT
         d.nro_documento,
@@ -174,7 +174,7 @@ $documentoStmt = $pdo->prepare(
 );
 $documentoStmt->execute($baseParams);
 $documentoRows = $documentoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $paretoStmt = $pdo->prepare(
     'SELECT
         d.cliente_id AS id,
@@ -189,7 +189,7 @@ $paretoStmt = $pdo->prepare(
 );
 $paretoStmt->execute($baseParams);
 $paretoRows = $paretoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $compromisosStmt = $pdo->prepare(
     'SELECT
         COALESCE(SUM(CASE WHEN bg.estado_compromiso = "pendiente" THEN 1 ELSE 0 END), 0) AS pendientes,
@@ -204,7 +204,7 @@ $compromisosStmt = $pdo->prepare(
 );
 $compromisosStmt->execute($baseParams);
 $compromisos = $compromisosStmt->fetch(PDO::FETCH_ASSOC) ?: [];
- 
+
 $actividadStmt = $pdo->prepare(
     'SELECT
         bg.created_at,
@@ -221,7 +221,7 @@ $actividadStmt = $pdo->prepare(
 );
 $actividadStmt->execute($baseParams);
 $actividadRows = $actividadStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
- 
+
 $totalVencido = (float)($kpi['cartera_vencida'] ?? 0);
 $totalCartera = (float)($kpi['total_cartera'] ?? 0);
 $totalDocumentos = (int)($kpi['total_documentos'] ?? 0);
@@ -263,14 +263,14 @@ $chartEdad = [
     (float)($mora['b61_90'] ?? 0),
     (float)($mora['b91_180'] ?? 0) + (float)($mora['b181_360'] ?? 0) + (float)($mora['b360_plus'] ?? 0),
 ];
- 
+
 $uenLabels = array_column($uenRows, 'etiqueta');
 $uenValues = array_map('floatval', array_column($uenRows, 'total'));
 $canalLabels = array_column($canalRows, 'etiqueta');
 $canalValues = array_map('floatval', array_column($canalRows, 'total'));
 $vendedorLabels = array_column($vendedorRows, 'etiqueta');
 $vendedorValues = array_map('floatval', array_column($vendedorRows, 'total'));
- 
+
 $paretoLabels = [];
 $paretoValues = [];
 $paretoAcumulado = [];
@@ -282,12 +282,12 @@ foreach ($paretoRows as $row) {
     $acumulado += $valor;
     $paretoAcumulado[] = $totalVencido > 0 ? round(($acumulado / $totalVencido) * 100, 2) : 0;
 }
- 
+
 $globalDocs = (int)($globalKpi['total_documentos'] ?? 0);
 $globalSaldo = (float)($globalKpi['total_cartera'] ?? 0);
 $globalClientes = (int)($globalKpi['total_clientes'] ?? 0);
 $sinCarteraActiva = $globalDocs === 0;
- 
+
 ob_start();
 ?>
 <section class="card cartera-dashboard-head">
@@ -301,12 +301,12 @@ ob_start();
     <a class="btn btn-secondary" href="<?= htmlspecialchars(app_url('cartera/lista.php')) ?>">Ir a cartera detallada</a>
   </div>
 </section>
- 
+
 <div class="gd-view-switch" role="tablist" aria-label="Vistas del dashboard">
   <button class="gd-view-btn is-active" data-view="ejecutivo" role="tab" aria-selected="true">Vista ejecutiva</button>
   <button class="gd-view-btn" data-view="operativo" role="tab" aria-selected="false">Vista operativa</button>
 </div>
- 
+
 <section class="card" style="margin-bottom:16px;">
   <h3 style="margin-top:0;">Estado de datos cargados</h3>
   <p style="margin:0 0 8px; color:#334155;">Documentos activos (global): <strong><?= number_format($globalDocs, 0, ',', '.') ?></strong> · Clientes con cartera (global): <strong><?= number_format($globalClientes, 0, ',', '.') ?></strong> · Saldo global: <strong>$<?= number_format($globalSaldo, 0, ',', '.') ?></strong>.</p>
@@ -318,7 +318,7 @@ ob_start();
     <p style="margin:10px 0 0; color:#b45309; font-weight:600;">No hay cartera activa disponible. Se necesita una carga de cartera activa para poblar el dashboard.</p>
   <?php endif; ?>
 </section>
- 
+
 <section class="gd-view-panel is-active" data-view="ejecutivo">
   <section class="gd-kpi-grid gd-kpi-grid-wide">
     <article class="gd-kpi-card"><span>Total recaudo</span><strong>Pendiente carga de recaudo</strong></article>
@@ -332,7 +332,7 @@ ob_start();
     <article class="gd-kpi-card"><span>Dependencia cliente mayor</span><strong><?= number_format($dependenciaMayor, 2, ',', '.') ?>%</strong></article>
     <article class="gd-kpi-card"><span>Cliente mayor participación</span><strong><?= htmlspecialchars($topCliente['nombre'] ?? 'Sin datos') ?> (<?= number_format($topClienteParticipacion, 2, ',', '.') ?>%) · $<?= number_format($topClienteValor, 0, ',', '.') ?></strong></article>
   </section>
- 
+
   <section class="gd-grid-2">
     <article class="card gd-chart-card">
       <h3>Distribución por edad de cartera</h3>
@@ -344,7 +344,7 @@ ob_start();
     </article>
   </section>
 </section>
- 
+
 <section class="gd-view-panel" data-view="operativo">
   <section class="gd-grid-2">
     <article class="card gd-chart-card">
@@ -356,12 +356,12 @@ ob_start();
       <canvas id="uenChart" height="150"></canvas>
     </article>
   </section>
- 
+
   <section class="card gd-chart-card" style="margin-bottom:16px;">
     <h3>Cartera por vendedor</h3>
     <canvas id="vendedorChart" height="110"></canvas>
   </section>
- 
+
   <section class="gd-grid-2">
     <article class="card gd-table-card">
       <h3>Cartera por cliente</h3>
@@ -402,7 +402,7 @@ ob_start();
       </table>
     </article>
   </section>
- 
+
   <section class="gd-grid-2">
     <article class="card">
       <h3>Compromisos</h3>
@@ -436,14 +436,14 @@ ob_start();
     </article>
   </section>
 </section>
- 
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
   if (!window.Chart) return;
   var moneyFormatter = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var axisMoney = { ticks: { callback: function (value) { return moneyFormatter.format(value || 0); } } };
- 
+
   var viewButtons = document.querySelectorAll('.gd-view-btn');
   var panels = document.querySelectorAll('.gd-view-panel');
   viewButtons.forEach(function (btn) {
@@ -459,7 +459,7 @@ ob_start();
       });
     });
   });
- 
+
   new Chart(document.getElementById('edadChart'), {
     type: 'doughnut',
     data: {
@@ -471,7 +471,7 @@ ob_start();
     },
     options: { plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + moneyFormatter.format(ctx.raw || 0); } } } } }
   });
- 
+
   new Chart(document.getElementById('uenChart'), {
     type: 'bar',
     data: {
@@ -480,7 +480,7 @@ ob_start();
     },
     options: { indexAxis: 'y', scales: { x: axisMoney }, plugins: { legend: { display: false } } }
   });
- 
+
   new Chart(document.getElementById('canalChart'), {
     type: 'bar',
     data: {
@@ -489,7 +489,7 @@ ob_start();
     },
     options: { scales: { y: axisMoney }, plugins: { legend: { display: false } } }
   });
- 
+
   new Chart(document.getElementById('vendedorChart'), {
     type: 'bar',
     data: {
@@ -498,7 +498,7 @@ ob_start();
     },
     options: { scales: { y: axisMoney }, plugins: { legend: { display: false } } }
   });
- 
+
   new Chart(document.getElementById('paretoChart'), {
     data: {
       labels: <?= json_encode($paretoLabels, JSON_UNESCAPED_UNICODE) ?>,

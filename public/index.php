@@ -222,31 +222,57 @@ ob_start();
     var trend = data.trend || [];
     var trendMap = {};
     trend.forEach(function (r) {
-      trendMap[r.periodo] = r.saldo;
+      trendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
     });
     var comparisonTrendMap = {};
     var comparisonTrend = (comparison && comparison.trend) || [];
     comparisonTrend.forEach(function (r) {
-      comparisonTrendMap[r.periodo] = r.saldo;
+      comparisonTrendMap[r.periodo] = {
+        saldo: r.saldo,
+        exposicionCritica: r.exposicion_critica || 0,
+        exposicionCriticaPct: r.exposicion_critica_pct || 0
+      };
     });
     var trendCategories = Array.from(new Set(
       trend.map(function (r) { return r.periodo; }).concat(comparisonTrend.map(function (r) { return r.periodo; }))
     )).sort();
-    var currentTrendSeries = trendCategories.map(function (periodo) {
-      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo] : null;
+    var currentExposureSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCritica : null;
+    });
+    var currentExposurePctSeries = trendCategories.map(function (periodo) {
+      return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCriticaPct : null;
     });
     var trendComparisonSeries = trendCategories.map(function (periodo) {
-      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo] : null;
+      return Object.prototype.hasOwnProperty.call(comparisonTrendMap, periodo) ? comparisonTrendMap[periodo].exposicionCritica : null;
     });
-    var trendSeries = [{ name: 'Saldo pendiente', data: currentTrendSeries }];
+    var trendSeries = [
+      { name: 'Exposición crítica', data: currentExposureSeries },
+      { name: '% Exposición crítica', data: currentExposurePctSeries, type: 'line' }
+    ];
     if (comparisonTrend.length) {
-      trendSeries.push({ name: 'Saldo periodo comparación', data: trendComparisonSeries });
+      trendSeries.push({ name: 'Exposición crítica comparación', data: trendComparisonSeries });
     }
     upsert('trend', 'trendChart', Object.assign(noDataOptions(280), {
       chart: { type: 'line', height: 280, toolbar: { show: false } },
       series: trendSeries,
       xaxis: { categories: trendCategories },
-      tooltip: { y: { formatter: function (v, ctx) { var r = trend[ctx.dataPointIndex] || {}; return currency.format(v) + ' | Var.: ' + decimal.format(r.variation_pct || 0) + '%'; } } }
+      yaxis: [
+        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { opposite: true, min: 0, max: 100, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
+      ],
+      stroke: { width: [3, 3, 3] },
+      tooltip: {
+        shared: true,
+        y: {
+          formatter: function (v, ctx) {
+            return ctx.seriesIndex === 1 ? (decimal.format(v || 0) + '%') : currency.format(v || 0);
+          }
+        }
+      }
     }));
 
     var moraUen = data.mora_uen || [];
@@ -427,7 +453,6 @@ ob_start();
   function buildDashboardUrl() {
     var filters = getFilters();
     var url = new URL(endpointUrl, window.location.origin);
-    var pageParams = new URLSearchParams(window.location.search);
 
     appendFilter(url.searchParams, 'periodo', filters.periodo);
     appendFilter(url.searchParams, 'uen', filters.uen);
@@ -445,9 +470,6 @@ ob_start();
     appendFilter(url.searchParams, 'canal', filters.canal);
     appendFilter(url.searchParams, 'empleado_ventas', filters.empleado);
     appendFilter(url.searchParams, 'cliente', filters.cliente);
-    if (pageParams.get('debug') === '1') {
-      url.searchParams.set('debug', '1');
-    }
 
     console.log('URL con filtros:', url.toString());
 
@@ -503,13 +525,7 @@ ob_start();
       signal: currentRequestController.signal
     })
       .then(async function (response) {
-        var data;
-        try {
-          data = await response.json();
-        } catch (parseError) {
-          var rawBody = await response.text();
-          throw new Error('Respuesta inválida del servidor: ' + rawBody.slice(0, 280));
-        }
+        var data = await response.json();
         console.log('Response:', data);
         try {
 
@@ -517,13 +533,6 @@ ob_start();
             kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">No fue posible actualizar el dashboard. Intenta de nuevo.</p></article>';
             comparisonBox.textContent = '';
             fallbackNotice.textContent = '';
-            updatedAtEl.textContent = 'Error de actualización';
-            return;
-          }
-          if (data.ok === false) {
-            kpiGrid.innerHTML = '<article class="kpi-premium-card"><p class="kpi-premium-label">Error al cargar</p><p class="kpi-premium-subtext">' + escapeHtml(data.message || 'No fue posible actualizar el dashboard.') + '</p></article>';
-            comparisonBox.textContent = '';
-            fallbackNotice.textContent = data.debug ? ('Detalle técnico: ' + data.debug) : '';
             updatedAtEl.textContent = 'Error de actualización';
             return;
           }
