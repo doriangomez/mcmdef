@@ -157,6 +157,39 @@ ob_start();
     };
   }
 
+  function parsePeriodToDate(periodo) {
+    var raw = String(periodo || '').trim();
+    var match = raw.match(/^(\d{4})[-\/](\d{1,2})$/);
+    if (!match) return null;
+    var year = Number(match[1]);
+    var monthIndex = Number(match[2]) - 1;
+    if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return null;
+    return new Date(Date.UTC(year, monthIndex, 1));
+  }
+
+  function formatPeriodKey(dateObj) {
+    if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return '';
+    var year = dateObj.getUTCFullYear();
+    var month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    return year + '-' + month;
+  }
+
+  function buildContinuousMonthlyPeriods(periodKeys) {
+    var dates = (periodKeys || []).map(parsePeriodToDate).filter(function (d) { return d instanceof Date; });
+    if (!dates.length) return (periodKeys || []).slice().sort();
+
+    dates.sort(function (a, b) { return a.getTime() - b.getTime(); });
+    var start = new Date(dates[0].getTime());
+    var end = new Date(dates[dates.length - 1].getTime());
+    var result = [];
+    // Completa meses faltantes para mantener una línea histórica mensual continua.
+    while (start <= end) {
+      result.push(formatPeriodKey(start));
+      start.setUTCMonth(start.getUTCMonth() + 1);
+    }
+    return result;
+  }
+
   function upsert(key, id, options) {
     try {
       if (charts[key]) charts[key].updateOptions(options, false, true, true);
@@ -237,9 +270,10 @@ ob_start();
         exposicionCriticaPct: r.exposicion_critica_pct || 0
       };
     });
-    var trendCategories = Array.from(new Set(
+    var trendCategoryCandidates = Array.from(new Set(
       trend.map(function (r) { return r.periodo; }).concat(comparisonTrend.map(function (r) { return r.periodo; }))
-    )).sort();
+    ));
+    var trendCategories = buildContinuousMonthlyPeriods(trendCategoryCandidates);
     var currentExposureSeries = trendCategories.map(function (periodo) {
       return Object.prototype.hasOwnProperty.call(trendMap, periodo) ? trendMap[periodo].exposicionCritica : null;
     });
@@ -261,7 +295,7 @@ ob_start();
       series: trendSeries,
       xaxis: { categories: trendCategories },
       yaxis: [
-        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { min: 0, forceNiceScale: true, labels: { formatter: function (v) { return currency.format(v); } } },
         { opposite: true, min: 0, max: 100, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
       ],
       stroke: { width: [3, 3, 3] },
