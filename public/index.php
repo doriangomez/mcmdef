@@ -295,7 +295,7 @@ ob_start();
       series: trendSeries,
       xaxis: { categories: trendCategories },
       yaxis: [
-        { labels: { formatter: function (v) { return currency.format(v); } } },
+        { min: 0, forceNiceScale: true, labels: { formatter: function (v) { return currency.format(v); } } },
         { opposite: true, min: 0, max: 100, labels: { formatter: function (v) { return decimal.format(v) + '%'; } } }
       ],
       stroke: { width: [3, 3, 3] },
